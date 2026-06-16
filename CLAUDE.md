@@ -11,7 +11,7 @@ Read the relevant file before implementing or changing anything:
 
 - [specs/ARCHITECTURE_OVERVIEW.md](specs/ARCHITECTURE_OVERVIEW.md) — big picture: V0 goals, domains/subdomains, monorepo structure, CQRS-light + event log backend, integrations, hosting.
 - [specs/PRODUCT_SPEC_WEB_CLIENT.md](specs/PRODUCT_SPEC_WEB_CLIENT.md) — web client product spec (user flows, checkout, Stripe payment, order tracking, NFRs, tech constraints).
-- [specs/database.md](specs/database.md) — event store schema (`domain_events`) + the `View_*` projection (read) tables, each with its source events/aggregate and the query/UI it serves.
+- [specs/database.md](specs/database.md) — event store schema (`domain_events`) + the `View_*` projection (read) tables, each declared by its source aggregate/events, business filters and columns (the query/UI mapping lives in [specs/traceability.md](specs/traceability.md) §2).
 - [specs/scalars.yaml](specs/scalars.yaml) — domain scalar types (IDs, names, money, enums: `OrderStatus`, `RestaurantStatus`, `ServiceType`, `StockStatus`, etc.).
 - [specs/entities.yaml](specs/entities.yaml) — value objects and aggregates. HubRise-aligned catalog: `Restaurant`, `Menu`, `Category` (tree), `Product` → `Variant[]` (SKUs), `OptionList`/`Option`, `Cart`/`CartLineItem`, `Order`, `OrderLineItem`. Value objects `Money`, `Stock`, `TaxRate`, `Address`.
 - [specs/events.yaml](specs/events.yaml) — **business event** payloads (RestaurantRegistered, ProductAdded, CatalogImported, OrderPlaced...). `*Updated` events carry the full entity (replace semantics).
