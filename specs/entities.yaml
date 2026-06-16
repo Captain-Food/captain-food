@@ -1,0 +1,470 @@
+# --- Value Objects ---
+
+Money:
+  type: object
+  description: >
+    Stronger-typed money than HubRise's "9.80 EUR" string. Converted at the
+    HubRise boundary (parse + x100), kept as integer minor units + currency internally.
+  properties:
+    amountCents:
+      $ref: 'scalars.yaml#/MoneyCents'
+    currency:
+      $ref: 'scalars.yaml#/CurrencyCode'
+  required: [amountCents, currency]
+
+TaxRate:
+  type: object
+  description: "Per-service-mode VAT, mirroring HubRise product tax_rate."
+  properties:
+    delivery:
+      $ref: 'scalars.yaml#/TaxRatePercent'
+    collection:
+      $ref: 'scalars.yaml#/TaxRatePercent'
+      nullable: true
+    eatIn:
+      $ref: 'scalars.yaml#/TaxRatePercent'
+      nullable: true
+  required: [delivery]
+
+Stock:
+  type: object
+  description: >
+    Inventory of a variant/option. status is DERIVED from quantity and
+    lowStockThreshold (see scalars.yaml#/StockStatus).
+  properties:
+    quantity:
+      $ref: 'scalars.yaml#/Quantity'
+    lowStockThreshold:
+      $ref: 'scalars.yaml#/Quantity'
+      nullable: true
+      description: "If quantity <= threshold, status becomes LOW_STOCK."
+    status:
+      $ref: 'scalars.yaml#/StockStatus'
+    expiresAt:
+      type: string
+      format: date-time
+      nullable: true
+      description: "Restock/availability date for out-of-stock items (HubRise inventory expires_at)."
+  required: [quantity, status]
+
+Address:
+  type: object
+  properties:
+    line1:
+      $ref: 'scalars.yaml#/AddressLine'
+    line2:
+      $ref: 'scalars.yaml#/AddressLine'
+      nullable: true
+    postalCode:
+      $ref: 'scalars.yaml#/PostalCode'
+    city:
+      $ref: 'scalars.yaml#/CityName'
+    country:
+      $ref: 'scalars.yaml#/CountryCode'
+  required: [line1, postalCode, city, country]
+
+OpeningHoursSlot:
+  type: object
+  description: "One opening time window for a given weekday (HubRise opening_hours)."
+  properties:
+    weekday:
+      $ref: 'scalars.yaml#/Weekday'
+    from:
+      $ref: 'scalars.yaml#/TimeOfDay'
+    to:
+      $ref: 'scalars.yaml#/TimeOfDay'
+  required: [weekday, from, to]
+
+RestaurantContact:
+  type: object
+  description: >
+    Both fields optional: HubRise locations do not expose email/phone, so an
+    imported restaurant starts without contact info, to be completed by the admin.
+  properties:
+    email:
+      $ref: 'scalars.yaml#/EmailAddress'
+      nullable: true
+    phone:
+      $ref: 'scalars.yaml#/PhoneNumber'
+      nullable: true
+  required: []
+
+CustomerContact:
+  type: object
+  properties:
+    displayName:
+      $ref: 'scalars.yaml#/CustomerDisplayName'
+    email:
+      $ref: 'scalars.yaml#/EmailAddress'
+    phone:
+      $ref: 'scalars.yaml#/PhoneNumber'
+  required: [displayName, phone]
+
+# --- Restaurant Aggregate (business view) ---
+
+Restaurant:
+  type: object
+  properties:
+    id:
+      $ref: 'scalars.yaml#/RestaurantId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+      description: "HubRise location reference, when imported."
+    slug:
+      $ref: 'scalars.yaml#/Slug'
+    displayName:
+      $ref: 'scalars.yaml#/RestaurantDisplayName'
+    legalName:
+      $ref: 'scalars.yaml#/RestaurantLegalName'
+    contact:
+      $ref: '#/RestaurantContact'
+    address:
+      $ref: '#/Address'
+    status:
+      $ref: 'scalars.yaml#/RestaurantStatus'
+    orderAcceptance:
+      $ref: 'scalars.yaml#/OrderAcceptanceMode'
+    defaultCurrency:
+      $ref: 'scalars.yaml#/CurrencyCode'
+    defaultTaxRate:
+      $ref: '#/TaxRate'
+    timezone:
+      $ref: 'scalars.yaml#/TimeZone'
+    preparationTimeMinutes:
+      type: integer
+      minimum: 0
+      nullable: true
+      description: "Base preparation time (HubRise preparation_time)."
+    openingHours:
+      type: array
+      items:
+        $ref: '#/OpeningHoursSlot'
+    createdBy:
+      $ref: 'scalars.yaml#/UserId'
+    createdAt:
+      type: string
+      format: date-time
+  required:
+    - id
+    - slug
+    - displayName
+    - legalName
+    - contact
+    - address
+    - status
+    - orderAcceptance
+    - defaultCurrency
+    - defaultTaxRate
+    - createdBy
+    - createdAt
+
+# --- Catalog: Menu / Category / Product / Variant ---
+# Mirrors the HubRise catalog tree: categories form a tree (parentRef),
+# products belong to a category and hold one or more variants (SKUs).
+
+Menu:
+  type: object
+  description: "A catalog (HubRise: catalog)."
+  properties:
+    id:
+      $ref: 'scalars.yaml#/MenuId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    name:
+      $ref: 'scalars.yaml#/MenuName'
+  required: [id, restaurantId, name]
+
+Category:
+  type: object
+  description: "Catalog category, hierarchical via parentRef (HubRise categories tree)."
+  properties:
+    id:
+      $ref: 'scalars.yaml#/CategoryId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    parentRef:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+      description: "Null for a top-level category."
+    name:
+      $ref: 'scalars.yaml#/CategoryName'
+    description:
+      $ref: 'scalars.yaml#/ProductDescription'
+      nullable: true
+    tags:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/Tag'
+    imageIds:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/ImageId'
+  required: [id, menuId, name]
+
+Product:
+  type: object
+  description: "A menu product grouping one or more variants (HubRise: product + SKUs)."
+  properties:
+    id:
+      $ref: 'scalars.yaml#/ProductId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    categoryRef:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    name:
+      $ref: 'scalars.yaml#/ProductName'
+    description:
+      $ref: 'scalars.yaml#/ProductDescription'
+      nullable: true
+    tags:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/Tag'
+    imageIds:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/ImageId'
+    taxRate:
+      $ref: '#/TaxRate'
+    variants:
+      type: array
+      items:
+        $ref: '#/Variant'
+      minItems: 1
+  required:
+    - id
+    - menuId
+    - restaurantId
+    - name
+    - taxRate
+    - variants
+
+Variant:
+  type: object
+  description: "A purchasable variant of a product (HubRise: SKU)."
+  properties:
+    id:
+      $ref: 'scalars.yaml#/VariantId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    productId:
+      $ref: 'scalars.yaml#/ProductId'
+    name:
+      $ref: 'scalars.yaml#/VariantName'
+    price:
+      $ref: '#/Money'
+    availability:
+      $ref: 'scalars.yaml#/MenuItemAvailability'
+    stock:
+      $ref: '#/Stock'
+      nullable: true
+      description: "Null when the variant is not stock-tracked."
+    optionListIds:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/OptionListId'
+  required:
+    - id
+    - productId
+    - name
+    - price
+    - availability
+
+# --- Options / Modifiers (HubRise option lists) ---
+
+OptionList:
+  type: object
+  properties:
+    id:
+      $ref: 'scalars.yaml#/OptionListId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    name:
+      $ref: 'scalars.yaml#/OptionListName'
+    minSelections:
+      type: integer
+      minimum: 0
+    maxSelections:
+      type: integer
+      minimum: 1
+      nullable: true
+      description: "Null means unlimited."
+    multipleSelection:
+      type: boolean
+      description: "Whether the same option can be selected more than once."
+    options:
+      type: array
+      items:
+        $ref: '#/Option'
+      minItems: 1
+  required: [id, name, minSelections, multipleSelection, options]
+
+Option:
+  type: object
+  properties:
+    id:
+      $ref: 'scalars.yaml#/OptionId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    optionListId:
+      $ref: 'scalars.yaml#/OptionListId'
+    name:
+      $ref: 'scalars.yaml#/OptionName'
+    price:
+      $ref: '#/Money'
+    default:
+      type: boolean
+    availability:
+      $ref: 'scalars.yaml#/MenuItemAvailability'
+    stock:
+      $ref: '#/Stock'
+      nullable: true
+  required: [id, optionListId, name, price, default, availability]
+
+# --- Cart ---
+# Pre-checkout selection, built (possibly by a guest) before a Customer exists. Stored as
+# intent (ids + quantity) only; display prices/totals are computed by the read projection from
+# the live catalog, never stored on the cart — same rule as orders (client prices not trusted).
+# Converted to an Order at checkout (CartCheckedOut); Cart and Order stay distinct aggregates.
+
+CartLineItem:
+  type: object
+  description: "A line stored in a cart: the customer's selection by id (no prices stored)."
+  properties:
+    cartLineId:
+      $ref: 'scalars.yaml#/CartLineId'
+    variantId:
+      $ref: 'scalars.yaml#/VariantId'
+    quantity:
+      type: integer
+      minimum: 1
+    selectedOptionIds:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/OptionId'
+  required: [cartLineId, variantId, quantity]
+
+Cart:
+  type: object
+  description: >
+    A customer's in-progress selection for a SINGLE restaurant. customerId is null while the
+    visitor is still a guest; it is bound at checkout once the phone is verified.
+  properties:
+    id:
+      $ref: 'scalars.yaml#/CartId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    status:
+      $ref: 'scalars.yaml#/CartStatus'
+    lines:
+      type: array
+      items:
+        $ref: '#/CartLineItem'
+  required: [id, restaurantId, status, lines]
+
+# --- Orders ---
+
+SelectedOption:
+  type: object
+  description: "An option chosen by the customer on a line item, priced at order time."
+  properties:
+    optionId:
+      $ref: 'scalars.yaml#/OptionId'
+    optionListId:
+      $ref: 'scalars.yaml#/OptionListId'
+    name:
+      $ref: 'scalars.yaml#/OptionName'
+    price:
+      $ref: '#/Money'
+  required: [optionId, name, price]
+
+OrderLineItem:
+  type: object
+  properties:
+    variantId:
+      $ref: 'scalars.yaml#/VariantId'
+    productId:
+      $ref: 'scalars.yaml#/ProductId'
+    name:
+      $ref: 'scalars.yaml#/ProductName'
+    variantName:
+      $ref: 'scalars.yaml#/VariantName'
+      nullable: true
+    quantity:
+      type: integer
+      minimum: 1
+    unitPrice:
+      $ref: '#/Money'
+    selectedOptions:
+      type: array
+      items:
+        $ref: '#/SelectedOption'
+    lineTotal:
+      $ref: '#/Money'
+      description: "(unitPrice + sum(selectedOptions.price)) * quantity, computed server-side."
+  required:
+    - variantId
+    - name
+    - quantity
+    - unitPrice
+    - lineTotal
+
+Order:
+  type: object
+  properties:
+    id:
+      $ref: 'scalars.yaml#/OrderId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    customerContact:
+      $ref: '#/CustomerContact'
+    serviceType:
+      $ref: 'scalars.yaml#/ServiceType'
+    deliveryAddress:
+      $ref: '#/Address'
+      nullable: true
+    items:
+      type: array
+      items:
+        $ref: '#/OrderLineItem'
+      minItems: 1
+    totalAmount:
+      $ref: '#/Money'
+    status:
+      $ref: 'scalars.yaml#/OrderStatus'
+    note:
+      $ref: 'scalars.yaml#/OrderNote'
+      nullable: true
+  required:
+    - id
+    - restaurantId
+    - customerContact
+    - serviceType
+    - items
+    - totalAmount
+    - status

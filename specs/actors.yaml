@@ -1,0 +1,279 @@
+version: 4
+description: >
+  Captain.Food ACTOR catalog (actor-model). Its goal is to be a CODE-GENERATION SOURCE: from it a
+  generator can scaffold the in-domain message handlers — aggregates with command handlers that emit
+  events, and process managers that react to events. It does not redefine names: every message,
+  event and error is a `$ref` into commands.yaml / events.yaml / errors.yaml, so a validator (or
+  codegen) can confirm the referenced type EXISTS, exactly as scalars/entities are referenced.
+
+  ACTOR (actor model) — an in-domain entity that RECEIVES MESSAGES, holds private state, and EMITS
+  events in response. Two types:
+    - aggregate        : a consistency boundary that handles commands and emits events
+                         (Restaurant, Menu, Customer, Cart, Order).
+    - process-manager  : a saga that reacts to events and coordinates aggregates/externals
+                         (PlaceOrderProcess, RefundProcess).
+
+  Example: the Restaurant aggregate RECEIVES commands.yaml#/RegisterRestaurant, EMITS
+  events.yaml#/RestaurantRegistered, and may THROW errors.yaml#/SlugAlreadyTaken.
+
+  WHAT IS DELIBERATELY NOT HERE:
+    - PERSONAS (story-mapping senders): who may send a command is an authorization concern in the
+      GraphQL layer (schema.graphql `@auth` path-role) + story-map.md + traceability.md.
+    - KIND (command vs event) and SLICE: kind is explicit in the $ref target (commands.yaml = command,
+      events.yaml = event); slice lives in story-map.md.
+
+  NAME-COLLISION WARNING: the actor `Restaurant`/`Customer` (PascalCase aggregates, matching
+  entities.yaml) are NOT the personas `restaurant`/`customer` (the staff/end-user who send commands).
+
+  Field meaning:
+    - <Actor>.type       : aggregate | process-manager (selects the generated base class).
+    - <Actor>.receives   : the actor's inbox. Each entry { message, emits[, throws][, effect] }:
+        * message : $ref to the command (commands.yaml) or event (events.yaml) received.
+        * emits   : list of $refs to events (events.yaml) appended in response (may be empty).
+        * throws  : list of $refs to errors (errors.yaml) this command may raise on rejection
+                    (these are the old command `invariants`). DOMAIN-specific only — cross-cutting
+                    errors (Unauthorized/Forbidden/ValidationError/Conflict/RateLimited/Internal)
+                    apply to every command and are not repeated. Received EVENTS are facts and are
+                    NOT rejected, so they carry no `throws`.
+        * effect  : optional note when emits is empty or the reaction is non-obvious.
+
+# --- Aggregates (consistency boundaries) ---
+
+Restaurant:
+  type: aggregate
+  description: "A single restaurant: profile, status (DRAFT/ACTIVE/INACTIVE) and live acceptance mode."
+  receives:
+    - message: { $ref: 'commands.yaml#/RegisterRestaurant' }
+      emits: [{ $ref: 'events.yaml#/RestaurantRegistered' }]
+      throws:
+        - { $ref: 'errors.yaml#/SlugAlreadyTaken' }
+        - { $ref: 'errors.yaml#/RefAlreadyUsed' }
+        - { $ref: 'errors.yaml#/InvalidCurrency' }
+    - message: { $ref: 'commands.yaml#/ActivateRestaurant' }
+      emits: [{ $ref: 'events.yaml#/RestaurantActivated' }]
+      throws:
+        - { $ref: 'errors.yaml#/RestaurantNotFound' }
+        - { $ref: 'errors.yaml#/RestaurantAlreadyActive' }
+        - { $ref: 'errors.yaml#/RestaurantNotReadyForActivation' }
+    - message: { $ref: 'commands.yaml#/UpdateRestaurant' }
+      emits: [{ $ref: 'events.yaml#/RestaurantUpdated' }]
+      throws:
+        - { $ref: 'errors.yaml#/RestaurantNotFound' }
+        - { $ref: 'errors.yaml#/NoEditableFieldProvided' }
+    - message: { $ref: 'commands.yaml#/DeactivateRestaurant' }
+      emits: [{ $ref: 'events.yaml#/RestaurantDeactivated' }]
+      throws:
+        - { $ref: 'errors.yaml#/RestaurantNotFound' }
+        - { $ref: 'errors.yaml#/RestaurantNotActive' }
+    - message: { $ref: 'commands.yaml#/ChangeAcceptanceMode' }
+      emits: [{ $ref: 'events.yaml#/RestaurantAcceptanceModeChanged' }]
+      throws:
+        - { $ref: 'errors.yaml#/RestaurantNotFound' }
+        - { $ref: 'errors.yaml#/RestaurantNotActive' }
+        - { $ref: 'errors.yaml#/AcceptanceModeUnchanged' }
+
+Menu:
+  type: aggregate
+  description: "A restaurant catalog: menu, category tree, products, variants (SKUs), option lists and per-variant stock."
+  receives:
+    - message: { $ref: 'commands.yaml#/CreateMenu' }
+      emits: [{ $ref: 'events.yaml#/MenuCreated' }]
+      throws:
+        - { $ref: 'errors.yaml#/RestaurantNotFound' }
+        - { $ref: 'errors.yaml#/RefNotUnique' }
+    - message: { $ref: 'commands.yaml#/AddProduct' }
+      emits: [{ $ref: 'events.yaml#/ProductAdded' }]
+      throws:
+        - { $ref: 'errors.yaml#/MenuNotFound' }
+        - { $ref: 'errors.yaml#/CurrencyMismatch' }
+        - { $ref: 'errors.yaml#/CategoryRefNotFound' }
+        - { $ref: 'errors.yaml#/RefNotUnique' }
+    - message: { $ref: 'commands.yaml#/UpdateProduct' }
+      emits: [{ $ref: 'events.yaml#/ProductUpdated' }]
+      throws:
+        - { $ref: 'errors.yaml#/ProductNotFound' }
+        - { $ref: 'errors.yaml#/ProductMustHaveVariant' }
+        - { $ref: 'errors.yaml#/CurrencyMismatch' }
+    - message: { $ref: 'commands.yaml#/RemoveProduct' }
+      emits: [{ $ref: 'events.yaml#/ProductRemoved' }]
+      throws:
+        - { $ref: 'errors.yaml#/ProductNotFound' }
+    - message: { $ref: 'commands.yaml#/AddCategory' }
+      emits: [{ $ref: 'events.yaml#/CategoryAdded' }]
+      throws:
+        - { $ref: 'errors.yaml#/MenuNotFound' }
+        - { $ref: 'errors.yaml#/ParentCategoryNotFound' }
+        - { $ref: 'errors.yaml#/RefNotUnique' }
+    - message: { $ref: 'commands.yaml#/UpdateCategory' }
+      emits: [{ $ref: 'events.yaml#/CategoryUpdated' }]
+      throws:
+        - { $ref: 'errors.yaml#/CategoryNotFound' }
+        - { $ref: 'errors.yaml#/CategoryCycle' }
+    - message: { $ref: 'commands.yaml#/RemoveCategory' }
+      emits: [{ $ref: 'events.yaml#/CategoryRemoved' }]
+      throws:
+        - { $ref: 'errors.yaml#/CategoryNotFound' }
+        - { $ref: 'errors.yaml#/CategoryNotEmpty' }
+    - message: { $ref: 'commands.yaml#/AddOptionList' }
+      emits: [{ $ref: 'events.yaml#/OptionListAdded' }]
+      throws:
+        - { $ref: 'errors.yaml#/MenuNotFound' }
+        - { $ref: 'errors.yaml#/OptionListMustHaveOption' }
+        - { $ref: 'errors.yaml#/InvalidSelectionBounds' }
+    - message: { $ref: 'commands.yaml#/UpdateOptionList' }
+      emits: [{ $ref: 'events.yaml#/OptionListUpdated' }]
+      throws:
+        - { $ref: 'errors.yaml#/OptionListNotFound' }
+        - { $ref: 'errors.yaml#/OptionListMustHaveOption' }
+    - message: { $ref: 'commands.yaml#/RemoveOptionList' }
+      emits: [{ $ref: 'events.yaml#/OptionListRemoved' }]
+      throws:
+        - { $ref: 'errors.yaml#/OptionListNotFound' }
+        - { $ref: 'errors.yaml#/OptionListInUse' }
+    - message: { $ref: 'commands.yaml#/UpdateVariantStock' }
+      emits: [{ $ref: 'events.yaml#/VariantStockUpdated' }]
+      throws:
+        - { $ref: 'errors.yaml#/VariantNotFound' }
+        - { $ref: 'errors.yaml#/VariantNotStockTracked' }
+    - message: { $ref: 'commands.yaml#/ImportCatalog' }
+      emits: [{ $ref: 'events.yaml#/CatalogImported' }]
+      throws:
+        - { $ref: 'errors.yaml#/MenuNotFound' }
+        - { $ref: 'errors.yaml#/CatalogTranslationFailed' }
+        - { $ref: 'errors.yaml#/MissingRef' }
+    - message: { $ref: 'events.yaml#/VariantStockUpdated' }
+      emits: [{ $ref: 'events.yaml#/VariantStockUpdated' }]
+      effect: "Inbound HubRise inventory sync recorded via the ACL (no command, no rejection)."
+
+Customer:
+  type: aggregate
+  description: "A customer identity, keyed by phone number and linked to the auth provider user (authRef)."
+  receives:
+    - message: { $ref: 'commands.yaml#/RegisterCustomer' }
+      emits: [{ $ref: 'events.yaml#/CustomerRegistered' }]
+      throws:
+        - { $ref: 'errors.yaml#/PhoneNotVerified' }
+      effect: "First verification only; a returning number resolves the existing Customer and emits nothing."
+
+Cart:
+  type: aggregate
+  description: "A visitor's in-progress selection for one restaurant, built (possibly as a guest) before checkout. Validated incrementally; converted to an Order by PlaceOrderProcess."
+  receives:
+    - message: { $ref: 'commands.yaml#/AddCartLine' }
+      emits: [{ $ref: 'events.yaml#/CartStarted' }, { $ref: 'events.yaml#/CartLineAdded' }]
+      throws:
+        - { $ref: 'errors.yaml#/CartNotFound' }
+        - { $ref: 'errors.yaml#/CartNotOpen' }
+        - { $ref: 'errors.yaml#/CartRestaurantMismatch' }
+        - { $ref: 'errors.yaml#/VariantNotFound' }
+        - { $ref: 'errors.yaml#/VariantUnavailable' }
+        - { $ref: 'errors.yaml#/InsufficientStock' }
+        - { $ref: 'errors.yaml#/InvalidOptionSelection' }
+        - { $ref: 'errors.yaml#/QuantityExceedsLimit' }
+      effect: "CartStarted only when the cart is created (first line)."
+    - message: { $ref: 'commands.yaml#/RemoveCartLine' }
+      emits: [{ $ref: 'events.yaml#/CartLineRemoved' }]
+      throws:
+        - { $ref: 'errors.yaml#/CartNotFound' }
+        - { $ref: 'errors.yaml#/CartNotOpen' }
+        - { $ref: 'errors.yaml#/CartLineNotFound' }
+    - message: { $ref: 'commands.yaml#/ChangeCartLineQuantity' }
+      emits: [{ $ref: 'events.yaml#/CartLineQuantityChanged' }]
+      throws:
+        - { $ref: 'errors.yaml#/CartNotFound' }
+        - { $ref: 'errors.yaml#/CartNotOpen' }
+        - { $ref: 'errors.yaml#/CartLineNotFound' }
+        - { $ref: 'errors.yaml#/InsufficientStock' }
+        - { $ref: 'errors.yaml#/QuantityExceedsLimit' }
+
+Order:
+  type: aggregate
+  description: "A single order through its lifecycle. Born from OrderPlaced (emitted by PlaceOrderProcess), then driven to a terminal state."
+  receives:
+    - message: { $ref: 'commands.yaml#/AcceptOrder' }
+      emits: [{ $ref: 'events.yaml#/OrderAcceptedByRestaurant' }]
+      throws:
+        - { $ref: 'errors.yaml#/OrderNotFound' }
+        - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+    - message: { $ref: 'commands.yaml#/StartPreparation' }
+      emits: [{ $ref: 'events.yaml#/OrderPreparationStarted' }]
+      throws:
+        - { $ref: 'errors.yaml#/OrderNotFound' }
+        - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+    - message: { $ref: 'commands.yaml#/MarkOrderReady' }
+      emits: [{ $ref: 'events.yaml#/OrderMarkedReady' }]
+      throws:
+        - { $ref: 'errors.yaml#/OrderNotFound' }
+        - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+    - message: { $ref: 'commands.yaml#/MarkOrderDelivered' }
+      emits: [{ $ref: 'events.yaml#/OrderDelivered' }]
+      throws:
+        - { $ref: 'errors.yaml#/OrderNotFound' }
+        - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+    - message: { $ref: 'commands.yaml#/RejectOrder' }
+      emits: [{ $ref: 'events.yaml#/OrderRejectedByRestaurant' }]
+      throws:
+        - { $ref: 'errors.yaml#/OrderNotFound' }
+        - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+    - message: { $ref: 'commands.yaml#/CancelOrderByCustomer' }
+      emits: [{ $ref: 'events.yaml#/OrderCancelledByCustomer' }]
+      throws:
+        - { $ref: 'errors.yaml#/OrderNotFound' }
+        - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+    - message: { $ref: 'commands.yaml#/CancelOrderByRestaurant' }
+      emits: [{ $ref: 'events.yaml#/OrderCancelledByRestaurant' }]
+      throws:
+        - { $ref: 'errors.yaml#/OrderNotFound' }
+        - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+
+# --- Process managers (sagas — react to events, coordinate aggregates & externals) ---
+
+PlaceOrderProcess:
+  type: process-manager
+  description: >
+    The PlaceOrder saga: reads the OPEN cart, re-validates it against the live catalog, prices it
+    server-side, drives the Stripe payment, and on capture materializes the Order and closes the
+    cart. Receives both the initiating command and the payment-outcome events.
+  receives:
+    - message: { $ref: 'commands.yaml#/PlaceOrder' }
+      emits: [{ $ref: 'events.yaml#/PaymentIntentCreated' }]
+      throws:
+        - { $ref: 'errors.yaml#/RestaurantNotFound' }
+        - { $ref: 'errors.yaml#/RestaurantNotActive' }
+        - { $ref: 'errors.yaml#/RestaurantPaused' }
+        - { $ref: 'errors.yaml#/CartNotFound' }
+        - { $ref: 'errors.yaml#/CartNotOpen' }
+        - { $ref: 'errors.yaml#/CartEmpty' }
+        - { $ref: 'errors.yaml#/CartRestaurantMismatch' }
+        - { $ref: 'errors.yaml#/DeliveryAddressRequired' }
+        - { $ref: 'errors.yaml#/OutsideDeliveryArea' }
+        - { $ref: 'errors.yaml#/VariantUnavailable' }
+        - { $ref: 'errors.yaml#/InsufficientStock' }
+        - { $ref: 'errors.yaml#/InvalidOptionSelection' }
+        - { $ref: 'errors.yaml#/PaymentDeclined' }
+      effect: "Read & price the OPEN cart, create the Stripe PaymentIntent, then await the outcome."
+    - message: { $ref: 'events.yaml#/PaymentCaptured' }
+      emits: [{ $ref: 'events.yaml#/OrderPlaced' }, { $ref: 'events.yaml#/CartCheckedOut' }]
+      effect: "Payment confirmed (reported by Stripe); the Order is born from the cart and the cart is closed."
+    - message: { $ref: 'events.yaml#/PaymentFailed' }
+      emits: []
+      effect: "Abort the saga; no OrderPlaced; the cart stays OPEN."
+
+RefundProcess:
+  type: process-manager
+  description: >
+    Coordinates refunds. Reacts to an order reaching a refundable terminal state, requests the refund
+    from Stripe (external call, not a domain command), then records the settled fact reported back.
+  receives:
+    - message: { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
+      emits: []
+      effect: "Request refund from Stripe."
+    - message: { $ref: 'events.yaml#/OrderCancelledByCustomer' }
+      emits: []
+      effect: "Request refund from Stripe."
+    - message: { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
+      emits: []
+      effect: "Request refund from Stripe."
+    - message: { $ref: 'events.yaml#/PaymentRefunded' }
+      emits: []
+      effect: "Record the settled refund fact (reported by Stripe)."

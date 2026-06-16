@@ -1,0 +1,695 @@
+version: 2
+description: >
+  Captain.Food domain model and business events spec.
+  Technical envelope fields (eventId, aggregateType, aggregateId, occurredAt, metadata...)
+  will be added later by infrastructure and MUST NOT be mixed with these payloads.
+  NOTE:
+  - These are BUSINESS event payloads only.
+  - No aggregateType, eventId or metadata here.
+  - Each event MUST be strictly typed and reference scalars/entities above.
+  - Catalog is aligned with HubRise (Product/Variant/OptionList). "Updated" events
+    carry the FULL updated entity (replace semantics), not a partial diff.
+
+# =====================================================================
+# Restaurant
+# =====================================================================
+
+RestaurantRegistered:
+  description: "A restaurant has been registered and created in the system."
+  type: object
+  properties:
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    slug:
+      $ref: 'scalars.yaml#/Slug'
+    displayName:
+      $ref: 'scalars.yaml#/RestaurantDisplayName'
+    legalName:
+      $ref: 'scalars.yaml#/RestaurantLegalName'
+    contact:
+      $ref: 'entities.yaml#/RestaurantContact'
+      nullable: true
+    address:
+      $ref: 'entities.yaml#/Address'
+    defaultCurrency:
+      $ref: 'scalars.yaml#/CurrencyCode'
+    defaultTaxRate:
+      $ref: 'entities.yaml#/TaxRate'
+    timezone:
+      $ref: 'scalars.yaml#/TimeZone'
+      nullable: true
+    preparationTimeMinutes:
+      type: integer
+      minimum: 0
+      nullable: true
+    openingHours:
+      type: array
+      items:
+        $ref: 'entities.yaml#/OpeningHoursSlot'
+    createdBy:
+      $ref: 'scalars.yaml#/UserId'
+  required:
+    - restaurantId
+    - slug
+    - displayName
+    - legalName
+    - address
+    - defaultCurrency
+    - defaultTaxRate
+    - createdBy
+
+RestaurantUpdated:
+  description: "One or more editable fields of a restaurant have changed."
+  type: object
+  properties:
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    displayName:
+      $ref: 'scalars.yaml#/RestaurantDisplayName'
+      nullable: true
+    legalName:
+      $ref: 'scalars.yaml#/RestaurantLegalName'
+      nullable: true
+    contact:
+      $ref: 'entities.yaml#/RestaurantContact'
+      nullable: true
+    address:
+      $ref: 'entities.yaml#/Address'
+      nullable: true
+    defaultTaxRate:
+      $ref: 'entities.yaml#/TaxRate'
+      nullable: true
+    timezone:
+      $ref: 'scalars.yaml#/TimeZone'
+      nullable: true
+    preparationTimeMinutes:
+      type: integer
+      minimum: 0
+      nullable: true
+    openingHours:
+      type: array
+      items:
+        $ref: 'entities.yaml#/OpeningHoursSlot'
+      nullable: true
+    updatedBy:
+      $ref: 'scalars.yaml#/UserId'
+  required:
+    - restaurantId
+    - updatedBy
+
+RestaurantActivated:
+  description: "Restaurant is now visible and orderable by customers."
+  type: object
+  properties:
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required:
+    - restaurantId
+
+RestaurantDeactivated:
+  description: "Restaurant can no longer receive orders."
+  type: object
+  properties:
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required:
+    - restaurantId
+
+RestaurantAcceptanceModeChanged:
+  description: "Restaurant toggled its order acceptance mode (e.g. busy, paused)."
+  type: object
+  properties:
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    mode:
+      $ref: 'scalars.yaml#/OrderAcceptanceMode'
+    changedBy:
+      $ref: 'scalars.yaml#/UserId'
+  required:
+    - restaurantId
+    - mode
+    - changedBy
+
+# =====================================================================
+# Catalog (Menu / Category / Product / Variant / OptionList)
+# =====================================================================
+
+MenuCreated:
+  description: "A new menu (catalog) has been created for a restaurant."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    name:
+      $ref: 'scalars.yaml#/MenuName'
+  required:
+    - menuId
+    - restaurantId
+    - name
+
+CategoryAdded:
+  description: "A category has been added to a menu."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    category:
+      $ref: 'entities.yaml#/Category'
+  required:
+    - menuId
+    - restaurantId
+    - category
+
+CategoryUpdated:
+  description: "An existing category has been updated (full replace)."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    category:
+      $ref: 'entities.yaml#/Category'
+  required:
+    - menuId
+    - restaurantId
+    - category
+
+CategoryRemoved:
+  description: "A category has been removed from a menu."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    categoryId:
+      $ref: 'scalars.yaml#/CategoryId'
+  required:
+    - menuId
+    - restaurantId
+    - categoryId
+
+ProductAdded:
+  description: "A new product (with its variants) has been added to a menu."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    product:
+      $ref: 'entities.yaml#/Product'
+  required:
+    - menuId
+    - restaurantId
+    - product
+
+ProductUpdated:
+  description: "An existing product has been updated (full replace, including variants)."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    product:
+      $ref: 'entities.yaml#/Product'
+  required:
+    - menuId
+    - restaurantId
+    - product
+
+ProductRemoved:
+  description: "A product has been removed from a menu."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    productId:
+      $ref: 'scalars.yaml#/ProductId'
+  required:
+    - menuId
+    - restaurantId
+    - productId
+
+OptionListAdded:
+  description: "An option list (modifier group) has been added to a menu."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    optionList:
+      $ref: 'entities.yaml#/OptionList'
+  required:
+    - menuId
+    - restaurantId
+    - optionList
+
+OptionListUpdated:
+  description: "An existing option list has been updated (full replace)."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    optionList:
+      $ref: 'entities.yaml#/OptionList'
+  required:
+    - menuId
+    - restaurantId
+    - optionList
+
+OptionListRemoved:
+  description: "An option list has been removed from a menu."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    optionListId:
+      $ref: 'scalars.yaml#/OptionListId'
+  required:
+    - menuId
+    - restaurantId
+    - optionListId
+
+VariantStockUpdated:
+  description: "Inventory level of a variant changed (e.g. HubRise inventory sync)."
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    variantId:
+      $ref: 'scalars.yaml#/VariantId'
+    stock:
+      $ref: 'entities.yaml#/Stock'
+  required:
+    - menuId
+    - restaurantId
+    - variantId
+    - stock
+
+CatalogImported:
+  description: >
+    A full catalog was imported/synced from an external source (e.g. HubRise),
+    replacing the current catalog content for the restaurant.
+  type: object
+  properties:
+    menuId:
+      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    source:
+      type: string
+      enum: [HUBRISE, MANUAL]
+    categories:
+      type: array
+      items:
+        $ref: 'entities.yaml#/Category'
+    products:
+      type: array
+      items:
+        $ref: 'entities.yaml#/Product'
+    optionLists:
+      type: array
+      items:
+        $ref: 'entities.yaml#/OptionList'
+  required:
+    - menuId
+    - restaurantId
+    - source
+    - categories
+    - products
+    - optionLists
+
+# =====================================================================
+# Customer
+# =====================================================================
+# Identity/credentials are managed by the auth provider (Supabase Auth).
+# Only the creation of the domain Customer is an event. Sign-in, password
+# reset, token refresh and sessions are NOT domain events.
+
+CustomerRegistered:
+  description: >
+    A customer account was created on first phone verification (passwordless OTP,
+    identity managed by the auth provider). Phone number is the primary identifier.
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    authRef:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+      description: "Auth provider user id (e.g. Supabase Auth), linking identity to this Customer."
+    phone:
+      $ref: 'scalars.yaml#/PhoneNumber'
+    displayName:
+      $ref: 'scalars.yaml#/CustomerDisplayName'
+      nullable: true
+    email:
+      $ref: 'scalars.yaml#/EmailAddress'
+      nullable: true
+      description: "Optional, e.g. captured later for receipts."
+  required:
+    - customerId
+    - phone
+
+# =====================================================================
+# Cart
+# =====================================================================
+# Pre-checkout selection. High-churn and often abandoned, so payloads stay minimal (ids +
+# quantity); display prices are derived by the read projection, not carried here.
+
+CartStarted:
+  description: "A new cart was created for a restaurant (emitted with the first line added)."
+  type: object
+  properties:
+    cartId:
+      $ref: 'scalars.yaml#/CartId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+      description: "Null while the visitor is a guest; bound at checkout."
+  required:
+    - cartId
+    - restaurantId
+
+CartLineAdded:
+  description: "A line was added to a cart."
+  type: object
+  properties:
+    cartId:
+      $ref: 'scalars.yaml#/CartId'
+    line:
+      $ref: 'entities.yaml#/CartLineItem'
+  required:
+    - cartId
+    - line
+
+CartLineQuantityChanged:
+  description: "The quantity of an existing cart line changed."
+  type: object
+  properties:
+    cartId:
+      $ref: 'scalars.yaml#/CartId'
+    cartLineId:
+      $ref: 'scalars.yaml#/CartLineId'
+    quantity:
+      type: integer
+      minimum: 1
+  required:
+    - cartId
+    - cartLineId
+    - quantity
+
+CartLineRemoved:
+  description: "A line was removed from a cart."
+  type: object
+  properties:
+    cartId:
+      $ref: 'scalars.yaml#/CartId'
+    cartLineId:
+      $ref: 'scalars.yaml#/CartLineId'
+  required:
+    - cartId
+    - cartLineId
+
+CartCheckedOut:
+  description: "The cart was converted to an order at checkout and is now closed."
+  type: object
+  properties:
+    cartId:
+      $ref: 'scalars.yaml#/CartId'
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+  required:
+    - cartId
+    - orderId
+
+# =====================================================================
+# Orders
+# =====================================================================
+
+OrderPlaced:
+  description: "A customer has placed an order and payment was successfully authorized/captured."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    ref:
+      $ref: 'scalars.yaml#/Ref'
+      nullable: true
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    customerContact:
+      $ref: 'entities.yaml#/CustomerContact'
+    serviceType:
+      $ref: 'scalars.yaml#/ServiceType'
+    deliveryAddress:
+      $ref: 'entities.yaml#/Address'
+      nullable: true
+    items:
+      type: array
+      items:
+        $ref: 'entities.yaml#/OrderLineItem'
+      minItems: 1
+    totalAmount:
+      $ref: 'entities.yaml#/Money'
+    note:
+      $ref: 'scalars.yaml#/OrderNote'
+      nullable: true
+    paymentIntentId:
+      $ref: 'scalars.yaml#/PaymentIntentId'
+  required:
+    - orderId
+    - restaurantId
+    - customerContact
+    - serviceType
+    - items
+    - totalAmount
+    - paymentIntentId
+
+OrderAcceptedByRestaurant:
+  description: "Restaurant has accepted to prepare the order."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    acceptedBy:
+      $ref: 'scalars.yaml#/UserId'
+    estimatedReadyAt:
+      type: string
+      format: date-time
+      nullable: true
+  required:
+    - orderId
+    - restaurantId
+    - acceptedBy
+
+OrderPreparationStarted:
+  description: "Restaurant has started preparing an accepted order (status PREPARING)."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+  required:
+    - orderId
+    - restaurantId
+
+OrderRejectedByRestaurant:
+  description: "Restaurant has rejected the order."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    reason:
+      type: string
+      maxLength: 500
+  required:
+    - orderId
+    - restaurantId
+    - reason
+
+OrderMarkedReady:
+  description: "Restaurant has marked the order as ready for pickup/delivery."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+  required:
+    - orderId
+    - restaurantId
+
+OrderDelivered:
+  description: "The order has been delivered to the customer."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+  required:
+    - orderId
+    - restaurantId
+
+OrderCancelledByCustomer:
+  description: "The customer cancelled the order."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required:
+    - orderId
+    - restaurantId
+
+OrderCancelledByRestaurant:
+  description: "The restaurant cancelled the order after initial acceptance."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    reason:
+      type: string
+      maxLength: 500
+  required:
+    - orderId
+    - restaurantId
+    - reason
+
+# =====================================================================
+# Payments (Stripe)
+# =====================================================================
+# Money stays strongly typed internally (Money value object). The Stripe-side
+# ids (paymentIntentId, refundId) are provider references kept as scalars.
+# These are the payment branch of the PlaceOrder saga and the refund path of
+# RejectOrder / CancelOrder* (see commands.yaml).
+# NOTE: PaymentCaptured / PaymentFailed / PaymentRefunded are INBOUND integration
+# events — reported by Stripe (webhooks) and recorded as facts, NOT emitted by a
+# command. Only PaymentIntentCreated is command-initiated. See CLAUDE.md "Commands
+# vs inbound (integration) events".
+
+PaymentIntentCreated:
+  description: "A payment intent was created at checkout for a pending order."
+  type: object
+  properties:
+    paymentIntentId:
+      $ref: 'scalars.yaml#/PaymentIntentId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    amount:
+      $ref: 'entities.yaml#/Money'
+  required:
+    - paymentIntentId
+    - restaurantId
+    - amount
+
+PaymentCaptured:
+  description: "Payment was successfully authorized/captured for an order."
+  type: object
+  properties:
+    paymentIntentId:
+      $ref: 'scalars.yaml#/PaymentIntentId'
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+      nullable: true
+      description: "Null when captured before the Order aggregate is created in the saga."
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    amount:
+      $ref: 'entities.yaml#/Money'
+  required:
+    - paymentIntentId
+    - restaurantId
+    - amount
+
+PaymentFailed:
+  description: "Payment authorization/capture failed; no order is placed."
+  type: object
+  properties:
+    paymentIntentId:
+      $ref: 'scalars.yaml#/PaymentIntentId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    reason:
+      type: string
+      maxLength: 500
+  required:
+    - paymentIntentId
+    - restaurantId
+    - reason
+
+PaymentRefunded:
+  description: "A captured payment was refunded (e.g. after rejection or cancellation)."
+  type: object
+  properties:
+    refundId:
+      $ref: 'scalars.yaml#/RefundId'
+    paymentIntentId:
+      $ref: 'scalars.yaml#/PaymentIntentId'
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    amount:
+      $ref: 'entities.yaml#/Money'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required:
+    - refundId
+    - paymentIntentId
+    - orderId
+    - restaurantId
+    - amount

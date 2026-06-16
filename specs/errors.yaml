@@ -1,0 +1,463 @@
+version: 1
+description: >
+  Captain.Food anticipated errors. A command handler rejects a request by raising one of these —
+  they are the old command `invariants`, now first-class. An error carries CONTEXT (typed data
+  identifying the failure) and a default, HUMAN-FRIENDLY MESSAGE in English and French. Which
+  errors each command can raise is mapped in actors.yaml (`throws`). Transport/HTTP-level failures
+  are out of scope.
+
+  Cross-cutting errors (Unauthorized, Forbidden, ValidationError, Conflict, RateLimited, Internal)
+  may occur on ANY command; they are NOT repeated in every actors.yaml `throws` list — only
+  domain-specific errors are listed there.
+
+  Convention:
+    - key      : PascalCase stable error code (also the wire `code`).
+    - context  : typed fields carried with the error ($ref to scalars where applicable); {} if none.
+                 Includes ids (for logging/handling) AND human names (for the message) when the
+                 offending entity is known. *NotFound errors omit the name (it is unknown).
+    - messages : default user-facing text; `en` and `fr` both required. They may contain
+                 `{placeholder}` tokens that reference a `context` field name; the server
+                 interpolates them (e.g. "The restaurant '{restaurantName}' is not active.").
+
+# =====================================================================
+# Cross-cutting (may occur on any command)
+# =====================================================================
+
+Unauthorized:
+  description: "No valid authentication for this path/role."
+  context: {}
+  messages:
+    en: "You must be signed in to do this."
+    fr: "Vous devez être connecté pour effectuer cette action."
+
+Forbidden:
+  description: "Authenticated, but not allowed to act on this resource (e.g. not the owner)."
+  context: {}
+  messages:
+    en: "You are not allowed to perform this action."
+    fr: "Vous n'êtes pas autorisé à effectuer cette action."
+
+ValidationError:
+  description: "Input failed schema validation (type, format, required, bounds)."
+  context:
+    field: { type: string }
+  messages:
+    en: "The field '{field}' is invalid."
+    fr: "Le champ '{field}' est invalide."
+
+Conflict:
+  description: "Concurrent modification (optimistic-concurrency version clash); retry."
+  context: {}
+  messages:
+    en: "This item was modified meanwhile. Please retry."
+    fr: "Cet élément a été modifié entre-temps. Veuillez réessayer."
+
+RateLimited:
+  description: "Too many requests on this path."
+  context: {}
+  messages:
+    en: "Too many requests. Please slow down."
+    fr: "Trop de requêtes. Veuillez patienter."
+
+Internal:
+  description: "Unexpected server error."
+  context: {}
+  messages:
+    en: "Something went wrong on our side."
+    fr: "Une erreur est survenue de notre côté."
+
+# =====================================================================
+# Restaurant
+# =====================================================================
+
+RestaurantNotFound:
+  description: "No restaurant with this id."
+  context:
+    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+  messages:
+    en: "Restaurant not found."
+    fr: "Restaurant introuvable."
+
+SlugAlreadyTaken:
+  description: "Another restaurant already uses this slug."
+  context:
+    slug: { $ref: 'scalars.yaml#/Slug' }
+  messages:
+    en: "The address '{slug}' is already taken."
+    fr: "L'adresse '{slug}' est déjà utilisée."
+
+RefAlreadyUsed:
+  description: "The external reference (idempotent import key) is already owned by another aggregate."
+  context:
+    ref: { $ref: 'scalars.yaml#/Ref' }
+  messages:
+    en: "The reference '{ref}' is already in use."
+    fr: "La référence '{ref}' est déjà utilisée."
+
+InvalidCurrency:
+  description: "Currency is not a valid ISO 4217 code."
+  context:
+    currency: { $ref: 'scalars.yaml#/CurrencyCode' }
+  messages:
+    en: "'{currency}' is not a valid currency."
+    fr: "'{currency}' n'est pas une devise valide."
+
+RestaurantAlreadyActive:
+  description: "Restaurant is already ACTIVE."
+  context:
+    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+  messages:
+    en: "The restaurant '{restaurantName}' is already active."
+    fr: "Le restaurant '{restaurantName}' est déjà actif."
+
+RestaurantNotActive:
+  description: "Operation requires an ACTIVE restaurant."
+  context:
+    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+  messages:
+    en: "The restaurant '{restaurantName}' is not active."
+    fr: "Le restaurant '{restaurantName}' n'est pas actif."
+
+RestaurantNotReadyForActivation:
+  description: "Activation requires at least one menu with one orderable variant."
+  context:
+    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+  messages:
+    en: "Add at least one orderable product before activating '{restaurantName}'."
+    fr: "Ajoutez au moins un produit commandable avant d'activer '{restaurantName}'."
+
+RestaurantPaused:
+  description: "Restaurant acceptance mode is PAUSED; it cannot take orders."
+  context:
+    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+  messages:
+    en: "'{restaurantName}' is not taking orders right now."
+    fr: "'{restaurantName}' ne prend pas de commandes pour le moment."
+
+AcceptanceModeUnchanged:
+  description: "Requested acceptance mode equals the current one."
+  context:
+    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+    mode: { $ref: 'scalars.yaml#/OrderAcceptanceMode' }
+  messages:
+    en: "'{restaurantName}' is already in '{mode}' mode."
+    fr: "'{restaurantName}' est déjà en mode '{mode}'."
+
+NoEditableFieldProvided:
+  description: "Update command carried no editable field."
+  context: {}
+  messages:
+    en: "Provide at least one field to update."
+    fr: "Indiquez au moins un champ à modifier."
+
+# =====================================================================
+# Catalog (Menu / Category / Product / Variant / OptionList)
+# =====================================================================
+
+MenuNotFound:
+  description: "No menu with this id (or it does not belong to the restaurant)."
+  context:
+    menuId: { $ref: 'scalars.yaml#/MenuId' }
+  messages:
+    en: "Menu not found."
+    fr: "Menu introuvable."
+
+CurrencyMismatch:
+  description: "A variant price currency differs from the restaurant default currency."
+  context:
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+    currency: { $ref: 'scalars.yaml#/CurrencyCode' }
+  messages:
+    en: "Prices must use the currency of '{restaurantName}' ('{currency}')."
+    fr: "Les prix doivent utiliser la devise de '{restaurantName}' ('{currency}')."
+
+RefNotUnique:
+  description: "The ref is not unique within the menu."
+  context:
+    ref: { $ref: 'scalars.yaml#/Ref' }
+    menuId: { $ref: 'scalars.yaml#/MenuId' }
+  messages:
+    en: "The reference '{ref}' is already used in this menu."
+    fr: "La référence '{ref}' est déjà utilisée dans ce menu."
+
+CategoryNotFound:
+  description: "No category with this id in the menu."
+  context:
+    categoryId: { $ref: 'scalars.yaml#/CategoryId' }
+  messages:
+    en: "Category not found."
+    fr: "Catégorie introuvable."
+
+CategoryRefNotFound:
+  description: "Referenced category ref does not exist in the menu."
+  context:
+    ref: { $ref: 'scalars.yaml#/Ref' }
+  messages:
+    en: "No category with reference '{ref}'."
+    fr: "Aucune catégorie avec la référence '{ref}'."
+
+ParentCategoryNotFound:
+  description: "parentRef points to a category that does not exist in the menu."
+  context:
+    parentRef: { $ref: 'scalars.yaml#/Ref' }
+  messages:
+    en: "The parent category '{parentRef}' does not exist."
+    fr: "La catégorie parente '{parentRef}' n'existe pas."
+
+CategoryCycle:
+  description: "parentRef would introduce a cycle in the category tree."
+  context:
+    categoryId: { $ref: 'scalars.yaml#/CategoryId' }
+    categoryName: { $ref: 'scalars.yaml#/CategoryName' }
+  messages:
+    en: "Moving '{categoryName}' there would create a category loop."
+    fr: "Déplacer '{categoryName}' ici créerait une boucle de catégories."
+
+CategoryNotEmpty:
+  description: "Category has child categories or products referencing it."
+  context:
+    categoryId: { $ref: 'scalars.yaml#/CategoryId' }
+    categoryName: { $ref: 'scalars.yaml#/CategoryName' }
+  messages:
+    en: "Empty the category '{categoryName}' before removing it."
+    fr: "Videz la catégorie '{categoryName}' avant de la supprimer."
+
+ProductNotFound:
+  description: "No product with this id in the menu."
+  context:
+    productId: { $ref: 'scalars.yaml#/ProductId' }
+  messages:
+    en: "Product not found."
+    fr: "Produit introuvable."
+
+ProductMustHaveVariant:
+  description: "A product must keep at least one variant."
+  context:
+    productId: { $ref: 'scalars.yaml#/ProductId' }
+    productName: { $ref: 'scalars.yaml#/ProductName' }
+  messages:
+    en: "'{productName}' must keep at least one variant."
+    fr: "'{productName}' doit conserver au moins une variante."
+
+OptionListNotFound:
+  description: "No option list with this id in the menu."
+  context:
+    optionListId: { $ref: 'scalars.yaml#/OptionListId' }
+  messages:
+    en: "Option list not found."
+    fr: "Liste d'options introuvable."
+
+OptionListMustHaveOption:
+  description: "An option list must keep at least one option."
+  context:
+    optionListId: { $ref: 'scalars.yaml#/OptionListId' }
+    optionListName: { $ref: 'scalars.yaml#/OptionListName' }
+  messages:
+    en: "The option list '{optionListName}' must have at least one option."
+    fr: "La liste d'options '{optionListName}' doit contenir au moins une option."
+
+InvalidSelectionBounds:
+  description: "minSelections is greater than maxSelections."
+  context:
+    optionListId: { $ref: 'scalars.yaml#/OptionListId' }
+    optionListName: { $ref: 'scalars.yaml#/OptionListName' }
+  messages:
+    en: "In '{optionListName}', the minimum cannot exceed the maximum number of selections."
+    fr: "Dans '{optionListName}', le minimum ne peut pas dépasser le maximum de sélections."
+
+OptionListInUse:
+  description: "Option list is still referenced by a variant and cannot be removed."
+  context:
+    optionListId: { $ref: 'scalars.yaml#/OptionListId' }
+    optionListName: { $ref: 'scalars.yaml#/OptionListName' }
+  messages:
+    en: "The option list '{optionListName}' is still used by a product."
+    fr: "La liste d'options '{optionListName}' est encore utilisée par un produit."
+
+VariantNotFound:
+  description: "No variant with this id in the menu."
+  context:
+    variantId: { $ref: 'scalars.yaml#/VariantId' }
+  messages:
+    en: "Product variant not found."
+    fr: "Variante de produit introuvable."
+
+VariantNotStockTracked:
+  description: "Variant is not stock-tracked, so its stock cannot be set."
+  context:
+    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    productName: { $ref: 'scalars.yaml#/ProductName' }
+    variantName: { $ref: 'scalars.yaml#/VariantName' }
+  messages:
+    en: "'{productName}' ({variantName}) does not track stock."
+    fr: "'{productName}' ({variantName}) ne suit pas de stock."
+
+CatalogTranslationFailed:
+  description: "The ACL could not map external (HubRise) shapes to domain types on import."
+  context: {}
+  messages:
+    en: "The imported catalog could not be processed."
+    fr: "Le catalogue importé n'a pas pu être traité."
+
+MissingRef:
+  description: "An imported entity is missing its ref (idempotency key)."
+  context: {}
+  messages:
+    en: "Every imported item must have a reference."
+    fr: "Chaque élément importé doit avoir une référence."
+
+# =====================================================================
+# Availability & stock (shared by cart and checkout)
+# =====================================================================
+
+VariantUnavailable:
+  description: "Variant availability is UNAVAILABLE (manual flag)."
+  context:
+    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    productName: { $ref: 'scalars.yaml#/ProductName' }
+    variantName: { $ref: 'scalars.yaml#/VariantName' }
+  messages:
+    en: "'{productName}' ({variantName}) is currently unavailable."
+    fr: "'{productName}' ({variantName}) est actuellement indisponible."
+
+InsufficientStock:
+  description: "Requested quantity exceeds available stock."
+  context:
+    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    productName: { $ref: 'scalars.yaml#/ProductName' }
+    variantName: { $ref: 'scalars.yaml#/VariantName' }
+    requested: { $ref: 'scalars.yaml#/Quantity' }
+    available: { $ref: 'scalars.yaml#/Quantity' }
+  messages:
+    en: "Only {available} left of '{productName}' ({variantName}), but {requested} were requested."
+    fr: "Il ne reste que {available} de '{productName}' ({variantName}), mais {requested} ont été demandés."
+
+QuantityExceedsLimit:
+  description: "Requested quantity exceeds the per-line maximum."
+  context:
+    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    productName: { $ref: 'scalars.yaml#/ProductName' }
+  messages:
+    en: "You can't order that many of '{productName}'."
+    fr: "Vous ne pouvez pas commander autant de '{productName}'."
+
+InvalidOptionSelection:
+  description: "A selected option does not belong to the variant, or violates the option list's min/max."
+  context:
+    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    productName: { $ref: 'scalars.yaml#/ProductName' }
+  messages:
+    en: "Invalid option selection for '{productName}'."
+    fr: "Sélection d'options invalide pour '{productName}'."
+
+# =====================================================================
+# Cart
+# =====================================================================
+
+CartNotFound:
+  description: "No cart with this id."
+  context:
+    cartId: { $ref: 'scalars.yaml#/CartId' }
+  messages:
+    en: "Cart not found."
+    fr: "Panier introuvable."
+
+CartNotOpen:
+  description: "Cart is not OPEN (already checked out)."
+  context:
+    cartId: { $ref: 'scalars.yaml#/CartId' }
+    status: { $ref: 'scalars.yaml#/CartStatus' }
+  messages:
+    en: "This cart can no longer be modified."
+    fr: "Ce panier ne peut plus être modifié."
+
+CartRestaurantMismatch:
+  description: "Line/checkout restaurant differs from the cart's restaurant (no mixing)."
+  context:
+    cartId: { $ref: 'scalars.yaml#/CartId' }
+    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+  messages:
+    en: "Your cart already has items from another restaurant, not '{restaurantName}'."
+    fr: "Votre panier contient déjà des articles d'un autre restaurant que '{restaurantName}'."
+
+CartLineNotFound:
+  description: "No line with this id in the cart."
+  context:
+    cartId: { $ref: 'scalars.yaml#/CartId' }
+    cartLineId: { $ref: 'scalars.yaml#/CartLineId' }
+  messages:
+    en: "This cart line no longer exists."
+    fr: "Cette ligne du panier n'existe plus."
+
+CartEmpty:
+  description: "Checkout attempted on an empty cart."
+  context:
+    cartId: { $ref: 'scalars.yaml#/CartId' }
+  messages:
+    en: "Your cart is empty."
+    fr: "Votre panier est vide."
+
+# =====================================================================
+# Customer
+# =====================================================================
+
+PhoneNotVerified:
+  description: "Phone number was not verified by the auth provider before registration."
+  context:
+    phone: { $ref: 'scalars.yaml#/PhoneNumber' }
+  messages:
+    en: "Please verify the phone number '{phone}' first."
+    fr: "Veuillez d'abord vérifier le numéro '{phone}'."
+
+# =====================================================================
+# Order
+# =====================================================================
+
+OrderNotFound:
+  description: "No order with this id."
+  context:
+    orderId: { $ref: 'scalars.yaml#/OrderId' }
+  messages:
+    en: "Order not found."
+    fr: "Commande introuvable."
+
+InvalidOrderStatus:
+  description: "Order is not in a status that allows this transition."
+  context:
+    orderId: { $ref: 'scalars.yaml#/OrderId' }
+    currentStatus: { $ref: 'scalars.yaml#/OrderStatus' }
+  messages:
+    en: "This action is not allowed while the order is '{currentStatus}'."
+    fr: "Cette action n'est pas autorisée tant que la commande est '{currentStatus}'."
+
+DeliveryAddressRequired:
+  description: "serviceType is DELIVERY but no delivery address was provided."
+  context: {}
+  messages:
+    en: "A delivery address is required for delivery."
+    fr: "Une adresse de livraison est requise pour la livraison."
+
+OutsideDeliveryArea:
+  description: "Delivery address is outside the restaurant's delivery area."
+  context:
+    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+  messages:
+    en: "This address is outside the delivery area of '{restaurantName}'."
+    fr: "Cette adresse est en dehors de la zone de livraison de '{restaurantName}'."
+
+# =====================================================================
+# Payment
+# =====================================================================
+
+PaymentDeclined:
+  description: "Stripe declined the payment synchronously at checkout (no order placed)."
+  context: {}
+  messages:
+    en: "Payment was declined."
+    fr: "Le paiement a été refusé."

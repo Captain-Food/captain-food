@@ -1,0 +1,293 @@
+# --- Identity & Slugs ---
+
+RestaurantId:
+  type: string
+  format: uuid
+
+MenuId:
+  type: string
+  format: uuid
+  description: "Catalog id (HubRise: catalog)."
+
+CategoryId:
+  type: string
+  format: uuid
+
+ProductId:
+  type: string
+  format: uuid
+  description: "A product groups one or more variants (HubRise: product)."
+
+VariantId:
+  type: string
+  format: uuid
+  description: "A purchasable variant with its own price (HubRise: SKU)."
+
+OptionListId:
+  type: string
+  format: uuid
+
+OptionId:
+  type: string
+  format: uuid
+
+OrderId:
+  type: string
+  format: uuid
+
+CustomerId:
+  type: string
+  format: uuid
+
+CartId:
+  type: string
+  format: uuid
+
+CartLineId:
+  type: string
+  format: uuid
+  description: "Identifies a line within a cart, used to edit its quantity or remove it."
+
+DeliveryJobId:
+  type: string
+  format: uuid
+
+PaymentIntentId:
+  type: string
+  maxLength: 255
+  description: "Stripe PaymentIntent id (provider reference). Example: 'pi_3Nabc...'."
+
+RefundId:
+  type: string
+  maxLength: 255
+  description: "Stripe Refund id (provider reference). Example: 're_3Nabc...'."
+
+UserId:
+  type: string
+  format: uuid
+
+ImageId:
+  type: string
+  format: uuid
+
+Ref:
+  type: string
+  maxLength: 128
+  description: >
+    External reference code (HubRise `ref`), unique within its scope.
+    Used for idempotent import/sync and as a stable reference inside orders.
+    Example: 'MARGHERITA', 'CAT-PIZZAS'.
+
+Slug:
+  type: string
+  pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+  maxLength: 80
+  description: >
+    URL-safe identifier for restaurants. Lowercase, dash-separated.
+    Example: 'chez-marco', 'tokyo-sushi'.
+
+# --- Names (strongly typed, no reuse) ---
+
+RestaurantDisplayName:
+  type: string
+  maxLength: 140
+  description: >
+    Public label shown to customers. Can be short and brand-oriented.
+    Example: 'Chez Marco', 'Tokyo Sushi'.
+
+RestaurantLegalName:
+  type: string
+  maxLength: 255
+  description: >
+    Legal entity name used for invoices and contracts.
+    Example: 'SARL CHEZ MARCO', 'TOKYO SUSHI RESTAURATION SAS'.
+
+MenuName:
+  type: string
+  maxLength: 140
+
+CategoryName:
+  type: string
+  maxLength: 80
+
+ProductName:
+  type: string
+  maxLength: 140
+
+ProductDescription:
+  type: string
+  maxLength: 2000
+
+VariantName:
+  type: string
+  maxLength: 140
+  description: >
+    Variant label, unique within a product (HubRise SKU name).
+    Example: 'Small', 'Large', 'Default'.
+
+OptionListName:
+  type: string
+  maxLength: 140
+
+OptionName:
+  type: string
+  maxLength: 140
+
+# --- Tags ---
+
+Tag:
+  type: string
+  maxLength: 80
+  description: "Free-form label (HubRise: tags). Example: 'vegan', 'spicy', 'eco'."
+
+# --- Contact & Address ---
+
+EmailAddress:
+  type: string
+  format: email
+  maxLength: 255
+
+PhoneNumber:
+  type: string
+  maxLength: 32
+  description: >
+    E.164 or local format. Validation will be enforced at application level.
+
+AddressLine:
+  type: string
+  maxLength: 255
+
+CityName:
+  type: string
+  maxLength: 120
+
+PostalCode:
+  type: string
+  maxLength: 20
+
+CountryCode:
+  type: string
+  pattern: "^[A-Z]{2}$"
+  description: "ISO 3166-1 alpha-2 country code. Example: 'FR'."
+
+TimeZone:
+  type: string
+  maxLength: 64
+  description: "IANA timezone. Example: 'Europe/Paris'."
+
+# --- Money & Currencies ---
+# We keep a stronger model than HubRise (which serialises "9.80 EUR" as a string):
+# amount is an integer in minor units + an explicit currency, wrapped in the
+# Money value object (see entities.yaml#/Money).
+
+CurrencyCode:
+  type: string
+  pattern: "^[A-Z]{3}$"
+  description: "ISO 4217 currency code. Example: 'EUR'."
+
+MoneyCents:
+  type: integer
+  minimum: 0
+  description: "Monetary amount in minor units (e.g. cents)."
+
+TaxRatePercent:
+  type: number
+  minimum: 0
+  maximum: 100
+  description: "Percentage tax rate. Example: 10.0 for 10%."
+
+# --- Stock ---
+
+Quantity:
+  type: number
+  minimum: 0
+  description: >
+    Stock quantity in units. Decimals allowed to match HubRise inventory.
+    0 means out of stock.
+
+# --- Customer / Order ---
+
+CustomerDisplayName:
+  type: string
+  maxLength: 140
+
+OrderNote:
+  type: string
+  maxLength: 1000
+
+# --- Time ---
+
+Weekday:
+  type: string
+  enum:
+    - MONDAY
+    - TUESDAY
+    - WEDNESDAY
+    - THURSDAY
+    - FRIDAY
+    - SATURDAY
+    - SUNDAY
+
+TimeOfDay:
+  type: string
+  pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+  description: "Local time of day, HH:mm (HubRise opening_hours format)."
+
+# --- Enums (logical, not tied to specific language) ---
+
+ServiceType:
+  type: string
+  enum: [DELIVERY, COLLECTION]
+  description: >
+    Aligned with HubRise service types. COLLECTION == customer pickup.
+    (EAT_IN is not offered by Captain.Food but is kept in TaxRate for catalog fidelity.)
+
+OrderStatus:
+  type: string
+  enum:
+    - PLACED
+    - ACCEPTED
+    - REJECTED
+    - PREPARING
+    - READY
+    - OUT_FOR_DELIVERY
+    - DELIVERED
+    - CANCELLED_BY_CUSTOMER
+    - CANCELLED_BY_RESTAURANT
+
+RestaurantStatus:
+  type: string
+  enum:
+    - DRAFT
+    - ACTIVE
+    - INACTIVE
+
+CartStatus:
+  type: string
+  enum:
+    - OPEN          # being built (possibly by a guest); persists indefinitely (Uber Eats style)
+    - CHECKED_OUT   # converted to an Order at checkout
+  description: >
+    Lifecycle of a cart. Only an OPEN cart accepts line edits or checkout. Carts are never
+    abandoned/expired — they persist until checked out, so there is no abandonment state.
+
+OrderAcceptanceMode:
+  type: string
+  enum: [NORMAL, BUSY, PAUSED]
+  description: "Current order acceptance mode of a restaurant (HubRise: order_acceptance)."
+
+# Manual listing flag, set by the restaurant/admin. Useful for UI.
+# Orthogonal to StockStatus: an item is orderable when AVAILABLE *and* stock > 0.
+MenuItemAvailability:
+  type: string
+  enum:
+    - AVAILABLE
+    - UNAVAILABLE
+
+# Derived from Stock.quantity vs Stock.lowStockThreshold.
+StockStatus:
+  type: string
+  enum:
+    - IN_STOCK
+    - LOW_STOCK      # quantity <= lowStockThreshold (risky level)
+    - OUT_OF_STOCK   # quantity == 0
