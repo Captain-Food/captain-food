@@ -70,6 +70,14 @@ Internal:
 # Restaurant
 # =====================================================================
 
+RestaurantAccountNotFound:
+  description: "No restaurant account with this id (e.g. registering a location under a missing account)."
+  context:
+    restaurantAccountId: { $ref: 'scalars.yaml#/RestaurantAccountId' }
+  messages:
+    en: "Restaurant account not found."
+    fr: "Compte restaurant introuvable."
+
 RestaurantNotFound:
   description: "No restaurant with this id."
   context:
@@ -89,7 +97,7 @@ SlugAlreadyTaken:
 RefAlreadyUsed:
   description: "The external reference (idempotent import key) is already owned by another aggregate."
   context:
-    ref: { $ref: 'scalars.yaml#/Ref' }
+    ref: { $ref: 'scalars.yaml#/ExternalReference' }
   messages:
     en: "The reference '{ref}' is already in use."
     fr: "La référence '{ref}' est déjà utilisée."
@@ -102,14 +110,7 @@ InvalidCurrency:
     en: "'{currency}' is not a valid currency."
     fr: "'{currency}' n'est pas une devise valide."
 
-RestaurantAlreadyActive:
-  description: "Restaurant is already ACTIVE."
-  context:
-    restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
-    restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
-  messages:
-    en: "The restaurant '{restaurantName}' is already active."
-    fr: "Le restaurant '{restaurantName}' est déjà actif."
+# (RestaurantAlreadyActive removed: ActivateRestaurant is idempotent — re-activating is a no-op, not an error.)
 
 RestaurantNotActive:
   description: "Operation requires an ACTIVE restaurant."
@@ -121,7 +122,7 @@ RestaurantNotActive:
     fr: "Le restaurant '{restaurantName}' n'est pas actif."
 
 RestaurantNotReadyForActivation:
-  description: "Activation requires at least one menu with one orderable variant."
+  description: "Activation requires at least one catalog with one orderable offer."
   context:
     restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
     restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
@@ -156,19 +157,19 @@ NoEditableFieldProvided:
     fr: "Indiquez au moins un champ à modifier."
 
 # =====================================================================
-# Catalog (Menu / Category / Product / Variant / OptionList)
+# Catalog (Catalog / CatalogCategory / Product / Offer / OptionList)
 # =====================================================================
 
-MenuNotFound:
-  description: "No menu with this id (or it does not belong to the restaurant)."
+CatalogNotFound:
+  description: "No catalog with this id (or it does not belong to the restaurant)."
   context:
-    menuId: { $ref: 'scalars.yaml#/MenuId' }
+    catalogId: { $ref: 'scalars.yaml#/CatalogId' }
   messages:
-    en: "Menu not found."
-    fr: "Menu introuvable."
+    en: "Catalog not found."
+    fr: "Catalog introuvable."
 
 CurrencyMismatch:
-  description: "A variant price currency differs from the restaurant default currency."
+  description: "A offer price currency differs from the restaurant default currency."
   context:
     restaurantName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
     currency: { $ref: 'scalars.yaml#/CurrencyCode' }
@@ -177,75 +178,75 @@ CurrencyMismatch:
     fr: "Les prix doivent utiliser la devise de '{restaurantName}' ('{currency}')."
 
 RefNotUnique:
-  description: "The ref is not unique within the menu."
+  description: "The ref is not unique within the catalog."
   context:
-    ref: { $ref: 'scalars.yaml#/Ref' }
-    menuId: { $ref: 'scalars.yaml#/MenuId' }
+    ref: { $ref: 'scalars.yaml#/ExternalReference' }
+    catalogId: { $ref: 'scalars.yaml#/CatalogId' }
   messages:
-    en: "The reference '{ref}' is already used in this menu."
-    fr: "La référence '{ref}' est déjà utilisée dans ce menu."
+    en: "The reference '{ref}' is already used in this catalog."
+    fr: "La référence '{ref}' est déjà utilisée dans ce catalog."
 
-CategoryNotFound:
-  description: "No category with this id in the menu."
+CatalogCategoryNotFound:
+  description: "No category with this id in the catalog."
   context:
-    categoryId: { $ref: 'scalars.yaml#/CategoryId' }
+    productCategoryId: { $ref: 'scalars.yaml#/ProductCategoryId' }
   messages:
-    en: "Category not found."
+    en: "CatalogCategory not found."
     fr: "Catégorie introuvable."
 
-CategoryRefNotFound:
-  description: "Referenced category ref does not exist in the menu."
+CatalogCategoryRefNotFound:
+  description: "Referenced category ref does not exist in the catalog."
   context:
-    ref: { $ref: 'scalars.yaml#/Ref' }
+    ref: { $ref: 'scalars.yaml#/ExternalReference' }
   messages:
     en: "No category with reference '{ref}'."
     fr: "Aucune catégorie avec la référence '{ref}'."
 
-ParentCategoryNotFound:
-  description: "parentRef points to a category that does not exist in the menu."
+ParentCatalogCategoryNotFound:
+  description: "parentRef points to a category that does not exist in the catalog."
   context:
-    parentRef: { $ref: 'scalars.yaml#/Ref' }
+    parentRef: { $ref: 'scalars.yaml#/ExternalReference' }
   messages:
     en: "The parent category '{parentRef}' does not exist."
     fr: "La catégorie parente '{parentRef}' n'existe pas."
 
-CategoryCycle:
+CatalogCategoryCycle:
   description: "parentRef would introduce a cycle in the category tree."
   context:
-    categoryId: { $ref: 'scalars.yaml#/CategoryId' }
-    categoryName: { $ref: 'scalars.yaml#/CategoryName' }
+    productCategoryId: { $ref: 'scalars.yaml#/ProductCategoryId' }
+    categoryName: { $ref: 'scalars.yaml#/CatalogCategoryName' }
   messages:
     en: "Moving '{categoryName}' there would create a category loop."
     fr: "Déplacer '{categoryName}' ici créerait une boucle de catégories."
 
-CategoryNotEmpty:
-  description: "Category has child categories or products referencing it."
+CatalogCategoryNotEmpty:
+  description: "CatalogCategory has child categories or products referencing it."
   context:
-    categoryId: { $ref: 'scalars.yaml#/CategoryId' }
-    categoryName: { $ref: 'scalars.yaml#/CategoryName' }
+    productCategoryId: { $ref: 'scalars.yaml#/ProductCategoryId' }
+    categoryName: { $ref: 'scalars.yaml#/CatalogCategoryName' }
   messages:
     en: "Empty the category '{categoryName}' before removing it."
     fr: "Videz la catégorie '{categoryName}' avant de la supprimer."
 
 ProductNotFound:
-  description: "No product with this id in the menu."
+  description: "No product with this id in the catalog."
   context:
     productId: { $ref: 'scalars.yaml#/ProductId' }
   messages:
     en: "Product not found."
     fr: "Produit introuvable."
 
-ProductMustHaveVariant:
-  description: "A product must keep at least one variant."
+ProductMustHaveOffer:
+  description: "A product must keep at least one offer."
   context:
     productId: { $ref: 'scalars.yaml#/ProductId' }
     productName: { $ref: 'scalars.yaml#/ProductName' }
   messages:
-    en: "'{productName}' must keep at least one variant."
-    fr: "'{productName}' doit conserver au moins une variante."
+    en: "'{productName}' must keep at least one offer."
+    fr: "'{productName}' doit conserver au moins une offere."
 
 OptionListNotFound:
-  description: "No option list with this id in the menu."
+  description: "No option list with this id in the catalog."
   context:
     optionListId: { $ref: 'scalars.yaml#/OptionListId' }
   messages:
@@ -271,7 +272,7 @@ InvalidSelectionBounds:
     fr: "Dans '{optionListName}', le minimum ne peut pas dépasser le maximum de sélections."
 
 OptionListInUse:
-  description: "Option list is still referenced by a variant and cannot be removed."
+  description: "Option list is still referenced by a offer and cannot be removed."
   context:
     optionListId: { $ref: 'scalars.yaml#/OptionListId' }
     optionListName: { $ref: 'scalars.yaml#/OptionListName' }
@@ -279,23 +280,23 @@ OptionListInUse:
     en: "The option list '{optionListName}' is still used by a product."
     fr: "La liste d'options '{optionListName}' est encore utilisée par un produit."
 
-VariantNotFound:
-  description: "No variant with this id in the menu."
+OfferNotFound:
+  description: "No offer with this id in the catalog."
   context:
-    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    offerId: { $ref: 'scalars.yaml#/OfferId' }
   messages:
-    en: "Product variant not found."
-    fr: "Variante de produit introuvable."
+    en: "Product offer not found."
+    fr: "Offere de produit introuvable."
 
-VariantNotStockTracked:
-  description: "Variant is not stock-tracked, so its stock cannot be set."
+OfferNotStockTracked:
+  description: "Offer is not stock-tracked, so its stock cannot be set."
   context:
-    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    offerId: { $ref: 'scalars.yaml#/OfferId' }
     productName: { $ref: 'scalars.yaml#/ProductName' }
-    variantName: { $ref: 'scalars.yaml#/VariantName' }
+    offerName: { $ref: 'scalars.yaml#/OfferName' }
   messages:
-    en: "'{productName}' ({variantName}) does not track stock."
-    fr: "'{productName}' ({variantName}) ne suit pas de stock."
+    en: "'{productName}' ({offerName}) does not track stock."
+    fr: "'{productName}' ({offerName}) ne suit pas de stock."
 
 CatalogTranslationFailed:
   description: "The ACL could not map external (HubRise) shapes to domain types on import."
@@ -315,41 +316,41 @@ MissingRef:
 # Availability & stock (shared by cart and checkout)
 # =====================================================================
 
-VariantUnavailable:
-  description: "Variant availability is UNAVAILABLE (manual flag)."
+OfferUnavailable:
+  description: "Offer availability is UNAVAILABLE (manual flag)."
   context:
-    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    offerId: { $ref: 'scalars.yaml#/OfferId' }
     productName: { $ref: 'scalars.yaml#/ProductName' }
-    variantName: { $ref: 'scalars.yaml#/VariantName' }
+    offerName: { $ref: 'scalars.yaml#/OfferName' }
   messages:
-    en: "'{productName}' ({variantName}) is currently unavailable."
-    fr: "'{productName}' ({variantName}) est actuellement indisponible."
+    en: "'{productName}' ({offerName}) is currently unavailable."
+    fr: "'{productName}' ({offerName}) est actuellement indisponible."
 
 InsufficientStock:
   description: "Requested quantity exceeds available stock."
   context:
-    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    offerId: { $ref: 'scalars.yaml#/OfferId' }
     productName: { $ref: 'scalars.yaml#/ProductName' }
-    variantName: { $ref: 'scalars.yaml#/VariantName' }
+    offerName: { $ref: 'scalars.yaml#/OfferName' }
     requested: { $ref: 'scalars.yaml#/Quantity' }
     available: { $ref: 'scalars.yaml#/Quantity' }
   messages:
-    en: "Only {available} left of '{productName}' ({variantName}), but {requested} were requested."
-    fr: "Il ne reste que {available} de '{productName}' ({variantName}), mais {requested} ont été demandés."
+    en: "Only {available} left of '{productName}' ({offerName}), but {requested} were requested."
+    fr: "Il ne reste que {available} de '{productName}' ({offerName}), mais {requested} ont été demandés."
 
 QuantityExceedsLimit:
   description: "Requested quantity exceeds the per-line maximum."
   context:
-    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    offerId: { $ref: 'scalars.yaml#/OfferId' }
     productName: { $ref: 'scalars.yaml#/ProductName' }
   messages:
     en: "You can't order that many of '{productName}'."
     fr: "Vous ne pouvez pas commander autant de '{productName}'."
 
 InvalidOptionSelection:
-  description: "A selected option does not belong to the variant, or violates the option list's min/max."
+  description: "A selected option does not belong to the offer, or violates the option list's min/max."
   context:
-    variantId: { $ref: 'scalars.yaml#/VariantId' }
+    offerId: { $ref: 'scalars.yaml#/OfferId' }
     productName: { $ref: 'scalars.yaml#/ProductName' }
   messages:
     en: "Invalid option selection for '{productName}'."
@@ -415,6 +416,13 @@ PhoneNotVerified:
     en: "Please verify the phone number '{phone}' first."
     fr: "Veuillez d'abord vérifier le numéro '{phone}'."
 
+CustomerNotFound:
+  description: "No Customer resolves to the given authRef/phone (e.g. identifying before registration)."
+  context: {}
+  messages:
+    en: "No customer account found. Please register first."
+    fr: "Aucun compte client trouvé. Veuillez d'abord vous inscrire."
+
 # =====================================================================
 # Order
 # =====================================================================
@@ -435,6 +443,30 @@ InvalidOrderStatus:
   messages:
     en: "This action is not allowed while the order is '{currentStatus}'."
     fr: "Cette action n'est pas autorisée tant que la commande est '{currentStatus}'."
+
+OrderAlreadyRated:
+  description: "The delivery (rider thumb) has already been rated for this order; final."
+  context:
+    orderId: { $ref: 'scalars.yaml#/OrderId' }
+  messages:
+    en: "You have already rated this delivery."
+    fr: "Vous avez déjà noté cette livraison."
+
+RestaurantAlreadyRated:
+  description: "The restaurant has already been rated for this order; final (one per order)."
+  context:
+    orderId: { $ref: 'scalars.yaml#/OrderId' }
+  messages:
+    en: "You have already rated the restaurant for this order."
+    fr: "Vous avez déjà noté le restaurant pour cette commande."
+
+RiderAlreadyTipped:
+  description: "The rider has already been tipped for this order."
+  context:
+    orderId: { $ref: 'scalars.yaml#/OrderId' }
+  messages:
+    en: "You have already tipped the rider for this order."
+    fr: "Vous avez déjà laissé un pourboire au livreur pour cette commande."
 
 DeliveryAddressRequired:
   description: "serviceType is DELIVERY but no delivery address was provided."

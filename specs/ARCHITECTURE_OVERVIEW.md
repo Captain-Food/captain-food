@@ -16,13 +16,13 @@ Primary goals for V0:
 For V0 we only ship:
 
 - Customer-facing app:
-  - Browse restaurants and menus.
+  - Browse restaurants and catalogs.
   - Place orders (delivery or pickup).
   - Pay online via Stripe.
   - Track order status.
 
 - Admin app (for founder/ops):
-  - Onboard restaurants (create/update restaurants and menus).
+  - Onboard restaurants (create/update restaurants and catalogs).
   - View/manage orders.
   - Manage restaurant subdomains.
   - Basic monitoring and troubleshooting.
@@ -63,7 +63,7 @@ DNS assumptions:
 - Tenant resolution is done at runtime based on the `Host` header.
 
 Identification & checkout origin:
-- Customers browse menus on per-restaurant subdomains, but **identification (phone OTP) and
+- Customers browse catalogs on per-restaurant subdomains, but **identification (phone OTP) and
   checkout must run on a single origin** — `captain.food` — rather than the restaurant subdomain.
 - Reason: biometric re-authentication uses WebAuthn passkeys (Supabase Auth), which bind to a
   Relying Party ID (`captain.food`) with a small, fixed number of allowed origins (≤5). Enrolling
@@ -133,8 +133,9 @@ We are simply:
 
 Aggregates:
 
-- Restaurant
-- Menu / MenuItem
+- RestaurantAccount (HubRise *restaurant*) / Restaurant (HubRise *location*)
+- Catalog (HubRise *catalog*) — holds CatalogCategory / Product / Offer / OptionList
+- Cart
 - Order
 - Customer
 - DeliveryJob (optional, depending on integration with delivery partners)
@@ -147,11 +148,13 @@ Restaurant:
 - `RestaurantActivated`
 - `RestaurantDeactivated`
 
-Menu:
-- `MenuCreated`
-- `MenuItemAdded`
-- `MenuItemUpdated`
-- `MenuItemRemoved`
+Catalog:
+- `CatalogCreated`
+- `CatalogCategoryAdded`
+- `ProductAdded`
+- `ProductUpdated`
+- `ProductRemoved`
+- `OfferStockUpdated`
 
 Order:
 - `OrderPlaced`
@@ -215,7 +218,7 @@ V0 hosting assumptions:
 - Database: PostgreSQL managed (Supabase or equivalent).
 
 API protection — role = path, one schema per role:
-- It is **one app and one master GraphQL schema** ([specs/schema.graphql](specs/schema.graphql)), but
+- It is **one app and one master GraphQL schema** ([specs/api.yaml](specs/api.yaml)), but
   it is exposed under **per-role paths**, and the caller's role is established by the path:
   - `api.captain.food/public/graphql`     → `PUBLIC`     (anonymous visitor)
   - `api.captain.food/customer/graphql`   → `CUSTOMER`   (authenticated end user)

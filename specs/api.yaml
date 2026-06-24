@@ -1,0 +1,535 @@
+version: 1
+description: >
+  Captain.Food API surface (GraphQL ports) — SOURCE OF TRUTH for operations, payloads and the ACL.
+  Reuses scalars.yaml (scalars/enums), entities.yaml (output-type shapes), commands.yaml (mutation
+  inputs, derived from the dispatched command) and views.yaml (read models + FK navigation).
+  The GraphQL SDL is GENERATED from this file to tools/codegen/out/schema.generated.graphql
+  (the hand-written schema.graphql has been removed) — do not hand-edit the SDL.
+
+  Conventions:
+    - vocabulary : JSON-Schema standard — a type lists its `properties`; a field is `array: true`
+                   (not `list`), `required: true` (non-null arg) or `nullable: true` (optional field).
+                   Cross-references ALWAYS use `$ref`, never a bare name string.
+    - types      : the GraphQL OUTPUT-TYPE REGISTRY. Each entry is a resolver:
+                     · shape : declared INLINE via `properties` — the read/API shape, DECOUPLED from
+                               entities.yaml (the write/domain shape, which may differ); the bound view
+                               is its source of truth. Fields reference scalars/value-objects by `$ref`;
+                               shared value objects with no API divergence are emitted from entities.yaml
+                               and referenced, not re-declared.
+                     · reads : `reads: [{ $ref: 'views.yaml#/View_* }]` is the view(s) that populate the
+                               type (→ @reads). Omitted for boundary types returned via a mutation
+                               payload. FK navigation (e.g. Restaurant.catalogs) is derived from views.yaml.
+    - queries    : `returns` is `{ $ref: '#/types/<Type>' }`. The query's `@reads` is INHERITED from the
+                   return type's binding — reads are declared on the TYPE, never on the query.
+    - mutations  : `command` is `{ $ref: 'commands.yaml#/<Command>' }` (→ @command, must be handled by an
+                   actor). The input type is GENERATED from that command's payload (`<Command>Input`);
+                   only the GraphQL-specific bits live here (roles, slice, result payload).
+                   `payload` lists the MINIMAL extra result fields; `correlationId: CorrelationId!` is
+                   ALWAYS added by the generator, so a payload can grow without breaking clients.
+    - roles      : list of scalars.yaml#/UserType values. [PUBLIC] alone → @public; otherwise
+                   → @auth(requires: [...]). PUBLIC may be combined (anonymous-or-authenticated).
+    - slice      : V0 | V1.
+
+# --- Output-type registry (GraphQL types → INLINE shape + backing read model) ---------------------
+# Each entry is a resolver. Its shape is declared INLINE via `properties` — the READ/API shape, which
+# the bound View_* is the source of truth for — DECOUPLED from entities.yaml (the write/domain shape,
+# which may differ: the read shape adds presentation fields like images and derived status, and drops
+# write-only internals). Catalog domain types (CatalogCategory/Product/Offer/OptionList/Option) are dedicated
+# API types here, NOT entities.yaml refs. Only true value objects with no read/write divergence
+# (Address, Money, TaxRate, OpeningHoursSlot, OrderLineItem, SelectedOption) are emitted from
+# entities.yaml and referenced by `$ref`. FK navigation (e.g. Restaurant.catalogs) is derived from views.yaml.
+types:
+
+  Restaurant:
+    description: "A restaurant (public discovery + single-restaurant header). Navigates to its catalogs."
+    reads: [{ $ref: 'views.yaml#/View_Restaurant' }]
+    properties:
+      id: { $ref: 'scalars.yaml#/RestaurantId' }
+      accountId: { $ref: 'scalars.yaml#/RestaurantAccountId' }
+      slug: { $ref: 'scalars.yaml#/Slug' }
+      displayName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
+      description: { type: string, nullable: true }   # free text — no domain scalar (matches the view column)
+      tags: { $ref: 'scalars.yaml#/Tag', array: true }
+      address: { $ref: 'entities.yaml#/Address' }
+      openingHours: { $ref: 'entities.yaml#/OpeningHoursSlot', array: true }
+      status: { $ref: 'scalars.yaml#/RestaurantStatus' }
+      orderAcceptance: { $ref: 'scalars.yaml#/OrderAcceptanceMode' }
+      defaultCurrency: { $ref: 'scalars.yaml#/CurrencyCode' }
+      timezone: { $ref: 'scalars.yaml#/TimeZone', nullable: true }
+      preparationTimeMinutes: { type: integer, nullable: true }
+      updatedAt: { type: string, format: date-time }
+  Catalog:
+    description: "A restaurant's catalog (categories → products → offers + option lists)."
+    reads: [{ $ref: 'views.yaml#/View_Catalog' }]
+    properties:
+      id: { $ref: 'scalars.yaml#/CatalogId' }
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+      slug: { $ref: 'scalars.yaml#/Slug' }
+      name: { $ref: 'scalars.yaml#/CatalogName' }
+      categories: { $ref: '#/types/CatalogCategory', array: true }   # assembled from View_Catalog.catalog
+      products: { $ref: '#/types/Product', array: true }
+      optionLists: { $ref: '#/types/OptionList', array: true }
+      updatedAt: { type: string, format: date-time }
+  Cart:
+    description: "A customer's in-progress selection for a single restaurant (priced by the projection)."
+    reads: [{ $ref: 'views.yaml#/View_Cart' }]
+    properties:
+      id: { $ref: 'scalars.yaml#/CartId' }
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+      customerId: { $ref: 'scalars.yaml#/CustomerId', nullable: true }
+      status: { $ref: 'scalars.yaml#/CartStatus' }
+      lines: { $ref: 'entities.yaml#/OrderLineItem', array: true }   # read lines are priced (same shape as order lines)
+      totalAmount: { $ref: 'entities.yaml#/Money' }
+      updatedAt: { type: string, format: date-time }
+  Order:
+    description: "An order with its tracking status and payment state."
+    reads: [{ $ref: 'views.yaml#/View_OrderTracking' }]
+    properties:
+      id: { $ref: 'scalars.yaml#/OrderId' }
+      ref: { $ref: 'scalars.yaml#/ExternalReference' }
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+      customerId: { $ref: 'scalars.yaml#/CustomerId', nullable: true }
+      status: { $ref: 'scalars.yaml#/OrderStatus' }
+      serviceType: { $ref: 'scalars.yaml#/ServiceType' }
+      items: { $ref: 'entities.yaml#/OrderLineItem', array: true }
+      totalAmount: { $ref: 'entities.yaml#/Money' }
+      deliveryAddress: { $ref: 'entities.yaml#/Address', nullable: true }
+      estimatedReadyAt: { type: string, format: date-time, nullable: true }
+      placedAt: { type: string, format: date-time }
+      statusChangedAt: { type: string, format: date-time }
+      paymentStatus: { type: string }   # folded from Stripe facts (candidate for a PaymentStatus enum)
+      restaurantStars: { $ref: 'scalars.yaml#/StarRating', nullable: true }   # null until rated
+      ratingComment: { $ref: 'scalars.yaml#/RatingComment', nullable: true }
+      riderThumb: { $ref: 'scalars.yaml#/ThumbRating', nullable: true }
+      riderTip: { $ref: 'entities.yaml#/Money', nullable: true }
+      ratedAt: { type: string, format: date-time, nullable: true }
+
+  # Catalog sub-types — the read/API shape, assembled within View_Catalog.catalog. Dedicated API
+  # types (NOT entities.yaml refs): the read shape carries presentation fields (images) and a DERIVED
+  # stockStatus, whereas the write entity carries raw Stock and write-only internals.
+  CatalogCategory:
+    description: "A catalog category (tree via parentRef)."
+    reads: [{ $ref: 'views.yaml#/View_Catalog' }]   # category tree is assembled from the catalog projection
+    properties:
+      id: { $ref: 'scalars.yaml#/ProductCategoryId' }
+      parentRef: { $ref: 'scalars.yaml#/ExternalReference', nullable: true }
+      name: { $ref: 'scalars.yaml#/CatalogCategoryName' }
+      description: { $ref: 'scalars.yaml#/ProductDescription', nullable: true }
+      tags: { $ref: 'scalars.yaml#/Tag', array: true }
+      imageIds: { $ref: 'scalars.yaml#/ImageId', array: true }
+  Product:
+    description: "A catalog product grouping one or more purchasable offers."
+    properties:
+      id: { $ref: 'scalars.yaml#/ProductId' }
+      categoryRef: { $ref: 'scalars.yaml#/ExternalReference', nullable: true }
+      name: { $ref: 'scalars.yaml#/ProductName' }
+      description: { $ref: 'scalars.yaml#/ProductDescription', nullable: true }
+      tags: { $ref: 'scalars.yaml#/Tag', array: true }
+      imageIds: { $ref: 'scalars.yaml#/ImageId', array: true }
+      taxRate: { $ref: 'entities.yaml#/TaxRate' }
+      offers: { $ref: '#/types/Offer', array: true }
+  Offer:
+    description: "A purchasable offer (SKU) of a product, with its price and derived availability."
+    properties:
+      id: { $ref: 'scalars.yaml#/OfferId' }
+      name: { $ref: 'scalars.yaml#/OfferName' }
+      price: { $ref: 'entities.yaml#/Money' }
+      availability: { $ref: 'scalars.yaml#/CatalogItemAvailability' }
+      stockStatus: { $ref: 'scalars.yaml#/StockStatus' }   # DERIVED (quantity vs lowStockThreshold)
+      optionListIds: { $ref: 'scalars.yaml#/OptionListId', array: true }
+  OptionList:
+    description: "A modifier group (HubRise option list)."
+    properties:
+      id: { $ref: 'scalars.yaml#/OptionListId' }
+      name: { $ref: 'scalars.yaml#/OptionListName' }
+      minSelections: { type: integer }
+      maxSelections: { type: integer, nullable: true }
+      multipleSelection: { type: boolean }
+      options: { $ref: '#/types/Option', array: true }
+  Option:
+    description: "A selectable option within an option list."
+    properties:
+      id: { $ref: 'scalars.yaml#/OptionId' }
+      name: { $ref: 'scalars.yaml#/OptionName' }
+      price: { $ref: 'entities.yaml#/Money' }
+      default: { type: boolean }
+      availability: { $ref: 'scalars.yaml#/CatalogItemAvailability' }
+      stockStatus: { $ref: 'scalars.yaml#/StockStatus', nullable: true }   # DERIVED; null when not stock-tracked
+
+  # Boundary / projection types with no dedicated entity OR view (shape is fully inline).
+  CustomerProfile:
+    description: >
+      A customer's own profile (display name + contact). Backed by the identity read model; surfaced
+      to the customer only (profile management is V1 — no V0 query yet).
+    reads: [{ $ref: 'views.yaml#/View_Customer' }]
+    properties:
+      customerId: { $ref: 'scalars.yaml#/CustomerId' }
+      displayName: { $ref: 'scalars.yaml#/CustomerDisplayName', nullable: true }
+      email: { $ref: 'scalars.yaml#/EmailAddress', nullable: true }
+      phone: { $ref: 'scalars.yaml#/PhoneNumber' }
+      locale: { $ref: 'scalars.yaml#/Locale', nullable: true }
+      timezone: { $ref: 'scalars.yaml#/TimeZone', nullable: true }
+  PaymentIntent:
+    description: >
+      Stripe PaymentIntent handle for the checkout step. NON-PROJECTED (transient): it is returned via
+      the PlaceOrder mutation payload, never read through a View_* — hence no `reads`.
+    properties:
+      paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
+      clientSecret: { type: string }
+      status: { type: string }
+  Rider:
+    description: >
+      Delivery courier. POST-V0 placeholder — delivery is not modelled as an aggregate yet, so this
+      type carries no backing view and uses a minimal shape until the delivery domain lands.
+    properties:
+      riderId: { $ref: 'scalars.yaml#/RiderId' }
+      displayName: { type: string }
+      phone: { $ref: 'scalars.yaml#/PhoneNumber', nullable: true }
+
+# --- Reads (queries) ------------------------------------------------------------------------------
+# A query declares only its args, return type (`$ref` into `#/types`), roles and slice. `@reads` is
+# INHERITED from the return type's binding above (reads live on the type, not the query).
+queries:
+
+  me:
+    description: "The signed-in customer's own profile (resolves the session authRef → Customer via View_Customer)."
+    returns: { $ref: '#/types/CustomerProfile', nullable: true }
+    roles: [CUSTOMER]
+    slice: V1
+  favoriteRestaurants:
+    description: "The customer's favorited restaurants (View_Customer.favorite_restaurant_ids joined to View_Restaurant)."
+    args:
+      customerId: { $ref: 'scalars.yaml#/CustomerId', required: true }
+    returns: { $ref: '#/types/Restaurant', array: true }
+    roles: [CUSTOMER]
+    slice: V1
+
+  restaurants:
+    description: >
+      Discover: public list of restaurants. All args are optional filters resolved by the read side
+      (View_Restaurant); the query returns only matching restaurants. `list` selects a curated/
+      personalized shelf (the read model resolves its members).
+    args:
+      search: { type: string }                              # free-text name match
+      tags: { $ref: 'scalars.yaml#/Tag', array: true }      # cuisine/attribute tags (ALL must match)
+      serviceType: { $ref: 'scalars.yaml#/ServiceType' }    # offers DELIVERY or COLLECTION
+      openNow: { type: boolean }                            # currently within opening hours
+      city: { $ref: 'scalars.yaml#/CityName' }
+      priceRange: { $ref: 'scalars.yaml#/PriceRange' }
+      list: { $ref: 'scalars.yaml#/RestaurantListKey' }     # curated/personalized shelf (e.g. ORDER_AGAIN)
+    returns: { $ref: '#/types/Restaurant', array: true }
+    roles: [PUBLIC]
+    slice: V0
+
+  catalog:
+    description: "A restaurant's full catalog (categories → products → offers + option lists)."
+    args:
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId', required: true }
+    returns: { $ref: '#/types/Catalog', nullable: true }
+    roles: [PUBLIC]
+    slice: V0
+  categories:
+    description: >
+      The category tree of a restaurant's catalog (for filtering & product discovery). Derived from
+      View_Catalog.catalog — categories are not a separate aggregate, so there is no dedicated view.
+    args:
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId', required: true }
+    returns: { $ref: '#/types/CatalogCategory', array: true }
+    roles: [PUBLIC]
+    slice: V0
+  restaurant:
+    description: "A restaurant + its catalog by slug (multi-tenant resolution by Host or /r/{slug})."
+    args:
+      slug: { $ref: 'scalars.yaml#/Slug', required: true }
+    returns: { $ref: '#/types/Restaurant', nullable: true }
+    roles: [PUBLIC]
+    slice: V0
+
+  carts:
+    description: "A customer's carts (one OPEN cart per restaurant)."
+    args:
+      customerId: { $ref: 'scalars.yaml#/CustomerId', required: true }
+    returns: { $ref: '#/types/Cart', array: true }
+    roles: [CUSTOMER, ADMIN]
+    slice: V0
+  cart:
+    description: "A single cart by id (session-scoped; readable by the guest/customer who owns it)."
+    args:
+      id: { $ref: 'scalars.yaml#/CartId', required: true }
+    returns: { $ref: '#/types/Cart', nullable: true }
+    roles: [PUBLIC]
+    slice: V0
+
+  orders:
+    description: >
+      Orders, optionally scoped by customer and/or restaurant and filtered by status. Serves both the
+      customer's own history and the restaurant back-office queue; ownership/scope enforced server-side.
+    args:
+      customerId: { $ref: 'scalars.yaml#/CustomerId' }
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+      status: { $ref: 'scalars.yaml#/OrderStatus' }
+    returns: { $ref: '#/types/Order', array: true }
+    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]
+    slice: V0
+  order:
+    description: "Order tracking by id; owning customer or the restaurant/admin. Ownership enforced server-side."
+    args:
+      id: { $ref: 'scalars.yaml#/OrderId', required: true }
+    returns: { $ref: '#/types/Order', nullable: true }
+    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]
+    slice: V0
+
+  restaurantLocationsByAccount:
+    description: "All restaurant locations under an account (back-office; ownership enforced server-side)."
+    args:
+      accountId: { $ref: 'scalars.yaml#/RestaurantAccountId', required: true }
+    returns: { $ref: '#/types/Restaurant', array: true }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+
+
+
+
+# --- Writes (mutations) ---------------------------------------------------------------------------
+# One mutation = one command. The input type is GENERATED from the command's payload in commands.yaml
+# (`<Command>Input`), so commands are NOT re-described here — only the GraphQL-specific parts are:
+# `roles` (→ @auth/@public), `slice`, and the result `payload`. `correlationId: CorrelationId!` is
+# auto-added to every payload. IDs are client-generated (sent in the command), so payloads carry only
+# what the client could NOT know: server-resolved/external values.
+mutations:
+
+  addCartLine:
+    command: { $ref: 'commands.yaml#/AddCartLine' }
+    roles: [PUBLIC]
+    slice: V0
+    payload: {}
+  removeCartLine:
+    command: { $ref: 'commands.yaml#/RemoveCartLine' }
+    roles: [PUBLIC]
+    slice: V0
+    payload: {}
+  changeCartLineQuantity:
+    command: { $ref: 'commands.yaml#/ChangeCartLineQuantity' }
+    roles: [PUBLIC]
+    slice: V0
+    payload: {}
+
+  registerRestaurantAccount:
+    command: { $ref: 'commands.yaml#/RegisterRestaurantAccount' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]   # platform onboarding OR owner self-signup
+    slice: V0
+    payload: {}
+  updateRestaurantAccount:
+    command: { $ref: 'commands.yaml#/UpdateRestaurantAccount' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  deleteRestaurantAccount:
+    command: { $ref: 'commands.yaml#/DeleteRestaurantAccount' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  registerRestaurant:
+    command: { $ref: 'commands.yaml#/RegisterRestaurant' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V0
+    payload: {}
+  activateRestaurant:
+    command: { $ref: 'commands.yaml#/ActivateRestaurant' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V0
+    payload: {}
+  updateRestaurant:
+    command: { $ref: 'commands.yaml#/UpdateRestaurant' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  deactivateRestaurant:
+    command: { $ref: 'commands.yaml#/DeactivateRestaurant' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  removeRestaurant:
+    command: { $ref: 'commands.yaml#/RemoveRestaurant' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  changeOrderAcceptanceMode:
+    command: { $ref: 'commands.yaml#/ChangeOrderAcceptanceMode' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+
+  createCatalog:
+    command: { $ref: 'commands.yaml#/CreateCatalog' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V0
+    payload: {}
+  addProduct:
+    command: { $ref: 'commands.yaml#/AddProduct' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V0
+    payload: {}
+  updateProduct:
+    command: { $ref: 'commands.yaml#/UpdateProduct' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  removeProduct:
+    command: { $ref: 'commands.yaml#/RemoveProduct' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  addCatalogCategory:
+    command: { $ref: 'commands.yaml#/AddCatalogCategory' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  updateCatalogCategory:
+    command: { $ref: 'commands.yaml#/UpdateCatalogCategory' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  removeCatalogCategory:
+    command: { $ref: 'commands.yaml#/RemoveCatalogCategory' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  addOptionList:
+    command: { $ref: 'commands.yaml#/AddOptionList' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  updateOptionList:
+    command: { $ref: 'commands.yaml#/UpdateOptionList' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  removeOptionList:
+    command: { $ref: 'commands.yaml#/RemoveOptionList' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  updateOfferStock:
+    command: { $ref: 'commands.yaml#/UpdateOfferStock' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  importCatalog:
+    command: { $ref: 'commands.yaml#/ImportCatalog' }
+    roles: [ADMIN, RESTAURANT_ACCOUNT, EXTERNAL]
+    slice: V1
+    payload: {}
+
+  registerCustomer:
+    command: { $ref: 'commands.yaml#/RegisterCustomer' }
+    roles: [PUBLIC, CUSTOMER]   # an anonymous visitor registers (first phone verification)
+    slice: V0
+    payload:
+      customerId: { $ref: 'scalars.yaml#/CustomerId' }
+      created: { type: boolean }
+  identifyCustomer:
+    command: { $ref: 'commands.yaml#/IdentifyCustomer' }
+    roles: [PUBLIC, CUSTOMER]   # a returning visitor signs in / identifies
+    slice: V1
+    payload:
+      customerId: { $ref: 'scalars.yaml#/CustomerId' }
+  markRestaurantAsFavorite:
+    command: { $ref: 'commands.yaml#/MarkRestaurantAsFavorite' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  unmarkRestaurantAsFavorite:
+    command: { $ref: 'commands.yaml#/UnmarkRestaurantAsFavorite' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  updateCustomerInfo:
+    command: { $ref: 'commands.yaml#/UpdateCustomerInfo' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  setCustomerPreferences:
+    command: { $ref: 'commands.yaml#/SetCustomerPreferences' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  setCustomerAddress:
+    command: { $ref: 'commands.yaml#/SetCustomerAddress' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  removeCustomerAddress:
+    command: { $ref: 'commands.yaml#/RemoveCustomerAddress' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  setCustomerPaymentMethod:
+    command: { $ref: 'commands.yaml#/SetCustomerPaymentMethod' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  placeOrder:
+    command: { $ref: 'commands.yaml#/PlaceOrder' }
+    roles: [CUSTOMER]
+    slice: V0
+    # orderId is client-generated (in the command); payload carries only Stripe-assigned values.
+    payload:
+      paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
+      clientSecret: { type: string }
+
+  acceptOrder:
+    command: { $ref: 'commands.yaml#/AcceptOrder' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V0
+    payload: {}
+  rejectOrder:
+    command: { $ref: 'commands.yaml#/RejectOrder' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V0
+    payload: {}
+  startPreparation:
+    command: { $ref: 'commands.yaml#/StartPreparation' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  markOrderReady:
+    command: { $ref: 'commands.yaml#/MarkOrderReady' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V0
+    payload: {}
+  markOrderDelivered:
+    command: { $ref: 'commands.yaml#/MarkOrderDelivered' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT, RIDER]
+    slice: V0
+    payload: {}
+  cancelOrderByCustomer:
+    command: { $ref: 'commands.yaml#/CancelOrderByCustomer' }
+    roles: [CUSTOMER]
+    slice: V0
+    payload: {}
+  cancelOrderByRestaurant:
+    command: { $ref: 'commands.yaml#/CancelOrderByRestaurant' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V1
+    payload: {}
+  rateOrder:
+    command: { $ref: 'commands.yaml#/RateOrder' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  rateRestaurant:
+    command: { $ref: 'commands.yaml#/RateRestaurant' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  tipRider:
+    command: { $ref: 'commands.yaml#/TipRider' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  requestRefund:
+    command: { $ref: 'commands.yaml#/RequestRefund' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}

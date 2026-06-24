@@ -2,7 +2,7 @@
 
 End-to-end wiring, so nothing is missed: who triggers what, which handler runs, and what the reads
 are backed by. This is a **derived cross-reference** over [commands.yaml](commands.yaml) (`actor`),
-[schema.graphql](schema.graphql) (operations + `@auth`), [actors.yaml](actors.yaml) (handlers),
+[api.yaml](api.yaml) (operations + `@auth`), [actors.yaml](actors.yaml) (handlers),
 [events.yaml](events.yaml) and [database.md](database.md) (views) — it defines nothing new and can be
 regenerated/validated from those files.
 
@@ -19,14 +19,14 @@ Personas map 1:1 to GraphQL paths/roles: `PUBLIC` · `CUSTOMER` · `RESTAURANT` 
 | ADMIN | `activateRestaurant` | ActivateRestaurant | `Restaurant` | RestaurantActivated |
 | ADMIN | `updateRestaurant` | UpdateRestaurant | `Restaurant` | RestaurantUpdated |
 | ADMIN | `deactivateRestaurant` | DeactivateRestaurant | `Restaurant` | RestaurantDeactivated |
-| RESTAURANT | `changeAcceptanceMode` | ChangeAcceptanceMode | `Restaurant` | RestaurantAcceptanceModeChanged |
-| ADMIN | `createMenu` | CreateMenu | `Menu` (aggregate) | MenuCreated |
-| ADMIN | `addProduct` | AddProduct | `Menu` | ProductAdded |
-| ADMIN | `updateProduct` / `removeProduct` | UpdateProduct / RemoveProduct | `Menu` | ProductUpdated / ProductRemoved |
-| ADMIN | `addCategory` / `updateCategory` / `removeCategory` | Add/Update/RemoveCategory | `Menu` | Category{Added,Updated,Removed} |
-| ADMIN | `addOptionList` / `updateOptionList` / `removeOptionList` | Add/Update/RemoveOptionList | `Menu` | OptionList{Added,Updated,Removed} |
-| ADMIN | `updateVariantStock` | UpdateVariantStock | `Menu` | VariantStockUpdated |
-| ADMIN · EXTERNAL | `importCatalog` | ImportCatalog | `Menu` | CatalogImported |
+| RESTAURANT | `changeOrderAcceptanceMode` | ChangeOrderAcceptanceMode | `Restaurant` | RestaurantAcceptanceModeChanged |
+| ADMIN | `createCatalog` | CreateCatalog | `Catalog` (aggregate) | CatalogCreated |
+| ADMIN | `addProduct` | AddProduct | `Catalog` | ProductAdded |
+| ADMIN | `updateProduct` / `removeProduct` | UpdateProduct / RemoveProduct | `Catalog` | ProductUpdated / ProductRemoved |
+| ADMIN | `addCatalogCategory` / `updateCatalogCategory` / `removeCatalogCategory` | Add/Update/RemoveCatalogCategory | `Catalog` | CatalogCategory{Added,Updated,Removed} |
+| ADMIN | `addOptionList` / `updateOptionList` / `removeOptionList` | Add/Update/RemoveOptionList | `Catalog` | OptionList{Added,Updated,Removed} |
+| ADMIN | `updateOfferStock` | UpdateOfferStock | `Catalog` | OfferStockUpdated |
+| ADMIN · EXTERNAL | `importCatalog` | ImportCatalog | `Catalog` | CatalogImported |
 | PUBLIC (guest) | `addCartLine` | AddCartLine | `Cart` (aggregate) | CartStarted, CartLineAdded |
 | PUBLIC (guest) | `removeCartLine` | RemoveCartLine | `Cart` | CartLineRemoved |
 | PUBLIC (guest) | `changeCartLineQuantity` | ChangeCartLineQuantity | `Cart` | CartLineQuantityChanged |
@@ -49,15 +49,20 @@ path-schema — a logged-in CUSTOMER edits the cart through the same operations.
 
 Resolvers read **only** `View_*` projection tables (never `domain_events`). See [database.md](database.md).
 
+The read view is bound to the returned **type** (api.yaml `types`), and each query **inherits** that
+binding (no per-query `reads`). The menu is reached via `Restaurant.catalogs` navigation.
+
 | Persona (path) | GraphQL query | Read view(s) | UI / expectation |
 |---|---|---|---|
-| PUBLIC (+ all) | `restaurants` | `View_RestaurantsPublic` (status = ACTIVE) | Discover list — §3.1 |
-| PUBLIC (+ all) | `restaurant(slug)` | `View_RestaurantsPublic` (header) + `View_RestaurantMenu` | Restaurant page + menu — §3.2 / §3.3 |
+| PUBLIC (+ all) | `restaurants` | `View_Restaurant` (status = ACTIVE) | Discover list — §3.1 |
+| PUBLIC (+ all) | `restaurant(slug)` | `View_Restaurant` → `Restaurant.catalogs` (`View_Catalog`) | Restaurant page + menu — §3.2 / §3.3 |
+| CUSTOMER · ADMIN | `carts(customerId)` | `View_Cart` (priced) | Customer's carts (one per restaurant) |
 | PUBLIC (+ all) | `cart(id)` | `View_Cart` (priced) | Cart panel — §3.3 |
+| CUSTOMER · RESTAURANT · ADMIN | `orders(customerId?, restaurantId?, status?)` | `View_OrderTracking` | Customer history + back-office queue |
 | CUSTOMER · RESTAURANT · ADMIN | `order(id)` | `View_OrderTracking` | Order tracking / single-order view — §3.6 |
-| RESTAURANT · ADMIN | `ordersByRestaurant` | `View_OrdersByRestaurant` | Back-office order queue |
-| CUSTOMER *(V1)* | *(future)* `ordersByCustomer` | `View_OrdersByCustomer` | Order history — post-V0 |
 
+`orders` consolidates the former `ordersByRestaurant` / `ordersByCustomer` (their per-persona views were
+folded into `View_OrderTracking`, queried by id / customer / restaurant+status via its indexes).
 Ownership ("this is *my* order") is enforced in the resolver/command layer, not by the path alone.
 
 ---
@@ -71,8 +76,8 @@ REST webhook), which feeds a process-manager that drives the aggregates.
 |---|---|---|---|---|
 | Stripe | REST webhook (Stripe-controlled payload) | 📥 `PaymentCaptured` / `PaymentFailed` | `PlaceOrderProcess` | on capture: `Order` ← OrderPlaced, `Cart` ← CartCheckedOut; on failure: none (cart stays OPEN) |
 | Stripe | REST webhook | 📥 `PaymentRefunded` | `RefundProcess` | records the settled refund (requested by Reject/Cancel commands) |
-| HubRise | `/external/graphql` (ACL) | `importCatalog` command | — (validated command) | `Menu` ← CatalogImported |
-| HubRise | `/external/graphql` (ACL) | 📥 `VariantStockUpdated` (inventory sync) | — (recorded via ACL) | `Menu` ← VariantStockUpdated |
+| HubRise | `/external/graphql` (ACL) | `importCatalog` command | — (validated command) | `Catalog` ← CatalogImported |
+| HubRise | `/external/graphql` (ACL) | 📥 `OfferStockUpdated` (inventory sync) | — (recorded via ACL) | `Catalog` ← OfferStockUpdated |
 | Avelo37 (delivery) *(post-V0)* | `/external/graphql` or webhook | 📥 `DeliveryStatusUpdated` / `DeliveryAcceptedByPartner` | (delivery process — TBD) | `Order` / `DeliveryJob` (payloads not yet in events.yaml) |
 
 Note the request/report split: a refund is **requested** by a command (`RejectOrder` / `CancelOrder*`)
@@ -84,13 +89,15 @@ but the `PaymentRefunded` **fact** is **reported** by Stripe (inbound). `ImportC
 ## 4. Coverage checklist
 
 - **Every command** in [commands.yaml](commands.yaml) has (a) a GraphQL mutation in
-  [schema.graphql](schema.graphql) and (b) a handler in [actors.yaml](actors.yaml) — §1 above.
-- **Every query** in [schema.graphql](schema.graphql) has a backing `View_*` in
+  [api.yaml](api.yaml) and (b) a handler in [actors.yaml](actors.yaml) — §1 above.
+- **Every query** in [api.yaml](api.yaml) has a backing `View_*` in
   [database.md](database.md) and a named UI expectation — §2 above.
 - **Every inbound (📥) event** has a consuming process-manager — §3 above.
 - **Every event** emitted by an actor is consumed by at least one `View_*` projection
   (see the per-view "Fed by" lists in [database.md](database.md)).
 
 Gaps deliberately open (see [story-map.md](story-map.md) "Gaps to resolve"): delivery-partner event
-payloads (post-V0), `View_OrdersByCustomer` query (V1), and the `/external` ingestion ops beyond
-`importCatalog` (HubRise inventory / Avelo delivery as first-class external mutations).
+payloads (post-V0; the `Rider` type is a placeholder until a delivery aggregate lands), customer
+profile management (V1; `CustomerProfile` type backed by the internal `View_Customer`), and the
+`/external` ingestion ops beyond `importCatalog` (HubRise inventory / Avelo delivery as first-class
+external mutations).

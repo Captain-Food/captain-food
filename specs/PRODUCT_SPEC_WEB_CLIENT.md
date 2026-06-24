@@ -40,7 +40,7 @@ Constraints:
     domain event (same as OTP and sessions).
 - V1 (optional): social login (Google / Apple / Facebook), capture an optional email for receipts.
 - Gating:
-  - Browsing restaurants, viewing menus and building a cart do NOT require identification.
+  - Browsing restaurants, viewing catalogs and building a cart do NOT require identification.
   - Checkout (3.5) requires a verified phone; an anonymous visitor is prompted to verify before paying.
 - Domain impact:
   - On first verification of a new number, a `CustomerRegistered` domain event creates the
@@ -65,15 +65,15 @@ Constraints:
 - Data:
   - `GET restaurants` via GraphQL (read from `read_restaurants_public`).
 
-### 3.2 View a restaurant and its menu
+### 3.2 View a restaurant and its catalog
 
-- As a customer, I want to open a specific restaurant and view its menu quickly.
+- As a customer, I want to open a specific restaurant and view its catalog quickly.
 - UI:
   - Restaurant page at `https://{slug}.captain.food` or `https://captain.food/r/{slug}`.
   - Show:
     - Restaurant name, description, opening hours.
-    - Menu categories (starters, mains, desserts, drinks).
-    - Menu items with name, description, price, and photo.
+    - Catalog categories (starters, mains, desserts, drinks).
+    - Catalog items with name, description, price, and photo.
 - Data:
   - GraphQL query: `restaurant(slug: String!) -> Restaurant`.
 
@@ -83,7 +83,7 @@ Constraints:
   adjust quantities, and see the total — with immediate feedback if something is out of stock or
   an option choice is invalid.
 - UI:
-  - “Add to cart” button on each menu item.
+  - “Add to cart” button on each catalog item.
   - Cart summary panel:
     - List of items (name, options, quantity, unit price, line total).
     - Cart total.
@@ -183,7 +183,7 @@ Constraints:
   - Basic a11y (labels, focus states, semantic HTML).
 
 - Offline (optional V0, planned V1):
-  - We may later add a PWA service worker to allow viewing the menu offline (already described in story maps). 
+  - We may later add a PWA service worker to allow viewing the catalog offline (already described in story maps). 
 
 ## 5. Tech constraints
 

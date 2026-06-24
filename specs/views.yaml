@@ -1,0 +1,455 @@
+version: 1
+description: >
+  Captain.Food READ MODELS — the `View_*` projection (read) tables. Queries never read
+  `domain_events`; they read these denormalized, query-shaped tables, rebuilt from the event log by
+  projections. This file is the SOURCE OF TRUTH for each view: its primary source aggregate
+  (actors.yaml), the events that feed it (`$ref` into events.yaml), its business filters/rules, and
+  its columns. The query → view mapping is NOT here — a query inherits its return type's binding
+  (api.yaml `types` → `reads`), cross-validated against this file.
+
+  Conventions:
+    - name      : the table name (the top-level key), prefixed `View_` (denormalized/rebuildable,
+                  never a normalized table).
+    - aggregate : primary source aggregate; a projection may fold extra sources (see `note`).
+    - slice     : V0 | V1 (release slice).
+    - fedBy     : events consumed by the projection (`$ref` into events.yaml).
+    - filters / rules : business filters scoping the rows / derivation rules.
+    - columns   : a MAP keyed by column name → { type, pk?, unique?, index?, nullable?, fk?, note? }.
+                  `type` is ALWAYS a `$ref` into scalars.yaml for a domain scalar/enum
+                  (e.g. `{ $ref: 'scalars.yaml#/RestaurantId' }`) — never a bare name string — and an
+                  inline SQL primitive ONLY for raw storage types with no domain scalar
+                  (text | jsonb | integer | bigint | boolean | timestamptz | numeric).
+                  Money = `*_cents` (`{ $ref: 'scalars.yaml#/MoneyCents' }`) + a currency column.
+    - fk        : a `$ref` binding to the target column — `{ $ref: '#/View_Name/columns/column' }` —
+                  declaring the read-navigation graph (FK → GraphQL relation field). Never a bare string.
+    - indexes   : secondary indexes (beyond the PK), each a list of column names.
+
+View_RestaurantAccount:
+  aggregate: RestaurantAccount
+  slice: V0
+  internal: true   # admin/back-office + consulted by the RegisterRestaurant handler (account must exist); no public query
+  note: "Account read model (HubRise restaurant). Holds account-level facts shared by its locations; locations denormalize default_currency from here."
+  fedBy:
+    - { $ref: 'events.yaml#/RestaurantAccountRegistered' }
+    - { $ref: 'events.yaml#/RestaurantAccountUpdated' }
+    - { $ref: 'events.yaml#/RestaurantAccountDeleted' }
+  columns:
+    restaurant_account_id:
+      from: [{ $ref: 'events.yaml#/RestaurantAccountRegistered/properties/restaurantAccountId' }]
+      pk: true
+    ref:
+      from: [{ $ref: 'events.yaml#/RestaurantAccountRegistered/properties/ref' }]
+      nullable: true
+    legal_name:
+      from:
+        - { $ref: 'events.yaml#/RestaurantAccountRegistered/properties/legalName' }
+        - { $ref: 'events.yaml#/RestaurantAccountUpdated/properties/legalName' }
+    default_currency:
+      from: [{ $ref: 'events.yaml#/RestaurantAccountRegistered/properties/defaultCurrency' }]
+    timezone:
+      from:
+        - { $ref: 'events.yaml#/RestaurantAccountRegistered/properties/timezone' }
+        - { $ref: 'events.yaml#/RestaurantAccountUpdated/properties/timezone' }
+      nullable: true
+    updated_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/RestaurantAccountRegistered' }
+        - { $ref: 'events.yaml#/RestaurantAccountUpdated' }
+      note: "Row write time, stamped on each event."
+
+View_Restaurant:
+  aggregate: Restaurant
+  slice: V0
+  fedBy:
+    - { $ref: 'events.yaml#/RestaurantRegistered' }
+    - { $ref: 'events.yaml#/RestaurantUpdated' }
+    - { $ref: 'events.yaml#/RestaurantActivated' }
+    - { $ref: 'events.yaml#/RestaurantDeactivated' }
+    - { $ref: 'events.yaml#/RestaurantAcceptanceModeChanged' }
+    - { $ref: 'events.yaml#/RestaurantRemoved' }
+    - { $ref: 'events.yaml#/RestaurantAccountRegistered' }   # folds the account's default_currency onto its locations
+  columns:
+    restaurant_id:
+      from: [{ $ref: 'events.yaml#/RestaurantRegistered/properties/restaurantId' }]
+      pk: true
+    restaurant_account_id:
+      from: [{ $ref: 'events.yaml#/RestaurantRegistered/properties/accountId' }]
+      index: true
+      fk: { $ref: '#/View_RestaurantAccount/columns/restaurant_account_id' }
+    slug:
+      from: [{ $ref: 'events.yaml#/RestaurantRegistered/properties/slug' }]
+      unique: true
+    display_name:
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered/properties/displayName' }
+        - { $ref: 'events.yaml#/RestaurantUpdated/properties/displayName' }
+    description:
+      type: text
+      nullable: true
+      note: "⚠️ HOLE: no event carries a restaurant description — nothing populates this column yet."
+    tags:
+      type: jsonb
+      note: "⚠️ HOLE: no event carries restaurant tags — nothing populates this column yet."
+    address:
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered/properties/address' }
+        - { $ref: 'events.yaml#/RestaurantUpdated/properties/address' }
+    opening_hours:
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered/properties/openingHours' }
+        - { $ref: 'events.yaml#/RestaurantUpdated/properties/openingHours' }
+    status:
+      type: { $ref: 'scalars.yaml#/RestaurantStatus' }
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered' }
+        - { $ref: 'events.yaml#/RestaurantActivated' }
+        - { $ref: 'events.yaml#/RestaurantDeactivated' }
+        - { $ref: 'events.yaml#/RestaurantRemoved' }
+      note: "Derived from the lifecycle event type: DRAFT on register, ACTIVE/INACTIVE on (de)activation."
+    order_acceptance:
+      from: [{ $ref: 'events.yaml#/RestaurantAcceptanceModeChanged/properties/mode' }]
+    default_currency:
+      from: [{ $ref: 'events.yaml#/RestaurantAccountRegistered/properties/defaultCurrency' }]
+    timezone:
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered/properties/timezone' }
+        - { $ref: 'events.yaml#/RestaurantUpdated/properties/timezone' }
+      nullable: true
+      note: "Location timezone; falls back to the account's when null."
+    preparation_time_minutes:
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered/properties/preparationTimeMinutes' }
+        - { $ref: 'events.yaml#/RestaurantUpdated/properties/preparationTimeMinutes' }
+      nullable: true
+    updated_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered' }
+        - { $ref: 'events.yaml#/RestaurantUpdated' }
+        - { $ref: 'events.yaml#/RestaurantActivated' }
+        - { $ref: 'events.yaml#/RestaurantDeactivated' }
+        - { $ref: 'events.yaml#/RestaurantAcceptanceModeChanged' }
+      note: "Row write time, stamped on each event."
+
+# Events deliberately NOT projected into any View_* — transient / saga-internal facts whose data is
+# returned synchronously via the mutation payload, never read through a projection.
+nonProjectedEvents:
+  - { $ref: 'events.yaml#/PaymentIntentCreated' }   # in-flight checkout; clientSecret returned in PlaceOrderPayload, order materializes on capture
+  - { $ref: 'events.yaml#/RefundRequested' }        # saga trigger consumed by RefundProcess; the settled PaymentRefunded fact is what gets projected
+
+View_Customer:
+  aggregate: Customer
+  slice: V0
+  note: "Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs RegisterCustomer idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts."
+  fedBy:
+    - { $ref: 'events.yaml#/CustomerRegistered' }
+    - { $ref: 'events.yaml#/RestaurantRated' }
+    - { $ref: 'events.yaml#/RestaurantFavorited' }
+    - { $ref: 'events.yaml#/RestaurantUnfavorited' }
+    - { $ref: 'events.yaml#/CustomerInfoUpdated' }
+    - { $ref: 'events.yaml#/CustomerPreferencesSet' }
+    - { $ref: 'events.yaml#/CustomerAddressSet' }
+    - { $ref: 'events.yaml#/CustomerAddressRemoved' }
+    - { $ref: 'events.yaml#/CustomerPaymentMethodSet' }
+  rules:
+    - "`ratings` accumulates the customer's own restaurant ratings (from RestaurantRated) so they can see how they rated each restaurant."
+    - "`favorite_restaurant_ids` is maintained from RestaurantFavorited/RestaurantUnfavorited; the favoriteRestaurants query joins it to View_Restaurant."
+  columns:
+    customer_id:
+      from: [{ $ref: 'events.yaml#/CustomerRegistered/properties/customerId' }]
+      pk: true
+    phone:
+      from: [{ $ref: 'events.yaml#/CustomerRegistered/properties/phone' }]
+      unique: true
+    auth_ref:
+      from: [{ $ref: 'events.yaml#/CustomerRegistered/properties/authRef' }]
+      index: true
+      nullable: true
+      note: "Auth provider user id (Supabase Auth) → Customer."
+    display_name:
+      from:
+        - { $ref: 'events.yaml#/CustomerRegistered/properties/displayName' }
+        - { $ref: 'events.yaml#/CustomerInfoUpdated/properties/displayName' }
+      nullable: true
+    email:
+      from:
+        - { $ref: 'events.yaml#/CustomerRegistered/properties/email' }
+        - { $ref: 'events.yaml#/CustomerInfoUpdated/properties/email' }
+      nullable: true
+    locale:
+      from:
+        - { $ref: 'events.yaml#/CustomerRegistered/properties/locale' }
+        - { $ref: 'events.yaml#/CustomerPreferencesSet/properties/locale' }
+      nullable: true
+      note: "i18n culture (language + date/time/number display)."
+    timezone:
+      from:
+        - { $ref: 'events.yaml#/CustomerRegistered/properties/timezone' }
+        - { $ref: 'events.yaml#/CustomerPreferencesSet/properties/timezone' }
+      nullable: true
+    ratings:
+      type: jsonb
+      from: [{ $ref: 'events.yaml#/RestaurantRated' }]
+      note: "The customer's own submitted ratings (assembled from RestaurantRated): [{ order_id, restaurant_id, stars, comment, rated_at }]."
+    favorite_restaurant_ids:
+      type: jsonb
+      from:
+        - { $ref: 'events.yaml#/RestaurantFavorited' }
+        - { $ref: 'events.yaml#/RestaurantUnfavorited' }
+      note: "[restaurant_id] the customer favorited."
+    preferences:
+      type: jsonb
+      from: [{ $ref: 'events.yaml#/CustomerPreferencesSet' }]
+      nullable: true
+      note: "{ dietary_tags: [...], favorite_cuisines: [...] } from CustomerPreferencesSet."
+    addresses:
+      type: jsonb
+      from:
+        - { $ref: 'events.yaml#/CustomerAddressSet' }
+        - { $ref: 'events.yaml#/CustomerAddressRemoved' }
+      note: "Saved address book: [{ address_id, label, address }] from CustomerAddressSet/Removed."
+    payment_method_id:
+      from: [{ $ref: 'events.yaml#/CustomerPaymentMethodSet/properties/paymentMethodId' }]
+      nullable: true
+    updated_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/CustomerRegistered' }
+        - { $ref: 'events.yaml#/CustomerInfoUpdated' }
+      note: "Row write time, stamped on each event."
+
+View_Catalog:
+  aggregate: Catalog
+  slice: V0
+  fedBy:
+    - { $ref: 'events.yaml#/CatalogCreated' }
+    - { $ref: 'events.yaml#/CatalogCategoryAdded' }
+    - { $ref: 'events.yaml#/CatalogCategoryUpdated' }
+    - { $ref: 'events.yaml#/CatalogCategoryRemoved' }
+    - { $ref: 'events.yaml#/ProductAdded' }
+    - { $ref: 'events.yaml#/ProductUpdated' }
+    - { $ref: 'events.yaml#/ProductRemoved' }
+    - { $ref: 'events.yaml#/OptionListAdded' }
+    - { $ref: 'events.yaml#/OptionListUpdated' }
+    - { $ref: 'events.yaml#/OptionListRemoved' }
+    - { $ref: 'events.yaml#/OfferStockUpdated' }
+    - { $ref: 'events.yaml#/CatalogImported' }
+  rules:
+    - "`stock_status` is derived (quantity vs lowStockThreshold); orderable = AVAILABLE and stock > 0."
+    - "Could be normalized (one row per offer) if per-item querying is needed later."
+  columns:
+    catalog_id:
+      from: [{ $ref: 'events.yaml#/CatalogCreated/properties/catalogId' }]
+      pk: true
+    restaurant_id:
+      from: [{ $ref: 'events.yaml#/CatalogCreated/properties/restaurantId' }]
+      index: true
+      fk: { $ref: '#/View_Restaurant/columns/restaurant_id' }
+    slug:
+      type: { $ref: 'scalars.yaml#/Slug' }
+      note: "⚠️ HOLE: CatalogCreated carries no slug — nothing populates this column (drop it or add slug to the event)."
+    name:
+      from: [{ $ref: 'events.yaml#/CatalogCreated/properties/name' }]
+    catalog:
+      type: jsonb
+      from:
+        - { $ref: 'events.yaml#/CatalogCategoryAdded' }
+        - { $ref: 'events.yaml#/CatalogCategoryUpdated' }
+        - { $ref: 'events.yaml#/CatalogCategoryRemoved' }
+        - { $ref: 'events.yaml#/ProductAdded' }
+        - { $ref: 'events.yaml#/ProductUpdated' }
+        - { $ref: 'events.yaml#/ProductRemoved' }
+        - { $ref: 'events.yaml#/OptionListAdded' }
+        - { $ref: 'events.yaml#/OptionListUpdated' }
+        - { $ref: 'events.yaml#/OptionListRemoved' }
+        - { $ref: 'events.yaml#/OfferStockUpdated' }
+        - { $ref: 'events.yaml#/CatalogImported' }
+      note: "Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status } + option lists."
+    updated_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/CatalogCreated' }
+        - { $ref: 'events.yaml#/CatalogImported' }
+      note: "Row write time, stamped on each event."
+
+View_Cart:
+  aggregate: Cart
+  slice: V0
+  note: "Joined with the catalog for pricing (secondary source)."
+  fedBy:
+    - { $ref: 'events.yaml#/CartStarted' }
+    - { $ref: 'events.yaml#/CartLineAdded' }
+    - { $ref: 'events.yaml#/CartLineQuantityChanged' }
+    - { $ref: 'events.yaml#/CartLineRemoved' }
+    - { $ref: 'events.yaml#/CartCheckedOut' }
+    - { $ref: 'events.yaml#/CustomerIdentified' }
+  rules:
+    - "Prices are computed by the projection from the current catalog, never trusted from the client."
+    - "`customer_id` is NULL while the cart is owned by a guest; bound when CustomerIdentified resolves authRef → customerId, or at checkout."
+  columns:
+    cart_id:
+      from: [{ $ref: 'events.yaml#/CartStarted/properties/cartId' }]
+      pk: true
+    restaurant_id:
+      from: [{ $ref: 'events.yaml#/CartStarted/properties/restaurantId' }]
+      fk: { $ref: '#/View_Restaurant/columns/restaurant_id' }
+    customer_id:
+      from:
+        - { $ref: 'events.yaml#/CartStarted/properties/customerId' }
+        - { $ref: 'events.yaml#/CustomerIdentified/properties/customerId' }
+      nullable: true
+      fk: { $ref: '#/View_Customer/columns/customer_id' }
+      note: "NULL while guest; bound by CustomerIdentified or at checkout."
+    status:
+      type: { $ref: 'scalars.yaml#/CartStatus' }
+      from:
+        - { $ref: 'events.yaml#/CartStarted' }
+        - { $ref: 'events.yaml#/CartCheckedOut' }
+      note: "Derived from event type: OPEN on CartStarted, CHECKED_OUT on CartCheckedOut."
+    lines:
+      type: jsonb
+      from:
+        - { $ref: 'events.yaml#/CartLineAdded' }
+        - { $ref: 'events.yaml#/CartLineQuantityChanged' }
+        - { $ref: 'events.yaml#/CartLineRemoved' }
+      note: "Priced by the projection from the live catalog: [{ cart_line_id, offer_id, product_id, name, offer_name, quantity, unit_price_cents, selected_options, line_total_cents }]."
+    total_amount_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from:
+        - { $ref: 'events.yaml#/CartLineAdded' }
+        - { $ref: 'events.yaml#/CartLineQuantityChanged' }
+        - { $ref: 'events.yaml#/CartLineRemoved' }
+      note: "COMPUTED by the projection from the live catalog (never trusted from the client)."
+    currency:
+      type: { $ref: 'scalars.yaml#/CurrencyCode' }
+      from: [{ $ref: 'events.yaml#/CartLineAdded' }]
+      note: "From the catalog currency at pricing time (the restaurant's default_currency)."
+    updated_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/CartStarted' }
+        - { $ref: 'events.yaml#/CartLineAdded' }
+        - { $ref: 'events.yaml#/CartLineQuantityChanged' }
+        - { $ref: 'events.yaml#/CartLineRemoved' }
+        - { $ref: 'events.yaml#/CartCheckedOut' }
+      note: "Row write time, stamped on each event."
+
+View_OrderTracking:
+  aggregate: Order
+  slice: V0
+  note: >
+    The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary
+    source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status
+    (back-office queue) — via the indexes below; there is no separate per-persona order projection.
+  fedBy:
+    - { $ref: 'events.yaml#/OrderPlaced' }
+    - { $ref: 'events.yaml#/OrderAcceptedByRestaurant' }
+    - { $ref: 'events.yaml#/OrderPreparationStarted' }
+    - { $ref: 'events.yaml#/OrderMarkedReady' }
+    - { $ref: 'events.yaml#/OrderDelivered' }
+    - { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
+    - { $ref: 'events.yaml#/OrderCancelledByCustomer' }
+    - { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
+    - { $ref: 'events.yaml#/PaymentCaptured' }
+    - { $ref: 'events.yaml#/PaymentRefunded' }
+    - { $ref: 'events.yaml#/OrderRated' }
+    - { $ref: 'events.yaml#/RestaurantRated' }
+    - { $ref: 'events.yaml#/RiderTipped' }
+  rules:
+    - "`payment_status` is folded from the Stripe payment facts."
+    - "Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment) and RiderTipped (rider_tip_cents); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating."
+  indexes:
+    - [restaurant_id, status, placed_at]   # back-office queue: orders(restaurantId, status)
+  columns:
+    order_id:
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/orderId' }]
+      pk: true
+    ref:
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/ref' }]
+    restaurant_id:
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/restaurantId' }]
+      fk: { $ref: '#/View_Restaurant/columns/restaurant_id' }
+    customer_id:
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/customerId' }]
+      nullable: true
+      index: true
+      fk: { $ref: '#/View_Customer/columns/customer_id' }
+    status:
+      type: { $ref: 'scalars.yaml#/OrderStatus' }
+      from:
+        - { $ref: 'events.yaml#/OrderPlaced' }
+        - { $ref: 'events.yaml#/OrderAcceptedByRestaurant' }
+        - { $ref: 'events.yaml#/OrderPreparationStarted' }
+        - { $ref: 'events.yaml#/OrderMarkedReady' }
+        - { $ref: 'events.yaml#/OrderDelivered' }
+        - { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
+        - { $ref: 'events.yaml#/OrderCancelledByCustomer' }
+        - { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
+      note: "Derived from the lifecycle event type."
+    service_type:
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/serviceType' }]
+    items:
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/items' }]
+    total_amount_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/totalAmount' }]
+      note: "amountCents of OrderPlaced.totalAmount (Money)."
+    currency:
+      type: { $ref: 'scalars.yaml#/CurrencyCode' }
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/totalAmount' }]
+      note: "currency of OrderPlaced.totalAmount (Money)."
+    delivery_address:
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/deliveryAddress' }]
+      nullable: true
+    estimated_ready_at:
+      from: [{ $ref: 'events.yaml#/OrderAcceptedByRestaurant/properties/estimatedReadyAt' }]
+      nullable: true
+    placed_at:
+      type: timestamptz
+      from: [{ $ref: 'events.yaml#/OrderPlaced' }]
+      note: "OrderPlaced occurrence time."
+    status_changed_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/OrderAcceptedByRestaurant' }
+        - { $ref: 'events.yaml#/OrderPreparationStarted' }
+        - { $ref: 'events.yaml#/OrderMarkedReady' }
+        - { $ref: 'events.yaml#/OrderDelivered' }
+        - { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
+        - { $ref: 'events.yaml#/OrderCancelledByCustomer' }
+        - { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
+      note: "Occurrence time of the latest status-changing event."
+    payment_status:
+      type: text
+      from:
+        - { $ref: 'events.yaml#/PaymentCaptured' }
+        - { $ref: 'events.yaml#/PaymentRefunded' }
+      note: "Folded from Stripe facts; candidate for a PaymentStatus enum."
+    restaurant_stars:
+      from: [{ $ref: 'events.yaml#/RestaurantRated/properties/stars' }]
+      nullable: true
+      note: "Customer's 0–5 rating of the restaurant; null until rated."
+    rating_comment:
+      from: [{ $ref: 'events.yaml#/RestaurantRated/properties/comment' }]
+      nullable: true
+    rider_thumb:
+      from: [{ $ref: 'events.yaml#/OrderRated/properties/riderThumb' }]
+      nullable: true
+    rider_tip_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/RiderTipped/properties/amount' }]
+      nullable: true
+      note: "amountCents of RiderTipped.amount (Money); null if no tip."
+    rated_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/OrderRated' }
+        - { $ref: 'events.yaml#/RestaurantRated' }
+        - { $ref: 'events.yaml#/RiderTipped' }
+      nullable: true
+      note: "Occurrence time of the latest rating/tip event."
+
+# NOTE: View_OrdersByRestaurant and View_OrdersByCustomer were folded into View_OrderTracking — the
+# single canonical Order read model is now queried by id / customer / restaurant+status via its indexes,
+# rather than maintaining per-persona projections (see api.yaml `orders` query + the Order type binding).

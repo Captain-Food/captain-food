@@ -7,37 +7,100 @@ description: >
   - These are BUSINESS event payloads only.
   - No aggregateType, eventId or metadata here.
   - Each event MUST be strictly typed and reference scalars/entities above.
-  - Catalog is aligned with HubRise (Product/Variant/OptionList). "Updated" events
+  - Catalog is aligned with HubRise (Product/Offer/OptionList). "Updated" events
     carry the FULL updated entity (replace semantics), not a partial diff.
 
 # =====================================================================
 # Restaurant
 # =====================================================================
 
-RestaurantRegistered:
-  description: "A restaurant has been registered and created in the system."
+RestaurantAccountRegistered:
+  description: "A restaurant account (HubRise: restaurant) was created; it owns one or more locations."
   type: object
   properties:
-    restaurantId:
-      $ref: 'scalars.yaml#/RestaurantId'
+    restaurantAccountId:
+      $ref: 'scalars.yaml#/RestaurantAccountId'
     ref:
-      $ref: 'scalars.yaml#/Ref'
+      $ref: 'scalars.yaml#/ExternalReference'
       nullable: true
-    slug:
-      $ref: 'scalars.yaml#/Slug'
-    displayName:
-      $ref: 'scalars.yaml#/RestaurantDisplayName'
     legalName:
       $ref: 'scalars.yaml#/RestaurantLegalName'
     contact:
       $ref: 'entities.yaml#/RestaurantContact'
       nullable: true
-    address:
-      $ref: 'entities.yaml#/Address'
     defaultCurrency:
       $ref: 'scalars.yaml#/CurrencyCode'
     defaultTaxRate:
       $ref: 'entities.yaml#/TaxRate'
+    timezone:
+      $ref: 'scalars.yaml#/TimeZone'
+      nullable: true
+    createdBy:
+      $ref: 'scalars.yaml#/UserId'
+  required:
+    - restaurantAccountId
+    - legalName
+    - defaultCurrency
+    - defaultTaxRate
+    - createdBy
+
+RestaurantAccountUpdated:
+  description: "One or more account-level fields changed (legal name, contact, default tax, timezone)."
+  type: object
+  properties:
+    restaurantAccountId:
+      $ref: 'scalars.yaml#/RestaurantAccountId'
+    legalName:
+      $ref: 'scalars.yaml#/RestaurantLegalName'
+      nullable: true
+    contact:
+      $ref: 'entities.yaml#/RestaurantContact'
+      nullable: true
+    defaultTaxRate:
+      $ref: 'entities.yaml#/TaxRate'
+      nullable: true
+    timezone:
+      $ref: 'scalars.yaml#/TimeZone'
+      nullable: true
+    updatedBy:
+      $ref: 'scalars.yaml#/UserId'
+  required:
+    - restaurantAccountId
+    - updatedBy
+
+RestaurantAccountDeleted:
+  description: "A restaurant account was closed/deleted."
+  type: object
+  properties:
+    restaurantAccountId:
+      $ref: 'scalars.yaml#/RestaurantAccountId'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required:
+    - restaurantAccountId
+
+RestaurantRegistered:
+  description: "A restaurant location has been registered under an account."
+  type: object
+  properties:
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    accountId:
+      $ref: 'scalars.yaml#/RestaurantAccountId'
+    ref:
+      $ref: 'scalars.yaml#/ExternalReference'
+      nullable: true
+    slug:
+      $ref: 'scalars.yaml#/Slug'
+    displayName:
+      $ref: 'scalars.yaml#/RestaurantDisplayName'
+    contact:
+      $ref: 'entities.yaml#/RestaurantContact'
+      nullable: true
+    address:
+      $ref: 'entities.yaml#/Address'
     timezone:
       $ref: 'scalars.yaml#/TimeZone'
       nullable: true
@@ -53,16 +116,14 @@ RestaurantRegistered:
       $ref: 'scalars.yaml#/UserId'
   required:
     - restaurantId
+    - accountId
     - slug
     - displayName
-    - legalName
     - address
-    - defaultCurrency
-    - defaultTaxRate
     - createdBy
 
 RestaurantUpdated:
-  description: "One or more editable fields of a restaurant have changed."
+  description: "One or more editable LOCATION fields of a restaurant have changed."
   type: object
   properties:
     restaurantId:
@@ -70,17 +131,11 @@ RestaurantUpdated:
     displayName:
       $ref: 'scalars.yaml#/RestaurantDisplayName'
       nullable: true
-    legalName:
-      $ref: 'scalars.yaml#/RestaurantLegalName'
-      nullable: true
     contact:
       $ref: 'entities.yaml#/RestaurantContact'
       nullable: true
     address:
       $ref: 'entities.yaml#/Address'
-      nullable: true
-    defaultTaxRate:
-      $ref: 'entities.yaml#/TaxRate'
       nullable: true
     timezone:
       $ref: 'scalars.yaml#/TimeZone'
@@ -141,130 +196,146 @@ RestaurantAcceptanceModeChanged:
     - mode
     - changedBy
 
-# =====================================================================
-# Catalog (Menu / Category / Product / Variant / OptionList)
-# =====================================================================
-
-MenuCreated:
-  description: "A new menu (catalog) has been created for a restaurant."
+RestaurantRemoved:
+  description: "A location was removed (delisted) from its account."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    accountId:
+      $ref: 'scalars.yaml#/RestaurantAccountId'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required:
+    - restaurantId
+    - accountId
+
+# =====================================================================
+# Catalog (Catalog / CatalogCategory / Product / Offer / OptionList)
+# =====================================================================
+
+CatalogCreated:
+  description: "A new catalog has been created for a restaurant."
+  type: object
+  properties:
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     ref:
-      $ref: 'scalars.yaml#/Ref'
+      $ref: 'scalars.yaml#/ExternalReference'
       nullable: true
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     name:
-      $ref: 'scalars.yaml#/MenuName'
+      $ref: 'scalars.yaml#/CatalogName'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - name
 
-CategoryAdded:
-  description: "A category has been added to a menu."
+CatalogCategoryAdded:
+  description: "A category has been added to a catalog."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     category:
-      $ref: 'entities.yaml#/Category'
+      $ref: 'entities.yaml#/CatalogCategory'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - category
 
-CategoryUpdated:
+CatalogCategoryUpdated:
   description: "An existing category has been updated (full replace)."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     category:
-      $ref: 'entities.yaml#/Category'
+      $ref: 'entities.yaml#/CatalogCategory'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - category
 
-CategoryRemoved:
-  description: "A category has been removed from a menu."
+CatalogCategoryRemoved:
+  description: "A category has been removed from a catalog."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
-    categoryId:
-      $ref: 'scalars.yaml#/CategoryId'
+    productCategoryId:
+      $ref: 'scalars.yaml#/ProductCategoryId'
   required:
-    - menuId
+    - catalogId
     - restaurantId
-    - categoryId
+    - productCategoryId
 
 ProductAdded:
-  description: "A new product (with its variants) has been added to a menu."
+  description: "A new product (with its offers) has been added to a catalog."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     product:
       $ref: 'entities.yaml#/Product'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - product
 
 ProductUpdated:
-  description: "An existing product has been updated (full replace, including variants)."
+  description: "An existing product has been updated (full replace, including offers)."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     product:
       $ref: 'entities.yaml#/Product'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - product
 
 ProductRemoved:
-  description: "A product has been removed from a menu."
+  description: "A product has been removed from a catalog."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     productId:
       $ref: 'scalars.yaml#/ProductId'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - productId
 
 OptionListAdded:
-  description: "An option list (modifier group) has been added to a menu."
+  description: "An option list (modifier group) has been added to a catalog."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     optionList:
       $ref: 'entities.yaml#/OptionList'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - optionList
 
@@ -272,48 +343,48 @@ OptionListUpdated:
   description: "An existing option list has been updated (full replace)."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     optionList:
       $ref: 'entities.yaml#/OptionList'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - optionList
 
 OptionListRemoved:
-  description: "An option list has been removed from a menu."
+  description: "An option list has been removed from a catalog."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     optionListId:
       $ref: 'scalars.yaml#/OptionListId'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - optionListId
 
-VariantStockUpdated:
-  description: "Inventory level of a variant changed (e.g. HubRise inventory sync)."
+OfferStockUpdated:
+  description: "Inventory level of a offer changed (e.g. HubRise inventory sync)."
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
-    variantId:
-      $ref: 'scalars.yaml#/VariantId'
+    offerId:
+      $ref: 'scalars.yaml#/OfferId'
     stock:
       $ref: 'entities.yaml#/Stock'
   required:
-    - menuId
+    - catalogId
     - restaurantId
-    - variantId
+    - offerId
     - stock
 
 CatalogImported:
@@ -322,8 +393,8 @@ CatalogImported:
     replacing the current catalog content for the restaurant.
   type: object
   properties:
-    menuId:
-      $ref: 'scalars.yaml#/MenuId'
+    catalogId:
+      $ref: 'scalars.yaml#/CatalogId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
     source:
@@ -332,7 +403,7 @@ CatalogImported:
     categories:
       type: array
       items:
-        $ref: 'entities.yaml#/Category'
+        $ref: 'entities.yaml#/CatalogCategory'
     products:
       type: array
       items:
@@ -342,7 +413,7 @@ CatalogImported:
       items:
         $ref: 'entities.yaml#/OptionList'
   required:
-    - menuId
+    - catalogId
     - restaurantId
     - source
     - categories
@@ -365,7 +436,7 @@ CustomerRegistered:
     customerId:
       $ref: 'scalars.yaml#/CustomerId'
     authRef:
-      $ref: 'scalars.yaml#/Ref'
+      $ref: 'scalars.yaml#/ExternalReference'
       nullable: true
       description: "Auth provider user id (e.g. Supabase Auth), linking identity to this Customer."
     phone:
@@ -377,9 +448,127 @@ CustomerRegistered:
       $ref: 'scalars.yaml#/EmailAddress'
       nullable: true
       description: "Optional, e.g. captured later for receipts."
+    locale:
+      $ref: 'scalars.yaml#/Locale'
+      nullable: true
+      description: "Preferred culture (language + date/time/number display)."
+    timezone:
+      $ref: 'scalars.yaml#/TimeZone'
+      nullable: true
   required:
     - customerId
     - phone
+
+CustomerIdentified:
+  description: >
+    A returning visitor signed in and was resolved to an existing Customer (authRef → customerId).
+    NOT an auth event (OTP/session live in the auth provider): this records the DOMAIN fact so the
+    visitor's OPEN guest carts can be bound to the customerId — letting carts started on different
+    devices converge under one customer and be merged at checkout.
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    authRef:
+      $ref: 'scalars.yaml#/ExternalReference'
+      description: "Auth provider user id that was matched to this Customer (via View_Customer.auth_ref)."
+  required:
+    - customerId
+    - authRef
+
+RestaurantFavorited:
+  description: "Customer marked a restaurant as a favorite."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+  required: [customerId, restaurantId]
+
+RestaurantUnfavorited:
+  description: "Customer removed a restaurant from their favorites."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+  required: [customerId, restaurantId]
+
+CustomerInfoUpdated:
+  description: "Customer updated their personal info (display name, email)."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    displayName:
+      $ref: 'scalars.yaml#/CustomerDisplayName'
+      nullable: true
+    email:
+      $ref: 'scalars.yaml#/EmailAddress'
+      nullable: true
+  required: [customerId]
+
+CustomerPreferencesSet:
+  description: "Customer set their discovery + i18n preferences (locale, timezone, dietary restrictions, favorite cuisines)."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    locale:
+      $ref: 'scalars.yaml#/Locale'
+      nullable: true
+    timezone:
+      $ref: 'scalars.yaml#/TimeZone'
+      nullable: true
+    dietaryTags:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/Tag'
+    favoriteCuisines:
+      type: array
+      items:
+        $ref: 'scalars.yaml#/Tag'
+  required: [customerId]
+
+CustomerAddressSet:
+  description: "Customer added or updated a saved delivery address."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    addressId:
+      $ref: 'scalars.yaml#/AddressId'
+    label:
+      type: string
+      maxLength: 80
+      nullable: true
+    address:
+      $ref: 'entities.yaml#/Address'
+  required: [customerId, addressId, address]
+
+CustomerAddressRemoved:
+  description: "Customer removed a saved address."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    addressId:
+      $ref: 'scalars.yaml#/AddressId'
+  required: [customerId, addressId]
+
+CustomerPaymentMethodSet:
+  description: "Customer set or updated their preferred Stripe payment method."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    paymentMethodId:
+      $ref: 'scalars.yaml#/PaymentMethodId'
+  required: [customerId, paymentMethodId]
+
+
 
 # =====================================================================
 # Cart
@@ -466,7 +655,7 @@ OrderPlaced:
     orderId:
       $ref: 'scalars.yaml#/OrderId'
     ref:
-      $ref: 'scalars.yaml#/Ref'
+      $ref: 'scalars.yaml#/ExternalReference'
       nullable: true
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
@@ -603,6 +792,82 @@ OrderCancelledByRestaurant:
     - orderId
     - restaurantId
     - reason
+
+OrderRated:
+  description: "The customer rated the delivery of a completed order (rider thumbs up/down)."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    riderThumb:
+      $ref: 'scalars.yaml#/ThumbRating'
+  required:
+    - orderId
+    - restaurantId
+    - riderThumb
+
+RestaurantRated:
+  description: "The customer rated the restaurant of a completed order (0–5 stars + optional comment)."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    stars:
+      $ref: 'scalars.yaml#/StarRating'
+    comment:
+      $ref: 'scalars.yaml#/RatingComment'
+      nullable: true
+  required:
+    - orderId
+    - restaurantId
+    - stars
+
+RiderTipped:
+  description: "The customer added a tip for the rider of a completed order."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    amount:
+      $ref: 'entities.yaml#/Money'
+  required:
+    - orderId
+    - restaurantId
+    - amount
+
+RefundRequested:
+  description: "The customer requested a refund for an order; the RefundProcess will drive Stripe."
+  type: object
+  properties:
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+      nullable: true
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required:
+    - orderId
+    - restaurantId
 
 # =====================================================================
 # Payments (Stripe)

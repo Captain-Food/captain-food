@@ -1,27 +1,33 @@
 # --- Identity & Slugs ---
 
+RestaurantAccountId:
+  type: string
+  format: uuid
+  description: "Restaurant account (HubRise: restaurant) — groups one or more Restaurant locations."
+
 RestaurantId:
   type: string
   format: uuid
+  description: "A single restaurant location (HubRise: location), belonging to a RestaurantAccount."
 
-MenuId:
+CatalogId:
   type: string
   format: uuid
   description: "Catalog id (HubRise: catalog)."
 
-CategoryId:
+ProductCategoryId:
   type: string
   format: uuid
 
 ProductId:
   type: string
   format: uuid
-  description: "A product groups one or more variants (HubRise: product)."
+  description: "A product groups one or more offers (HubRise: product)."
 
-VariantId:
+OfferId:
   type: string
   format: uuid
-  description: "A purchasable variant with its own price (HubRise: SKU)."
+  description: "A purchasable offer with its own price (HubRise: SKU)."
 
 OptionListId:
   type: string
@@ -48,9 +54,21 @@ CartLineId:
   format: uuid
   description: "Identifies a line within a cart, used to edit its quantity or remove it."
 
+CorrelationId:
+  type: string
+  format: uuid
+  description: >
+    Correlates a command with the events/state it produces. Returned by every mutation payload so the
+    client can track the outcome via the read side (matches domain_events.correlation_id).
+
 DeliveryJobId:
   type: string
   format: uuid
+
+RiderId:
+  type: string
+  format: uuid
+  description: "Delivery courier id. POST-V0 placeholder (no delivery aggregate yet)."
 
 PaymentIntentId:
   type: string
@@ -66,11 +84,21 @@ UserId:
   type: string
   format: uuid
 
+AddressId:
+  type: string
+  format: uuid
+  description: "Identifies a saved address in a customer's address book."
+
+PaymentMethodId:
+  type: string
+  maxLength: 255
+  description: "Stripe PaymentMethod id (provider reference). Example: 'pm_1Nabc...'."
+
 ImageId:
   type: string
   format: uuid
 
-Ref:
+ExternalReference:
   type: string
   maxLength: 128
   description: >
@@ -102,11 +130,11 @@ RestaurantLegalName:
     Legal entity name used for invoices and contracts.
     Example: 'SARL CHEZ MARCO', 'TOKYO SUSHI RESTAURATION SAS'.
 
-MenuName:
+CatalogName:
   type: string
   maxLength: 140
 
-CategoryName:
+CatalogCategoryName:
   type: string
   maxLength: 80
 
@@ -118,11 +146,11 @@ ProductDescription:
   type: string
   maxLength: 2000
 
-VariantName:
+OfferName:
   type: string
   maxLength: 140
   description: >
-    Variant label, unique within a product (HubRise SKU name).
+    Offer label, unique within a product (HubRise SKU name).
     Example: 'Small', 'Large', 'Default'.
 
 OptionListName:
@@ -175,6 +203,14 @@ TimeZone:
   maxLength: 64
   description: "IANA timezone. Example: 'Europe/Paris'."
 
+Locale:
+  type: string
+  pattern: "^[a-z]{2}-[A-Z]{2}$"
+  maxLength: 5
+  description: >
+    i18n culture code, language-REGION (BCP 47 / .NET CultureInfo). Example: 'fr-FR', 'en-US'. Drives
+    the UI language AND the display of dates, times and numbers (paired with TimeZone for the zone).
+
 # --- Money & Currencies ---
 # We keep a stronger model than HubRise (which serialises "9.80 EUR" as a string):
 # amount is an integer in minor units + an explicit currency, wrapped in the
@@ -215,6 +251,24 @@ OrderNote:
   type: string
   maxLength: 1000
 
+# --- Ratings ---
+
+StarRating:
+  type: integer
+  minimum: 0
+  maximum: 5
+  description: "Restaurant rating in stars (0–5), given by the customer on a delivered order."
+
+ThumbRating:
+  type: string
+  enum: [UP, DOWN]
+  description: "Rider rating: thumbs up or down."
+
+RatingComment:
+  type: string
+  maxLength: 1000
+  description: "Free-text comment accompanying a restaurant rating."
+
 # --- Time ---
 
 Weekday:
@@ -237,7 +291,7 @@ TimeOfDay:
 
 ServiceType:
   type: string
-  enum: [DELIVERY, COLLECTION]
+  enum: [DELIVERY, COLLECTION] 
   description: >
     Aligned with HubRise service types. COLLECTION == customer pickup.
     (EAT_IN is not offered by Captain.Food but is kept in TaxRate for catalog fidelity.)
@@ -278,7 +332,7 @@ OrderAcceptanceMode:
 
 # Manual listing flag, set by the restaurant/admin. Useful for UI.
 # Orthogonal to StockStatus: an item is orderable when AVAILABLE *and* stock > 0.
-MenuItemAvailability:
+CatalogItemAvailability:
   type: string
   enum:
     - AVAILABLE
@@ -291,3 +345,38 @@ StockStatus:
     - IN_STOCK
     - LOW_STOCK      # quantity <= lowStockThreshold (risky level)
     - OUT_OF_STOCK   # quantity == 0
+
+# --- Discovery / filtering ---
+
+PriceRange:
+  type: string
+  enum: [BUDGET, MODERATE, PREMIUM]
+  description: "Coarse price tier of a restaurant, used as a discovery filter (UI: $ / $$ / $$$)."
+
+RestaurantListKey:
+  type: string
+  enum:
+    - ORDER_AGAIN      # restaurants the customer has ordered from before
+    - RECOMMENDED      # "Places you might like" / "Tailored to your taste"
+    - TOP_DEALS        # "Most loved deals on Captain.Food"
+    - GREEN_PACKAGING  # "Spots using Green Packaging"
+  description: >
+    Named, read-side-curated/personalized discovery shelf for the restaurants query. The read model
+    resolves the actual member restaurants (editorial rules / customer history); the client just
+    asks for a list by key.
+
+# --- Caller persona / user type ---
+
+# Caller user type (a.k.a. persona / role). Established by the GraphQL path: the master
+# api.yaml is filtered per user type via @auth / @public, and `domain_events.user_type`
+# records which one authored an event. EXTERNAL = third-party ACL callers (Stripe, HubRise, Avelo37).
+UserType:
+  type: string
+  enum:
+    - PUBLIC             # anonymous visitor                       -> /public/graphql
+    - CUSTOMER           # authenticated end user                  -> /customer/graphql
+    - RESTAURANT_ACCOUNT # account: locations + catalog          -> /restaurant-account/graphql
+    - RESTAURANT         # single location: order ops            -> /restaurant/graphql
+    - RIDER              # delivery partner / courier              -> /rider/graphql   (mostly post-V0)
+    - ADMIN              # platform operator                       -> /admin/graphql
+    - EXTERNAL           # third-party ACL (Stripe/HubRise/Avelo37) -> /external/graphql

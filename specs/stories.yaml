@@ -1,0 +1,175 @@
+version: 1
+description: >
+  Captain.Food STORY MAP — personas → activities → steps. Each step `$ref`s the api.yaml query/mutation
+  that realizes it (codegen validates the ref resolves). `personaRole` maps the persona to its
+  scalars.yaml#/UserType; the codegen checks every step's operation is callable by that role
+  (the op is @public, or the role is in the op's `roles`). This file is product knowledge — it does not
+  define new operations, only wires personas to the existing api surface.
+
+# Two restaurant-side roles (see UserType): the OWNER manages the account — locations + catalog
+# (HubRise restaurant); the MANAGER runs a single location — order operations (HubRise location).
+
+public_user:
+  description: A visitor browsing Captain.Food without being logged in.
+  personaRole: PUBLIC
+  locale: fr-FR   # expected language (V0 launches in Tours, France)
+  goals:
+    - Explore available restaurants and dishes.
+    - Build a cart before deciding to sign up.
+  frustrations:
+    - Limited features without an account.
+    - Cannot save favorites without registering.
+  activities:
+    BrowseForFood:
+      description: As a visitor, I browse restaurants and build a cart without logging in.
+      steps:
+        SearchRestaurants: { $ref: 'api.yaml#/queries/restaurants' }
+        SelectRestaurant: { $ref: 'api.yaml#/queries/restaurant' }
+        BrowseCatalog: { $ref: 'api.yaml#/queries/catalog' }
+        AddToCartLine: { $ref: 'api.yaml#/mutations/addCartLine' }
+        RemoveFromCart: { $ref: 'api.yaml#/mutations/removeCartLine' }
+        ChangeCartLineQuantity: { $ref: 'api.yaml#/mutations/changeCartLineQuantity' }
+        Register: { $ref: 'api.yaml#/mutations/registerCustomer' }
+        Identify: { $ref: 'api.yaml#/mutations/identifyCustomer' }
+
+customer:
+  description: An authenticated person who orders food via Captain.Food.
+  personaRole: CUSTOMER
+  locale: fr-FR   # expected language (V0 launches in Tours, France)
+  goals:
+    - Order food from favorite restaurants.
+    - Track order status and delivery.
+  frustrations:
+    - Long delivery times.
+    - Difficulty finding specific dishes.
+  activities:
+    OrderFood:
+      description: As a customer, I order food and follow it through to rating.
+      steps:
+        SearchRestaurants: { $ref: 'api.yaml#/queries/restaurants' }
+        SelectRestaurant: { $ref: 'api.yaml#/queries/restaurant' }
+        BrowseCatalog: { $ref: 'api.yaml#/queries/catalog' }
+        AddToCartLine: { $ref: 'api.yaml#/mutations/addCartLine' }
+        RemoveFromCart: { $ref: 'api.yaml#/mutations/removeCartLine' }
+        ChangeCartLineQuantity: { $ref: 'api.yaml#/mutations/changeCartLineQuantity' }
+        PlaceOrder: { $ref: 'api.yaml#/mutations/placeOrder' }
+        TrackOrderStatus: { $ref: 'api.yaml#/queries/order' }
+        RateOrder: { $ref: 'api.yaml#/mutations/rateOrder' }
+        RateRestaurant: { $ref: 'api.yaml#/mutations/rateRestaurant' }
+        TipRider: { $ref: 'api.yaml#/mutations/tipRider' }
+        RequestRefund: { $ref: 'api.yaml#/mutations/requestRefund' }
+    FavoriteRestaurant:
+      description: As a customer, I keep a list of favorite restaurants.
+      steps:
+        MarkAsFavorite: { $ref: 'api.yaml#/mutations/markRestaurantAsFavorite' }
+        UnmarkAsFavorite: { $ref: 'api.yaml#/mutations/unmarkRestaurantAsFavorite' }
+        ViewFavorites: { $ref: 'api.yaml#/queries/favoriteRestaurants' }
+    ConfigureProfile:
+      description: As a customer, I manage my profile, preferences, addresses and payment method.
+      steps:
+        ViewProfile: { $ref: 'api.yaml#/queries/me' }
+        UpdatePersonalInfo: { $ref: 'api.yaml#/mutations/updateCustomerInfo' }
+        ChangePassword: { note: "Handled by the auth provider (Supabase Auth) — not a domain mutation." }
+        SetPreferences: { $ref: 'api.yaml#/mutations/setCustomerPreferences' }
+        SetAddress: { $ref: 'api.yaml#/mutations/setCustomerAddress' }
+        RemoveAddress: { $ref: 'api.yaml#/mutations/removeCustomerAddress' }
+        SetPaymentMethod: { $ref: 'api.yaml#/mutations/setCustomerPaymentMethod' }
+
+restaurant_owner:
+  description: >
+    Owns a restaurant ACCOUNT (HubRise restaurant). Manages the account, its locations, and the catalog.
+    May also act as a manager, but that is a separate role.
+  personaRole: RESTAURANT_ACCOUNT
+  locale: fr-FR   # expected language (V0 launches in Tours, France)
+  goals:
+    - Run multiple locations under one account.
+    - Keep the catalog accurate across locations.
+  frustrations:
+    - Commission fees across locations.
+    - Maintaining consistency between locations.
+  activities:
+    ManageAccount:
+      description: As an owner, I manage my restaurant account.
+      steps:
+        RegisterAccount: { $ref: 'api.yaml#/mutations/registerRestaurantAccount' }
+        UpdateAccount: { $ref: 'api.yaml#/mutations/updateRestaurantAccount' }
+        DeleteAccount: { $ref: 'api.yaml#/mutations/deleteRestaurantAccount' }
+    ManageLocations:
+      description: As an owner, I add and maintain the locations under my account.
+      steps:
+        AddLocation: { $ref: 'api.yaml#/mutations/registerRestaurant' }
+        ActivateLocation: { $ref: 'api.yaml#/mutations/activateRestaurant' }
+        DeactivateLocation: { $ref: 'api.yaml#/mutations/deactivateRestaurant' }
+        UpdateLocationProfile: { $ref: 'api.yaml#/mutations/updateRestaurant' }
+        RemoveLocation: { $ref: 'api.yaml#/mutations/removeRestaurant' }
+        ViewAllLocations: { $ref: 'api.yaml#/queries/restaurantLocationsByAccount' }
+    ManageCatalog:
+      description: As an owner, I build and maintain the catalog.
+      steps:
+        ViewCatalog: { $ref: 'api.yaml#/queries/catalog' }
+        CreateCatalog: { $ref: 'api.yaml#/mutations/createCatalog' }
+        AddProduct: { $ref: 'api.yaml#/mutations/addProduct' }
+        UpdateProduct: { $ref: 'api.yaml#/mutations/updateProduct' }
+        RemoveProduct: { $ref: 'api.yaml#/mutations/removeProduct' }
+        AddCategory: { $ref: 'api.yaml#/mutations/addCatalogCategory' }
+        AddOptionList: { $ref: 'api.yaml#/mutations/addOptionList' }
+        UpdateStock: { $ref: 'api.yaml#/mutations/updateOfferStock' }
+        ImportCatalog: { $ref: 'api.yaml#/mutations/importCatalog' }
+
+restaurant_manager:
+  description: >
+    Runs a SINGLE location (HubRise location): handles the live order queue. Assigned by the owner; can
+    only manage the location they are assigned to.
+  personaRole: RESTAURANT
+  locale: fr-FR   # expected language (V0 launches in Tours, France)
+  goals:
+    - Process incoming orders quickly and accurately.
+    - Keep the kitchen's acceptance mode in sync with capacity.
+  frustrations:
+    - Inaccurate order details.
+    - Managing peak order times.
+  activities:
+    ManageOrders:
+      description: As a manager, I work the incoming order queue for my location.
+      steps:
+        ViewIncomingOrders: { $ref: 'api.yaml#/queries/orders' }
+        AcceptOrder: { $ref: 'api.yaml#/mutations/acceptOrder' }
+        RejectOrder: { $ref: 'api.yaml#/mutations/rejectOrder' }
+        StartPreparation: { $ref: 'api.yaml#/mutations/startPreparation' }
+        MarkOrderReady: { $ref: 'api.yaml#/mutations/markOrderReady' }
+        SetAcceptanceMode: { $ref: 'api.yaml#/mutations/changeOrderAcceptanceMode' }
+        CancelOrder: { $ref: 'api.yaml#/mutations/cancelOrderByRestaurant' }
+
+rider:
+  description: A courier who delivers orders from restaurants to customers.
+  personaRole: RIDER
+  locale: fr-FR   # expected language (V0 launches in Tours, France)
+  goals:
+    - Deliver orders promptly.
+    - Maintain a good rating.
+  frustrations:
+    - Traffic and navigation.
+    - Unclear delivery addresses.
+  activities:
+    Deliver:
+      description: As a rider, I record hand-over of a delivery.
+      steps:
+        MarkDelivered: { $ref: 'api.yaml#/mutations/markOrderDelivered' }
+
+admin:
+  description: A platform operator who onboards accounts and oversees the platform.
+  personaRole: ADMIN
+  locale: fr-FR   # expected language (V0 launches in Tours, France)
+  goals:
+    - Onboard restaurant accounts.
+    - Keep the platform healthy.
+  frustrations:
+    - Handling outages and support escalations.
+  activities:
+    OnboardRestaurants:
+      description: As an admin, I onboard accounts and activate restaurants.
+      steps:
+        RegisterAccount: { $ref: 'api.yaml#/mutations/registerRestaurantAccount' }
+        AddLocation: { $ref: 'api.yaml#/mutations/registerRestaurant' }
+        ActivateRestaurant: { $ref: 'api.yaml#/mutations/activateRestaurant' }
+        ImportCatalog: { $ref: 'api.yaml#/mutations/importCatalog' }

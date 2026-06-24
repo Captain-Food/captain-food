@@ -6,7 +6,7 @@ delivery platforms). The Captain.Food domain model is aligned with the HubRise s
 
 > 🛡️ **Anti-Corruption Layer (ACL)**: HubRise → domain translation happens at the integration
 > boundary. HubRise-only concepts (`SKU`, `option_list`, `"9.80 EUR"` string prices) must **never**
-> leak into the domain. The `Ref` scalar (= HubRise `ref`) is the idempotent import key.
+> leak into the domain. The `ExternalReference` scalar (= HubRise `ref`) is the idempotent import key.
 
 Sources: [API Catalogs](https://www.hubrise.com/developers/api/catalogs) ·
 [API Locations & Accounts](https://www.hubrise.com/developers/api/accounts) ·
@@ -22,11 +22,11 @@ Sources: [API Catalogs](https://www.hubrise.com/developers/api/catalogs) ·
 attached to an **Account** that carries the `currency`.
 ❌ **No `phone`/`email`** at Location level.
 
-### Catalog (= our `Menu`)
+### Catalog (= our `Catalog`)
 - **Categories**: tree (`ref`, `parent_ref`, `name`, `description`, `tags`, `image_ids`)
 - **Products**: `name`, `description`, `tags`, `image_ids`, `nutrition`, `tax_rate` (triplet
   `delivery`/`collection`/`eat_in`), array of **SKUs**
-- **SKUs** (variants): `price` (`"9.80 EUR"`), `price_overrides`, `restrictions`,
+- **SKUs** (offers): `price` (`"9.80 EUR"`), `price_overrides`, `restrictions`,
   `option_list_ids`, `barcodes`…
 - **Option lists / Options**: modifiers (`min/max_selections`, `multiple_selection`,
   `price`, `default`…)
@@ -50,14 +50,14 @@ Continuous sync is possible via **Callbacks** (webhooks) — not only a one-shot
 | Location `preparation_time` | `Restaurant.preparationTimeMinutes` | direct |
 | Location `order_acceptance` | `Restaurant.orderAcceptance` (`OrderAcceptanceMode`) | `normal/busy/paused` → `NORMAL/BUSY/PAUSED` |
 | **(none)** `phone`/`email` | `RestaurantContact` (optional) | 🔧 filled manually by the admin |
-| Category (`ref`, `parent_ref`, `name`…) | `Category` (`parentRef`) | tree preserved |
+| CatalogCategory (`ref`, `parent_ref`, `name`…) | `CatalogCategory` (`parentRef`) | tree preserved |
 | Product (`name`, `description`, `tax_rate`…) | `Product` | `tax_rate` triplet → `TaxRate` |
-| Product → SKUs | `Product.variants` (`Variant[]`, min 1) | 1 SKU = 1 `Variant` |
-| SKU `price` `"9.80 EUR"` | `Variant.price` (`Money`) | parse + ×100, currency extracted |
-| SKU `option_list_ids` | `Variant.optionListIds` | direct |
+| Product → SKUs | `Product.offers` (`Offer[]`, min 1) | 1 SKU = 1 `Offer` |
+| SKU `price` `"9.80 EUR"` | `Offer.price` (`Money`) | parse + ×100, currency extracted |
+| SKU `option_list_ids` | `Offer.optionListIds` | direct |
 | Option list / Option | `OptionList` / `Option` | direct |
-| Inventory `stock` / `expires_at` | `Variant.stock` (`Stock`) | `stock` → `quantity`, `expires_at` → `expiresAt` |
-| SKU `restrictions.enabled` | `Variant.availability` (`MenuItemAvailability`) | `enabled` → `AVAILABLE`/`UNAVAILABLE` |
+| Inventory `stock` / `expires_at` | `Offer.stock` (`Stock`) | `stock` → `quantity`, `expires_at` → `expiresAt` |
+| SKU `restrictions.enabled` | `Offer.availability` (`CatalogItemAvailability`) | `enabled` → `AVAILABLE`/`UNAVAILABLE` |
 | Deals | *not modelled* | out of V0 scope |
 
 ---
@@ -70,7 +70,7 @@ Where Captain.Food is more precise than HubRise, we **keep our model**:
   Conversion only at the ACL boundary.
 - **`Stock`** explicit + derived **`StockStatus`** (`IN_STOCK`/`LOW_STOCK`/`OUT_OF_STOCK`).
   `LOW_STOCK` = `quantity <= lowStockThreshold` (risk threshold, absent from HubRise).
-- **Availability ≠ stock**: `MenuItemAvailability` (manual UI flag) distinct from derived stock status.
+- **Availability ≠ stock**: `CatalogItemAvailability` (manual UI flag) distinct from derived stock status.
 - **Strong typing** throughout (one name = one dedicated scalar), `$ref` everywhere.
 
 ---
@@ -82,7 +82,7 @@ Where Captain.Food is more precise than HubRise, we **keep our model**:
 2. **`ServiceType`**: HubRise = `delivery`/`collection`/`eat_in`. Captain.Food = `DELIVERY`/`COLLECTION`
    (`collection` = pickup); `eat_in` not offered but kept in `TaxRate` for catalog fidelity.
 3. **Deals** and advanced **price_overrides**/**restrictions**: not modelled in V0.
-4. **Variants**: we adopt the `Product → Variant[]` structure (a simple product = 1 variant).
+4. **Offers**: we adopt the `Product → Offer[]` structure (a simple product = 1 offer).
 
 ---
 
@@ -92,7 +92,7 @@ Two modes, both going through the ACL:
 
 - **Full import / sync** → event `CatalogImported` (`source: HUBRISE`) carrying
   `categories[]`, `products[]`, `optionLists[]` and **replacing** the catalog content.
-- **Inventory sync** (HubRise callback) → targeted `VariantStockUpdated` event, without rewriting the product.
+- **Inventory sync** (HubRise callback) → targeted `OfferStockUpdated` event, without rewriting the product.
 
 For the restaurant itself, the import feeds the `RegisterRestaurant` command
 (then manual contact completion). See the story map: import use case classified **V1**

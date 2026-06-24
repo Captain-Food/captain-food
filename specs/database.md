@@ -6,7 +6,7 @@ PostgreSQL table definition (conceptual):
 CREATE TABLE domain_events (
   position        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, // $all order: total order across every stream (projection checkpoint)
   id              UUID NOT NULL UNIQUE,        // event id — idempotency key, deduped on append
-  stream_name     TEXT NOT NULL,               // '<Category>-<id>', e.g. 'Menu-12345'; category = prefix before the first '-'
+  stream_name     TEXT NOT NULL,               // '<CatalogCategory>-<id>', e.g. 'Catalog-12345'; category = prefix before the first '-'
   version         INT  NOT NULL,               // 0-based event number within the stream (expected-version concurrency)
   user_id         UUID NOT NULL,
   user_type       INT NOT NULL,
@@ -30,7 +30,7 @@ sequence of one aggregate instance; it maps 1:1 to a domain aggregate (`actors.y
 
 | EventStore concept | Column / mechanism here |
 |---|---|
-| Stream name (`<Category>-<id>`, e.g. `Menu-12345`) | `stream_name` — category = prefix, so **no `stream_type` column** |
+| Stream name (`<CatalogCategory>-<id>`, e.g. `Catalog-12345`) | `stream_name` — category = prefix, so **no `stream_type` column** |
 | Event number / stream revision (0-based) | `version` — `UNIQUE (stream_name, version)` gives expected-version concurrency |
 | `$all` global position | `position` (identity) — total order; projections track a checkpoint on it |
 | Event id (idempotent append) | `id` — `UNIQUE` |
@@ -39,7 +39,7 @@ sequence of one aggregate instance; it maps 1:1 to a domain aggregate (`actors.y
 | `$et-<type>` projection | `et_events(event_type)` (below) |
 | Stream `$maxAge` / `$maxCount` | `expired_at` (simplified to a per-event TTL) |
 
-- The category prefix is one of `Restaurant | Menu | Customer | Cart | Order | DeliveryJob`
+- The category prefix is one of `Restaurant | Catalog | Customer | Cart | Order | DeliveryJob`
   (matches the aggregates in [actors.yaml](actors.yaml)); the `<id>` suffix is the instance id.
 - `metadata`: optional. To stay faithful to EventStore, `correlation_id` / `cause_id` / user could be
   folded in here (as `$correlationId` / `$causationId`) rather than kept as columns — left as columns
@@ -53,7 +53,7 @@ inspection/replay over the log only — read paths still go through the `View_*`
 `domain_events` directly.
 
 ```sql
--- ce_events('Menu')  ==  SELECT * FROM domain_events WHERE stream_name LIKE 'Menu-%'
+-- ce_events('Catalog')  ==  SELECT * FROM domain_events WHERE stream_name LIKE 'Catalog-%'
 CREATE FUNCTION ce_events(category TEXT)
 RETURNS SETOF domain_events
 LANGUAGE sql STABLE AS $$
@@ -64,7 +64,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 ```
 
-- `category` is a stream-name prefix: `Restaurant | Menu | Customer | Cart | Order | DeliveryJob`.
+- `category` is a stream-name prefix: `Restaurant | Catalog | Customer | Cart | Order | DeliveryJob`.
 - The category is derived from `stream_name` (prefix before the first `-`), so no `stream_type`
   column is stored.
 - Ordered by `(stream_name, version)` so each stream stays contiguous and replay-ordered.
@@ -98,62 +98,134 @@ consume events. These read tables are **"fake" tables** (denormalized, query-sha
 from the log) — to avoid any confusion with a real/normalized table, every one is prefixed
 **`View_`** (`View_{TableName}`).
 
-Each view below declares only what is intrinsic to the read model: its **source aggregate(s) +
-events** ([events.yaml](events.yaml) / [actors.yaml](actors.yaml)), its **business filters/rules**,
-and its **columns**. The consumer mapping — which GraphQL query reads it and which UI screen it
-backs — is **not** repeated here; it lives in [traceability.md](traceability.md) §2 (persona → query
-→ view → UI). Money is stored as integer minor units (`*_cents` + `currency`), matching `Money`.
-`JSONB` is used where a whole sub-tree is fetched at once.
+The read models below are the **source of truth in [views.yaml](views.yaml)** and the per-view detail
+is GENERATED from it (run `npm run generate` in `tools/codegen`). Each view declares only what is
+intrinsic to the read model: its **source aggregate + events** ([events.yaml](events.yaml) /
+[actors.yaml](actors.yaml)), its **business filters/rules**, and its **columns**. The consumer mapping
+— which GraphQL query reads it — is declared in [api.yaml](api.yaml) via `@reads` and
+surfaced in [traceability.md](traceability.md) §2. Money is stored as integer minor units (`*_cents`
++ `currency`), matching `Money`; `JSONB` is used where a whole sub-tree is fetched at once. The SQL
+DDL for these tables is generated to `tools/codegen/out/views.generated.sql`.
 
-### `View_RestaurantsPublic`
-- **Aggregate**: `Restaurant`. **Fed by**: `RestaurantRegistered`, `RestaurantUpdated`,
-  `RestaurantActivated`, `RestaurantDeactivated`, `RestaurantAcceptanceModeChanged`.
-- **Filters**: the public discover list exposes `status = ACTIVE` only; other statuses are kept in
-  the view for the single-restaurant header.
-- **Columns**: `restaurant_id` (PK), `slug` (unique), `display_name`, `description`, `tags` JSONB,
-  `address` JSONB, `opening_hours` JSONB, `status`, `order_acceptance`, `default_currency`,
-  `preparation_time_minutes`, `updated_at`.
+<!-- GENERATED:views START — source: specs/views.yaml; run `npm run generate`. Do not edit between the markers. -->
 
-### `View_RestaurantMenu`
-- **Aggregate**: `Menu`. **Fed by**: `MenuCreated`, `Category*`, `Product*`, `OptionList*`,
-  `VariantStockUpdated`, `CatalogImported`.
-- **Rules**: `stock_status` is derived (quantity vs `lowStockThreshold`); orderable = `AVAILABLE`
-  **and** stock > 0. Could be normalized (one row per variant) if per-item querying is needed later.
-- **Columns**: `menu_id` (PK), `restaurant_id` (index), `slug`, `name`, `catalog` JSONB — the
-  assembled tree: categories → products → variants `{ price_cents, currency, availability,
-  stock_status }` + option lists. `updated_at`.
+### `View_RestaurantAccount` · 🛶 V0 · 🔒 internal · source aggregate `RestaurantAccount`
 
-### `View_Cart`
-- **Aggregate**: `Cart` (joined with the catalog for pricing). **Fed by**: `CartStarted`,
-  `CartLineAdded`, `CartLineQuantityChanged`, `CartLineRemoved`, `CartCheckedOut`.
-- **Rules**: prices are computed by the projection from the current catalog, never trusted from the
-  client. `customer_id` is NULL while the cart is owned by a guest.
-- **Columns**: `cart_id` (PK), `restaurant_id`, `customer_id` (NULL while guest), `status`,
-  `lines` JSONB `[{ cart_line_id, variant_id, product_id, name, variant_name, quantity,
-  unit_price_cents, selected_options, line_total_cents }]`, `total_amount_cents`, `currency`, `updated_at`.
+- **Consumed by**: command handlers / auth resolution (no GraphQL query).
+- **Fed by**: `RestaurantAccountRegistered`, `RestaurantAccountUpdated`, `RestaurantAccountDeleted`
+- **Note**: Account read model (HubRise restaurant). Holds account-level facts shared by its locations; locations denormalize default_currency from here.
 
-### `View_OrderTracking`
-- **Aggregate**: `Order` (+ payment facts). **Fed by**: `OrderPlaced`, `OrderAcceptedByRestaurant`,
-  `OrderPreparationStarted`, `OrderMarkedReady`, `OrderDelivered`, `OrderRejectedByRestaurant`,
-  `OrderCancelledByCustomer`, `OrderCancelledByRestaurant`, `PaymentCaptured`, `PaymentRefunded`.
-- **Rules**: `payment_status` is folded from the Stripe payment facts.
-- **Columns**: `order_id` (PK), `ref`, `restaurant_id`, `customer_id` (NULL), `status`,
-  `service_type`, `items` JSONB, `total_amount_cents`, `currency`, `delivery_address` JSONB,
-  `estimated_ready_at`, `placed_at`, `status_changed_at`, `payment_status`.
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `restaurant_account_id` | `RestaurantAccountId` | `UUID` | PK |  |
+| `ref` | `ExternalReference` | `TEXT` | nullable |  |
+| `legal_name` | `RestaurantLegalName` | `TEXT` | — |  |
+| `default_currency` | `CurrencyCode` | `TEXT` | — |  |
+| `timezone` | `TimeZone` | `TEXT` | nullable |  |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
 
-### `View_OrdersByRestaurant`
-- **Aggregate**: `Order`. **Fed by**: the same order lifecycle events as `View_OrderTracking`.
-- **Filters**: queried/indexed by `(restaurant_id, status, placed_at)`.
-- **Columns**: `order_id` (PK), `restaurant_id` (index), `status`, `service_type`,
-  `customer_display_name`, `total_amount_cents`, `currency`, `placed_at`, `accepted_at`,
-  `estimated_ready_at`. Index `(restaurant_id, status, placed_at)`.
+### `View_Restaurant` · 🛶 V0 · source aggregate `Restaurant`
 
-### `View_OrdersByCustomer`  *(V1)*
-- **Aggregate**: `Order`. **Fed by**: the order lifecycle events.
-- **Filters**: queried/indexed by `customer_id`.
-- **Columns**: `customer_id` (index), `order_id`, `restaurant_id`, `restaurant_display_name`,
-  `status`, `total_amount_cents`, `currency`, `placed_at`.
+- **Fed by**: `RestaurantRegistered`, `RestaurantUpdated`, `RestaurantActivated`, `RestaurantDeactivated`, `RestaurantAcceptanceModeChanged`, `RestaurantRemoved`, `RestaurantAccountRegistered`
 
-> A projection may consume events from **more than one aggregate** (e.g. `View_OrderTracking` folds
-> `Order` lifecycle + Stripe payment facts; `View_Cart`/`View_RestaurantMenu` price against the
-> catalog). The owning aggregate above is the primary one; the others are joins.
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `restaurant_id` | `RestaurantId` | `UUID` | PK |  |
+| `restaurant_account_id` | `RestaurantAccountId` | `UUID` | index |  |
+| `slug` | `Slug` | `TEXT` | unique |  |
+| `display_name` | `RestaurantDisplayName` | `TEXT` | — |  |
+| `description` | `text` | `TEXT` | nullable | ⚠️ HOLE: no event carries a restaurant description — nothing populates this column yet. |
+| `tags` | `jsonb` | `JSONB` | — | ⚠️ HOLE: no event carries restaurant tags — nothing populates this column yet. |
+| `address` | `jsonb` | `JSONB` | — |  |
+| `opening_hours` | `jsonb` | `JSONB` | — |  |
+| `status` | `RestaurantStatus` | `TEXT` | — | Derived from the lifecycle event type: DRAFT on register, ACTIVE/INACTIVE on (de)activation. |
+| `order_acceptance` | `OrderAcceptanceMode` | `TEXT` | — |  |
+| `default_currency` | `CurrencyCode` | `TEXT` | — |  |
+| `timezone` | `TimeZone` | `TEXT` | nullable | Location timezone; falls back to the account's when null. |
+| `preparation_time_minutes` | `integer` | `INTEGER` | nullable |  |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+
+### `View_Customer` · 🛶 V0 · source aggregate `Customer`
+
+- **Fed by**: `CustomerRegistered`, `RestaurantRated`, `RestaurantFavorited`, `RestaurantUnfavorited`, `CustomerInfoUpdated`, `CustomerPreferencesSet`, `CustomerAddressSet`, `CustomerAddressRemoved`, `CustomerPaymentMethodSet`
+- **Rules**: `ratings` accumulates the customer's own restaurant ratings (from RestaurantRated) so they can see how they rated each restaurant. `favorite_restaurant_ids` is maintained from RestaurantFavorited/RestaurantUnfavorited; the favoriteRestaurants query joins it to View_Restaurant.
+- **Note**: Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs RegisterCustomer idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts.
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `customer_id` | `CustomerId` | `UUID` | PK |  |
+| `phone` | `PhoneNumber` | `TEXT` | unique |  |
+| `auth_ref` | `ExternalReference` | `TEXT` | index, nullable | Auth provider user id (Supabase Auth) → Customer. |
+| `display_name` | `CustomerDisplayName` | `TEXT` | nullable |  |
+| `email` | `EmailAddress` | `TEXT` | nullable |  |
+| `locale` | `Locale` | `TEXT` | nullable | i18n culture (language + date/time/number display). |
+| `timezone` | `TimeZone` | `TEXT` | nullable |  |
+| `ratings` | `jsonb` | `JSONB` | — | The customer's own submitted ratings (assembled from RestaurantRated): [{ order_id, restaurant_id, stars, comment, rated_at }]. |
+| `favorite_restaurant_ids` | `jsonb` | `JSONB` | — | [restaurant_id] the customer favorited. |
+| `preferences` | `jsonb` | `JSONB` | nullable | { dietary_tags: [...], favorite_cuisines: [...] } from CustomerPreferencesSet. |
+| `addresses` | `jsonb` | `JSONB` | — | Saved address book: [{ address_id, label, address }] from CustomerAddressSet/Removed. |
+| `payment_method_id` | `PaymentMethodId` | `TEXT` | nullable |  |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+
+### `View_Catalog` · 🛶 V0 · source aggregate `Catalog`
+
+- **Fed by**: `CatalogCreated`, `CatalogCategoryAdded`, `CatalogCategoryUpdated`, `CatalogCategoryRemoved`, `ProductAdded`, `ProductUpdated`, `ProductRemoved`, `OptionListAdded`, `OptionListUpdated`, `OptionListRemoved`, `OfferStockUpdated`, `CatalogImported`
+- **Rules**: `stock_status` is derived (quantity vs lowStockThreshold); orderable = AVAILABLE and stock > 0. Could be normalized (one row per offer) if per-item querying is needed later.
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `catalog_id` | `CatalogId` | `UUID` | PK |  |
+| `restaurant_id` | `RestaurantId` | `UUID` | index |  |
+| `slug` | `Slug` | `TEXT` | — | ⚠️ HOLE: CatalogCreated carries no slug — nothing populates this column (drop it or add slug to the event). |
+| `name` | `CatalogName` | `TEXT` | — |  |
+| `catalog` | `jsonb` | `JSONB` | — | Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status } + option lists. |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+
+### `View_Cart` · 🛶 V0 · source aggregate `Cart`
+
+- **Fed by**: `CartStarted`, `CartLineAdded`, `CartLineQuantityChanged`, `CartLineRemoved`, `CartCheckedOut`, `CustomerIdentified`
+- **Rules**: Prices are computed by the projection from the current catalog, never trusted from the client. `customer_id` is NULL while the cart is owned by a guest; bound when CustomerIdentified resolves authRef → customerId, or at checkout.
+- **Note**: Joined with the catalog for pricing (secondary source).
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `cart_id` | `CartId` | `UUID` | PK |  |
+| `restaurant_id` | `RestaurantId` | `UUID` | — |  |
+| `customer_id` | `CustomerId` | `UUID` | nullable | NULL while guest; bound by CustomerIdentified or at checkout. |
+| `status` | `CartStatus` | `TEXT` | — | Derived from event type: OPEN on CartStarted, CHECKED_OUT on CartCheckedOut. |
+| `lines` | `jsonb` | `JSONB` | — | Priced by the projection from the live catalog: [{ cart_line_id, offer_id, product_id, name, offer_name, quantity, unit_price_cents, selected_options, line_total_cents }]. |
+| `total_amount_cents` | `MoneyCents` | `BIGINT` | — | COMPUTED by the projection from the live catalog (never trusted from the client). |
+| `currency` | `CurrencyCode` | `TEXT` | — | From the catalog currency at pricing time (the restaurant's default_currency). |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+
+### `View_OrderTracking` · 🛶 V0 · source aggregate `Order`
+
+- **Fed by**: `OrderPlaced`, `OrderAcceptedByRestaurant`, `OrderPreparationStarted`, `OrderMarkedReady`, `OrderDelivered`, `OrderRejectedByRestaurant`, `OrderCancelledByCustomer`, `OrderCancelledByRestaurant`, `PaymentCaptured`, `PaymentRefunded`, `OrderRated`, `RestaurantRated`, `RiderTipped`
+- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment) and RiderTipped (rider_tip_cents); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating.
+- **Note**: The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status (back-office queue) — via the indexes below; there is no separate per-persona order projection.
+
+- **Indexes**: `(restaurant_id, status, placed_at)`
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `order_id` | `OrderId` | `UUID` | PK |  |
+| `ref` | `ExternalReference` | `TEXT` | — |  |
+| `restaurant_id` | `RestaurantId` | `UUID` | — |  |
+| `customer_id` | `CustomerId` | `UUID` | index, nullable |  |
+| `status` | `OrderStatus` | `TEXT` | — | Derived from the lifecycle event type. |
+| `service_type` | `ServiceType` | `TEXT` | — |  |
+| `items` | `jsonb` | `JSONB` | — |  |
+| `total_amount_cents` | `MoneyCents` | `BIGINT` | — | amountCents of OrderPlaced.totalAmount (Money). |
+| `currency` | `CurrencyCode` | `TEXT` | — | currency of OrderPlaced.totalAmount (Money). |
+| `delivery_address` | `jsonb` | `JSONB` | nullable |  |
+| `estimated_ready_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
+| `placed_at` | `timestamptz` | `TIMESTAMPTZ` | — | OrderPlaced occurrence time. |
+| `status_changed_at` | `timestamptz` | `TIMESTAMPTZ` | — | Occurrence time of the latest status-changing event. |
+| `payment_status` | `text` | `TEXT` | — | Folded from Stripe facts; candidate for a PaymentStatus enum. |
+| `restaurant_stars` | `StarRating` | `INTEGER` | nullable | Customer's 0–5 rating of the restaurant; null until rated. |
+| `rating_comment` | `RatingComment` | `TEXT` | nullable |  |
+| `rider_thumb` | `ThumbRating` | `TEXT` | nullable |  |
+| `rider_tip_cents` | `MoneyCents` | `BIGINT` | nullable | amountCents of RiderTipped.amount (Money); null if no tip. |
+| `rated_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Occurrence time of the latest rating/tip event. |
+
+<!-- GENERATED:views END -->

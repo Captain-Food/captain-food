@@ -35,7 +35,7 @@ User story map following Jeff Patton's method.
 [Admin]    [Admin]   [Customer] [Customer]  [Customer]   [Customer]  [Restaurant] [Resto/Courier] [Customer]
   1          2          3          4            5            6            7             8              9
 Onboard → Publish → Discover → Browse &  → Verify     → Pay &     →  Fulfil    →  Deliver /   → Track &
-the resto  the menu   restos     build cart   phone (OTP)  place order  the order    hand over      complete
+the resto  the catalog   restos     build cart   phone (OTP)  place order  the order    hand over      complete
 ```
 
 ---
@@ -57,14 +57,14 @@ Legend: ✍️ = command · 👁️ = read model · 📥 = inbound event · 🔑
 | 1 | Onboard the resto | Admin | Register a restaurant (starts DRAFT) | ✍️ `RegisterRestaurant` |
 | | | Admin | Make it visible & orderable | ✍️ `ActivateRestaurant` |
 | | | Admin | Edit / take offline ⏱️ | ✍️ `UpdateRestaurant` · `DeactivateRestaurant` |
-| 2 | Publish the menu | Admin | Create a menu (catalog) | ✍️ `CreateMenu` |
-| | | Admin | Add a product with its variants | ✍️ `AddProduct` |
-| | | Admin | Categories, options, edit/remove ⏱️ | ✍️ `AddCategory` · `AddOptionList` · `UpdateProduct` · `RemoveProduct` … |
-| | | Admin / System | Manage stock ⏱️ (manual **or** HubRise sync) | ✍️ `UpdateVariantStock` · 📥 `VariantStockUpdated` |
+| 2 | Publish the catalog | Admin | Create a catalog (catalog) | ✍️ `CreateCatalog` |
+| | | Admin | Add a product with its offers | ✍️ `AddProduct` |
+| | | Admin | Categories, options, edit/remove ⏱️ | ✍️ `AddCatalogCategory` · `AddOptionList` · `UpdateProduct` · `RemoveProduct` … |
+| | | Admin / System | Manage stock ⏱️ (manual **or** HubRise sync) | ✍️ `UpdateOfferStock` · 📥 `OfferStockUpdated` |
 | | | System | Import / re-sync a full catalog ⏱️ | ✍️ `ImportCatalog` |
 | 3 | Discover | Customer | Browse the list of restaurants | 👁️ `read_restaurants_public` |
 | | | Customer | Search / filter / ratings ⏱️ | 👁️ |
-| 4 | Browse & build cart | Customer | Open a restaurant + view its menu | 👁️ |
+| 4 | Browse & build cart | Customer | Open a restaurant + view its catalog | 👁️ |
 | | | Customer (guest) | Add / change / remove cart lines (validated per line) | ✍️ `AddCartLine` · `ChangeCartLineQuantity` · `RemoveCartLine` |
 | | | Customer | View the priced cart | 👁️ |
 | | | Customer | Choose options / modifiers ⏱️ | 👁️ |
@@ -76,7 +76,7 @@ Legend: ✍️ = command · 👁️ = read model · 📥 = inbound event · 🔑
 | | | Stripe | Payment outcome reported back | 📥 `PaymentCaptured` / `PaymentFailed` |
 | 7 | Fulfil | Restaurant | Accept the order | ✍️ `AcceptOrder` |
 | | | Restaurant | Reject the order (+ refund) | ✍️ `RejectOrder` · 📥 `PaymentRefunded` |
-| | | Restaurant | Start preparation ⏱️ · busy/paused mode ⏱️ | ✍️ `StartPreparation` · `ChangeAcceptanceMode` |
+| | | Restaurant | Start preparation ⏱️ · busy/paused mode ⏱️ | ✍️ `StartPreparation` · `ChangeOrderAcceptanceMode` |
 | 8 | Deliver / hand over | Restaurant | Mark order ready | ✍️ `MarkOrderReady` |
 | | | Restaurant / Courier | Mark delivered / handed over | ✍️ `MarkOrderDelivered` |
 | | | Delivery partner | Partner delivery status ⏱️ | 📥 `DeliveryStatusUpdated` |
@@ -93,9 +93,9 @@ Legend: ✍️ = command (write) · 👁️ = read model (no command) · 📥 = 
 | Activity | 🟢 **V0 — Walking skeleton** | 🔵 V1 / later |
 |---|---|---|
 | **1. Onboard the resto** | Register a resto ✍️ `RegisterRestaurant` · Activate ✍️ `ActivateRestaurant` | Self-onboarding via `restos.captain.food` ⏱️ · Deactivate ✍️ · HubRise import ✍️ `ImportCatalog` ⏱️ · Custom domain ⏱️ |
-| **2. Publish the menu** | Create a menu ✍️ `CreateMenu` · Add products ✍️ `AddProduct` | Update/remove product ✍️ · Categories & options ✍️ · Manage stock/availability ✍️ `UpdateVariantStock` (manual) **or** 📥 `VariantStockUpdated` (HubRise sync) · Photos ⏱️ |
+| **2. Publish the catalog** | Create a catalog ✍️ `CreateCatalog` · Add products ✍️ `AddProduct` | Update/remove product ✍️ · Categories & options ✍️ · Manage stock/availability ✍️ `UpdateOfferStock` (manual) **or** 📥 `OfferStockUpdated` (HubRise sync) · Photos ⏱️ |
 | **3. Discover** | List restaurants 👁️ `read_restaurants_public` | Search/filter by category 👁️ · Ratings & badges ⏱️ |
-| **4. Browse & build cart** | View resto + menu 👁️ · Build cart ✍️ `AddCartLine` / `ChangeCartLineQuantity` / `RemoveCartLine` (server-side `Cart` aggregate, guest-allowed, validated per line) | Choose options/modifiers ⏱️ · Cross-device cart sync ⏱️ |
+| **4. Browse & build cart** | View resto + catalog 👁️ · Build cart ✍️ `AddCartLine` / `ChangeCartLineQuantity` / `RemoveCartLine` (server-side `Cart` aggregate, guest-allowed, validated per line) | Choose options/modifiers ⏱️ · Cross-device cart sync ⏱️ |
 | **5. Verify phone (OTP)** | Enter phone → SMS code → verify 🔑 · First-time number creates account ✍️ `RegisterCustomer` → `CustomerRegistered` | **Enrol passkey — Face ID/Touch ID, biometric re-auth, skips SMS** 🔑 ⏱️ · Social login (Google/Apple/Facebook) 🔑 ⏱️ · Optional email for receipts ⏱️ · Manage profile & saved addresses ✍️ ⏱️ |
 | **6. Pay & place order** | Confirm contact + mode 👁️ · Pay via Stripe — **card + Apple Pay** (Express Checkout Element) + place order ✍️ `PlaceOrder` (saga; Stripe outcome arrives as 📥 `PaymentCaptured` / `PaymentFailed`) | Google Pay ⏱️ · Stripe Connect 3-way ⏱️ |
 | **7. Fulfil** | Accept ✍️ `AcceptOrder` · Reject ✍️ `RejectOrder` (+refund) | Start preparation ✍️ `StartPreparation` *(event to create)* · Busy/paused mode ✍️ · HubRise ⏱️ |
@@ -111,8 +111,8 @@ Legend: ✍️ = command (write) · 👁️ = read model (no command) · 📥 = 
 
 Read left to right, this is the minimal story that proves value:
 
-1. An **admin** registers a resto (`RegisterRestaurant`), creates a menu (`CreateMenu`) with at least one product (`AddProduct`), then activates it (`ActivateRestaurant`).
-2. A **customer** sees the resto in the list, opens the menu, and builds the cart — a server-side `Cart` aggregate validated line by line (`AddCartLine`…), so a guest gets immediate feedback on stock/options before checkout.
+1. An **admin** registers a resto (`RegisterRestaurant`), creates a catalog (`CreateCatalog`) with at least one product (`AddProduct`), then activates it (`ActivateRestaurant`).
+2. A **customer** sees the resto in the list, opens the catalog, and builds the cart — a server-side `Cart` aggregate validated line by line (`AddCartLine`…), so a guest gets immediate feedback on stock/options before checkout.
 3. To check out, they **verify their phone number** via an SMS one-time code (Supabase Auth). A new number creates the account (`RegisterCustomer` → `CustomerRegistered`); a known one just signs in. Account is required.
 4. They confirm contact details, pick delivery/collection, **pay via Stripe** and place the order (`PlaceOrder`).
 5. The **restaurant** accepts (`AcceptOrder`) or rejects (`RejectOrder`), marks ready (`MarkOrderReady`), then delivered (`MarkOrderDelivered`).
@@ -140,5 +140,5 @@ Everything blue (🔵) can wait without breaking this story.
 - **Customer ↔ auth identity link**: phone number is the primary identifier; define how a Supabase Auth user id maps to the `Customer` aggregate (`CustomerRegistered.authRef`) and how a returning number resolves to the existing `Customer`.
 - **SMS provider**: phone OTP requires an SMS provider behind Supabase Auth (Twilio / Vonage / MessageBird) — a per-message cost and a new external integration to pick.
 - **Passkeys vs subdomains**: biometric re-auth uses WebAuthn passkeys (Supabase Auth, beta), scoped to a Relying Party ID with **up to 5 allowed origins**. But customers order on per-restaurant subdomains (`{slug}.captain.food`). Decide to route identification/checkout through a **single origin** (e.g. `captain.food`) with RP ID = `captain.food`, so one passkey works everywhere instead of one per subdomain.
-- **HubRise** (resto + menu import): use case *UC-import*, classified V1; see [integrations/hubrise.md](integrations/hubrise.md).
+- **HubRise** (resto + catalog import): use case *UC-import*, classified V1; see [integrations/hubrise.md](integrations/hubrise.md).
 - **Cart persistence & guest sessions**: the `Cart` is a server-side aggregate, so every line edit is an event. Carts **persist indefinitely** (Uber Eats style — no abandonment/expiry use case, hence no sweeper); the open question is the storage footprint of long-lived, high-churn carts — whether cart events live in the durable `domain_events` log or a dedicated cart store. Also: cart mutations are `@public` (guest, pre-auth) — bind sessions to a cart token so one guest cannot mutate another's cart.
