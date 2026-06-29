@@ -18,12 +18,14 @@ const ROLE_EMOJI: Record<string, string> = {
 const KIND_EMOJI: Record<string, string> = {
   scalar: '🔤', entity: '📦', command: '📩', event: '⚡', view: '🗄️', actor: '🎭',
   type: '🧩', query: '🔎', mutation: '✏️', error: '⛔', property: '🔹', story: '🎬', test: '🧪',
+  obs: '📡', context: '🔲', container: '🧱', component: '⚙️',
 };
 const emo = (k: string) => KIND_EMOJI[k] ?? '•';
 
 const esc = (s: string) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]+/g, '-');
+const pascal = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const anchor = (kind: string, name: string) => `${kind}-${slug(name)}`;
 const propAnchor = (kind: string, owner: string, field: string) => `${anchor(kind, owner)}--${slug(field)}`;
 
@@ -32,6 +34,7 @@ const KIND_CLASS: Record<string, string> = {
   type: 'k-type', entity: 'k-type', view: 'k-type', actor: 'k-type',
   scalar: 'k-scalar', query: 'k-op', mutation: 'k-op', command: 'k-op',
   event: 'k-event', error: 'k-error', property: 'k-prop', test: 'k-op',
+  obs: 'k-event', context: 'k-type', container: 'k-type', component: 'k-op',
 };
 const cls = (k: string) => KIND_CLASS[k] ?? 'k-id';
 
@@ -81,6 +84,16 @@ const THEME = `<style>
   .toolbar button:hover { border-color:var(--accent); color:#fff; }
   .toc a { margin-right:14px; white-space:nowrap; }
   .hole { color:var(--error); }
+  /* interactive C4 / flow map */
+  .cfmap { border:1px solid var(--line); border-radius:6px; background:#262626; padding:8px; }
+  .cfmap-bar { display:flex; align-items:center; gap:10px; padding:4px 6px; flex-wrap:wrap; }
+  .cfmap-bar button { background:var(--bg3); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:3px 10px; cursor:pointer; font:inherit; }
+  .cfmap-bar button:hover { border-color:var(--accent); color:#fff; }
+  #cf-svg { width:100%; height:auto; display:block; background:#262626; border-radius:4px; }
+  .cf-node { cursor:pointer; }
+  .cf-node:hover rect { filter:brightness(1.3); }
+  .cf-node text { pointer-events:none; }
+  .cfmap-info { padding:6px; font-size:.88em; }
 </style>
 <script>
   function setAll(open){ document.querySelectorAll('details').forEach(d=>d.open=open); }
@@ -178,11 +191,16 @@ export function emitDocumentationHtml(model: Model): string {
 
   // 2. API
   const queriesHtml = model.api.queries.map((q) => {
-    const args = q.args.map((a) => `<span class="k-param">${esc(a.name)}${a.required ? '' : '?'}</span>: ${apiType(a)}`).join(', ') || '—';
+    const fieldList = q.args.map((a) => `<span class="k-param">${esc(a.name)}${a.required ? '' : '?'}</span>: ${apiType(a)}`).join(', ');
+    // Queries with args take a single generated input class (`<Query>QueryInput`); args are never inlined.
+    const inputType = q.args.length ? `${pascal(q.name)}QueryInput${q.args.some((a) => a.required) ? '!' : ''}` : '';
+    const inputRel = q.args.length
+      ? `<div class="rel"><span class="lbl">input:</span> <span class="k-type">🧩 ${esc(inputType)}</span> <span class="muted">{ ${fieldList} }</span></div>`
+      : `<div class="rel"><span class="lbl">input:</span> <span class="muted">(none)</span></div>`;
     const retName = q.returnsType;
     const ret = (typeSet.has(retName) ? link('type', retName) : entitySet.has(retName) ? link('entity', retName) : `<span class="k-id">${esc(retName)}</span>`) + (q.returnsList ? ' []' : '');
     const reads = q.reads.map((v) => link('view', v)).join(', ') || '—';
-    const body = `<div class="rel"><span class="lbl">args:</span> ${args}</div>`
+    const body = inputRel
       + `<div class="rel"><span class="lbl">returns:</span> ${ret} · <span class="lbl">reads</span> ${reads}</div>`
       + `<div class="rel"><span class="lbl">roles:</span> ${esc(q.roles.join(', '))} · <span class="badge">${q.slice}</span></div>`;
     return item('query', 'Query', q.name, body, q.description);
@@ -315,15 +333,112 @@ export function emitDocumentationHtml(model: Model): string {
     }).filter(Boolean).join('');
   })();
 
+  // any $ref -> a colored link, kind chosen from the target file.
+  const anyLink = (ref: unknown): string => {
+    if (typeof ref !== 'string') return '—';
+    const [file, name] = [ref.split('#/')[0], ref.split('#/')[1] ?? ''];
+    const kind = file === 'commands.yaml' ? 'command' : file === 'events.yaml' ? 'event'
+      : file === 'actors.yaml' ? 'actor' : file === 'views.yaml' ? 'view'
+      : file === 'scalars.yaml' ? 'scalar' : 'entity';
+    return link(kind, name);
+  };
+  const refLinks = (arr: unknown): string =>
+    (Array.isArray(arr) ? arr : []).map((r) => anyLink((r as { $ref?: string })?.$ref)).join(', ') || '—';
+
+  // 11. Observability contracts
+  const obsHtml = Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>).map(([feature, c]) => {
+    const wf = (c.workflow ?? {}) as Record<string, unknown>;
+    const ids = (Array.isArray(c.run_identity) ? c.run_identity : []) as Array<Record<string, unknown>>;
+    const idRows = ids.map((i) => [`<span class="k-prop">${esc(String(i.name))}</span>`, `<span class="muted">${esc(String(i.source ?? ''))}</span>`, i.required ? '<span class="req">✅</span>' : '<span class="opt">⬜</span>', i.businessKey ? anyLink((i.businessKey as { $ref?: string }).$ref) : '—']);
+    const spans = (Array.isArray(c.spans) ? c.spans : []) as Array<Record<string, unknown>>;
+    const spanRows = spans.map((s) => {
+      const attrs = (Array.isArray(s.attributes) ? s.attributes : []) as Array<Record<string, unknown>>;
+      const a = attrs.map((x) => `<span class="k-prop">${esc(String(x.key))}</span>${x.required ? '<span class="req">*</span>' : ''}`).join(', ') || '—';
+      return [`<span class="k-op">${esc(String(s.name))}</span>`, `<span class="kw">${esc(String(s.kind ?? ''))}</span>`, s.required ? '<span class="req">✅</span>' : '<span class="opt">⬜</span>', s.multiplicity ? `<span class="muted">${esc(String(s.multiplicity))}</span>` : '—', a];
+    });
+    const metricList = (key: string) => ((Array.isArray(c[key]) ? c[key] : []) as Array<Record<string, unknown>>).map((m) => `<span class="k-const">${esc(String(m.name))}</span> <span class="muted">(${esc(String(m.type))})</span>`).join(', ') || '—';
+    const sr = (c.status_rules ?? {}) as Record<string, Record<string, unknown>>;
+    const lat = (c.latency_budget ?? {}) as Record<string, unknown>;
+    const err = (c.error_budget ?? {}) as Record<string, unknown>;
+    const reqSpans = (sr.success?.required_spans as string[] ?? []).map((s) => `<span class="k-op">${esc(s)}</span>`).join(', ');
+    const body = `<div class="rel"><span class="lbl">workflow:</span> ${wf.saga ? `saga ${anyLink((wf.saga as { $ref?: string }).$ref)}` : ''}${wf.command ? ` · command ${anyLink((wf.command as { $ref?: string }).$ref)}` : ''}</div>`
+      + `<div class="rel"><span class="lbl">emits:</span> ${refLinks(wf.emits)} · <span class="lbl">inbound:</span> ${refLinks(wf.inbound)}</div>`
+      + (idRows.length ? `<div class="rel"><span class="lbl">run identity</span></div>${table(['Id', 'Source', 'Req.', 'Business key'], idRows)}` : '')
+      + (spanRows.length ? `<div class="rel"><span class="lbl">spans</span> <span class="muted">(* = required attribute)</span></div>${table(['Span', 'Kind', 'Req.', 'Multiplicity', 'Attributes'], spanRows)}` : '')
+      + `<div class="rel"><span class="lbl">metrics:</span> ${metricList('metrics')} · <span class="lbl">business:</span> ${metricList('business_metrics')}</div>`
+      + (reqSpans ? `<div class="rel"><span class="lbl">success ⇐ spans:</span> ${reqSpans}</div>` : '')
+      + `<div class="rel"><span class="lbl">SLOs:</span> p95 ≤ ${esc(String(lat.max_p95_ms ?? '—'))}ms · p99 ≤ ${esc(String(lat.max_p99_ms ?? '—'))}ms · error ≤ ${esc(String(err.max_error_rate_pct ?? '—'))}%</div>`;
+    return item('obs', 'Contract', feature, body, `criticality: ${String(c.criticality ?? '—')}`);
+  }).join('');
+
+  // 12. Architecture (C4)
+  const c4Html = (() => {
+    const l2 = (defs['architecture/c4-l2.yaml'] ?? {}) as Record<string, Record<string, unknown>>;
+    const l3 = (defs['architecture/c4-l3.yaml'] ?? {}) as Record<string, unknown>;
+    const sys = (l2.system ?? {}) as Record<string, unknown>;
+    const bcs = (l2.boundedContexts ?? {}) as Record<string, Record<string, unknown>>;
+    const containers = (l2.containers ?? {}) as Record<string, Record<string, unknown>>;
+    const externals = (l2.externalSystems ?? {}) as Record<string, Record<string, unknown>>;
+    const rels = (Array.isArray(l2.relationships) ? l2.relationships : []) as Array<Record<string, unknown>>;
+    const comps = (l3.components ?? {}) as Record<string, Record<string, unknown>>;
+    const bcRows = Object.entries(bcs).map(([n, bc]) => [`${emo('context')} <span class="k-type">${esc(n)}</span>`, esc(String(bc.description ?? '')), `${refLinks(bc.aggregates)}${bc.processManagers ? ` · ${refLinks(bc.processManagers)}` : ''}`]);
+    const cRows = Object.entries(containers).map(([n, c]) => [`${emo('container')} <span class="k-type">${esc(n)}</span>`, `<span class="muted">${esc(String(c.technology ?? ''))}</span>`, `${esc(String(c.description ?? ''))}${c.realizes ? `<br>realizes: ${refLinks(c.realizes)}` : ''}`]);
+    const xRows = Object.entries(externals).map(([n, x]) => [`🔌 <span class="k-id">${esc(n)}</span>`, esc(String(x.description ?? ''))]);
+    const relRows = rels.map((r) => [`<span class="k-id">${esc(String(r.from))}</span> → <span class="k-id">${esc(String(r.to))}</span>`, esc(String(r.description ?? ''))]);
+    const compRows = Object.entries(comps).map(([n, c]) => [`${emo('component')} <span class="k-op">${esc(n)}</span>`, c.instrumented ? '📡 yes' : '<span class="muted">— no</span>', esc(String(c.description ?? '')), c.handles ? `handles ${refLinks(c.handles)}` : c.updates ? `updates ${refLinks(c.updates)}` : '—']);
+    return `<div class="rel"><span class="lbl">system:</span> <span class="k-type">${esc(String(sys.name ?? 'Captain.Food'))}</span> — ${esc(String(sys.description ?? ''))}</div>`
+      + `<h3>🔲 L2 — Bounded contexts</h3>${table(['Context', 'Description', 'Aggregates / process managers'], bcRows)}`
+      + `<h3>🧱 L2 — Containers</h3>${table(['Container', 'Technology', 'Description'], cRows)}`
+      + `<h3>🔌 L2 — External systems</h3>${table(['System', 'Description'], xRows)}`
+      + `<h3>➡️ L2 — Relationships</h3>${table(['Edge', 'Description'], relRows)}`
+      + `<h3>⚙️ L3 — Components of the api container</h3>${table(['Component', 'Instrumented', 'Description', 'Binds'], compRows)}`;
+  })();
+
+  // 13. Interactive system map — drill from System → containers → bounded contexts → aggregate flows.
+  const mapData = (() => {
+    const l2 = (defs['architecture/c4-l2.yaml'] ?? {}) as Record<string, Record<string, unknown>>;
+    const nm = (arr: unknown) => (Array.isArray(arr) ? arr : []).map((r) => refName((r as { $ref?: string })?.$ref ?? '')).filter((n): n is string => !!n);
+    const sys = (l2.system ?? {}) as Record<string, unknown>;
+    const contexts = Object.entries((l2.boundedContexts ?? {}) as Record<string, Record<string, unknown>>).map(([id, bc]) => ({ id, description: String(bc.description ?? ''), aggregates: nm(bc.aggregates), processManagers: nm(bc.processManagers) }));
+    const containers = Object.entries((l2.containers ?? {}) as Record<string, Record<string, unknown>>).map(([id, c]) => ({ id, technology: String(c.technology ?? ''), description: String(c.description ?? ''), realizes: nm(c.realizes) }));
+    const externals = Object.entries((l2.externalSystems ?? {}) as Record<string, Record<string, unknown>>).map(([id, x]) => ({ id, description: String(x.description ?? '') }));
+    const relationships = (Array.isArray(l2.relationships) ? l2.relationships : []).map((r) => ({ from: String((r as Record<string, unknown>).from), to: String((r as Record<string, unknown>).to), description: String((r as Record<string, unknown>).description ?? '') }));
+    const actors: Record<string, unknown> = {};
+    for (const a of model.actors) actors[a.name] = { type: a.type, receives: a.receives.map((e) => ({ message: refName(e.message.$ref), isCommand: e.message.$ref.startsWith('commands.yaml#/'), emits: e.emits.map((r) => refName(r.$ref)).filter(Boolean), throws: e.throws.map((r) => refName(r.$ref)).filter(Boolean) })) };
+    const views = model.views.map((v) => ({ name: v.name, fedBy: v.fedBy.map((r) => refName(r.$ref)).filter(Boolean) }));
+    return { system: { name: String(sys.name ?? 'Captain.Food'), description: String(sys.description ?? '') }, contexts, containers, externals, relationships, actors, views };
+  })();
+
+  // The renderer is plain JS (single quotes + string concat — NO backticks / template literals — so it
+  // embeds safely in this TS template). `__CF_DATA__` is replaced with the model JSON.
+  const MAP_JS = "(function(){var M=__CF_DATA__;var svg=document.getElementById('cf-svg'),crumb=document.getElementById('cf-crumb'),info=document.getElementById('cf-info'),back=document.getElementById('cf-back');if(!svg)return;var NS='http://www.w3.org/2000/svg';var stack=[{key:'system',title:'System'}];"
+    + "function slug(s){return String(s).toLowerCase().replace(/[^a-z0-9_]+/g,'-');}"
+    + "function el(t,a,x){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;}"
+    + "var K={container:'#4ec9b0',external:'#cc7832',context:'#ffc66d',actor:'#4ec9b0','process':'#56a0c0',command:'#dcdcaa',event:'#c586c0',view:'#9cdcfe'};"
+    + "function find(a,id){for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}"
+    + "function frame(key){"
+    + "if(key==='system'){var nodes=[];M.containers.forEach(function(c){nodes.push({id:c.id,label:c.id,kind:'container',sub:'container:'+c.id,desc:c.technology+' — '+c.description});});M.externals.forEach(function(x){nodes.push({id:x.id,label:x.id,kind:'external',desc:x.description});});var ids={};nodes.forEach(function(n){ids[n.id]=1;});var edges=M.relationships.filter(function(r){return ids[r.from]&&ids[r.to];}).map(function(r){return {from:r.from,to:r.to,label:r.description};});return {title:'System',nodes:nodes,edges:edges,note:'Containers (teal) and external systems (orange). Click a container to see its bounded contexts.'};}"
+    + "if(key.indexOf('container:')===0){var id=key.slice(10);var c=find(M.containers,id)||{realizes:[]};var nodes=[];M.contexts.forEach(function(ctx){var inIt=(ctx.aggregates||[]).some(function(a){return (c.realizes||[]).indexOf(a)>=0;});if(inIt)nodes.push({id:ctx.id,label:ctx.id,kind:'context',sub:'context:'+ctx.id,desc:ctx.description});});return {title:id,nodes:nodes,edges:[],note:nodes.length?'Bounded contexts running in this container. Click one to see its aggregates.':'No bounded context runs in this container (infrastructure/runtime unit).'};}"
+    + "if(key.indexOf('context:')===0){var id=key.slice(8);var ctx=find(M.contexts,id)||{aggregates:[],processManagers:[]};var nodes=(ctx.aggregates||[]).map(function(a){return {id:a,label:a,kind:'actor',sub:'actor:'+a,anchor:'actor-'+slug(a)};});(ctx.processManagers||[]).forEach(function(a){nodes.push({id:a,label:a,kind:'process',sub:'actor:'+a,anchor:'actor-'+slug(a)});});return {title:id,nodes:nodes,edges:[],note:'Aggregates and process managers (sagas). Click one to see its command → event → view flow.'};}"
+    + "if(key.indexOf('actor:')===0){var name=key.slice(6);var a=M.actors[name]||{receives:[]};var nodes=[],edges=[],seen={};function add(id,label,kind,anchor){if(!seen[id]){seen[id]=1;nodes.push({id:id,label:label,kind:kind,anchor:anchor});}}add('A',name,a.type==='process-manager'?'process':'actor','actor-'+slug(name));a.receives.forEach(function(r){var mid=(r.isCommand?'c:':'e:')+r.message;add(mid,r.message,r.isCommand?'command':'event',(r.isCommand?'command-':'event-')+slug(r.message));edges.push({from:'A',to:mid,label:'receives'});(r.emits||[]).forEach(function(ev){add('e:'+ev,ev,'event','event-'+slug(ev));edges.push({from:mid,to:'e:'+ev,label:'emits'});M.views.forEach(function(v){if((v.fedBy||[]).indexOf(ev)>=0){add('v:'+v.name,v.name,'view','view-'+slug(v.name));edges.push({from:'e:'+ev,to:'v:'+v.name,label:'projects'});}});});});return {title:name,nodes:nodes,edges:edges,note:'Flow: message (yellow=command, purple=event) → emitted events → read models (blue). Click a box to jump to its section.'};}"
+    + "return {title:'?',nodes:[],edges:[]};}"
+    + "function render(){var f=frame(stack[stack.length-1].key);crumb.textContent=stack.map(function(s){return s.title;}).join('  ›  ');back.style.visibility=stack.length>1?'visible':'hidden';while(svg.firstChild)svg.removeChild(svg.firstChild);var defs=el('defs');var mk=el('marker',{id:'cf-arrow',viewBox:'0 0 10 10',refX:'9',refY:'5',markerWidth:'7',markerHeight:'7',orient:'auto'});mk.appendChild(el('path',{d:'M0,0 L10,5 L0,10 z',fill:'#888'}));defs.appendChild(mk);svg.appendChild(defs);var W=960,H=560,n=f.nodes.length||1;var cols=Math.max(1,Math.ceil(Math.sqrt(n)));var rows=Math.ceil(n/cols);var nw=180,nh=48;var gx=(W-cols*nw)/(cols+1),gy=(H-rows*nh)/(rows+1);var pos={};f.nodes.forEach(function(nd,i){var r=Math.floor(i/cols),c=i%cols;pos[nd.id]={x:gx+c*(nw+gx),y:gy+r*(nh+gy)};});f.edges.forEach(function(e){var a=pos[e.from],b=pos[e.to];if(!a||!b)return;var x1=a.x+nw/2,y1=a.y+nh/2,x2=b.x+nw/2,y2=b.y+nh/2;var ln=el('line',{x1:x1,y1:y1,x2:x2,y2:y2,stroke:'#6a6a6a','stroke-width':'1.3','marker-end':'url(#cf-arrow)'});if(e.label)ln.appendChild(el('title',null,e.label));svg.appendChild(ln);});f.nodes.forEach(function(nd){var p=pos[nd.id];var g=el('g',{'class':'cf-node',transform:'translate('+p.x+','+p.y+')'});g.appendChild(el('rect',{width:nw,height:nh,rx:'7',fill:'#313335',stroke:(K[nd.kind]||'#888'),'stroke-width':'1.6'}));var label=nd.label.length>24?nd.label.slice(0,23)+'…':nd.label;g.appendChild(el('text',{x:nw/2,y:nh/2+4,'text-anchor':'middle',fill:'#e6e6e6','font-size':'12'},label));if(nd.desc)g.appendChild(el('title',null,nd.desc));g.addEventListener('click',function(){if(nd.sub){stack.push({key:nd.sub,title:nd.label});render();}else if(nd.anchor){location.hash=nd.anchor;}});svg.appendChild(g);});info.textContent=f.note||'';}"
+    + "back.addEventListener('click',function(){if(stack.length>1){stack.pop();render();}});render();})();";
+
+  const mapHtml = '<div class="cfmap"><div class="cfmap-bar"><button id="cf-back">◀ back</button> <span id="cf-crumb" class="muted"></span></div>'
+    + '<svg id="cf-svg" viewBox="0 0 960 560" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Captain.Food system map"></svg>'
+    + '<div id="cf-info" class="cfmap-info muted"></div></div>'
+    + '<script>' + MAP_JS.replace('__CF_DATA__', JSON.stringify(mapData)) + '</script>';
+
   const legend = [
     `${emo('query')} <span class="k-op">query</span>`, `${emo('mutation')} <span class="k-op">mutation</span>`,
     `${emo('type')} <span class="k-type">type</span>`, `${emo('actor')} <span class="k-type">actor</span>`,
     `${emo('view')} <span class="k-type">view</span>`, `${emo('command')} <span class="k-op">command</span>`,
     `${emo('event')} <span class="k-event">event</span>`, `${emo('entity')} <span class="k-type">entity</span>`,
     `${emo('scalar')} <span class="k-scalar">scalar</span>`, `${emo('error')} <span class="k-error">error</span>`,
-    `🔹 <span class="k-prop">property</span>`, `<span class="k-param">parameter</span>`, `${emo('test')} <span class="k-op">test</span>`,
+    `🔹 <span class="k-prop">property</span>`, `<span class="k-param">parameter</span>`, `${emo('test')} <span class="k-op">test</span>`, `${emo('obs')} <span class="k-event">observability</span>`,
   ].join(' · ');
-  const toc = [['stories', '🎬 Stories'], ['api', '🧰 API'], ['actors', `${emo('actor')} Actors`], ['views', `${emo('view')} Views`], ['commands', `${emo('command')} Commands`], ['events', `${emo('event')} Events`], ['entities', `${emo('entity')} Entities`], ['scalars', `${emo('scalar')} Scalars`], ['errors', `${emo('error')} Errors`], ['tests', `${emo('test')} Tests`]]
+  const toc = [['stories', '🎬 Stories'], ['api', '🧰 API'], ['actors', `${emo('actor')} Actors`], ['views', `${emo('view')} Views`], ['commands', `${emo('command')} Commands`], ['events', `${emo('event')} Events`], ['entities', `${emo('entity')} Entities`], ['scalars', `${emo('scalar')} Scalars`], ['errors', `${emo('error')} Errors`], ['tests', `${emo('test')} Tests`], ['observability', `${emo('obs')} Observability`], ['architecture', '🏛️ Architecture'], ['map', '🗺️ Map']]
     .map(([id, t]) => `<a href="#sec-${id}">${t}</a>`).join('');
 
   return `${THEME}
@@ -343,5 +458,8 @@ export function emitDocumentationHtml(model: Model): string {
   ${sec('scalars', emo('scalar'), '8. Scalars', table(['Scalar', 'Type', 'Description'], scalarRows))}
   ${sec('errors', emo('error'), '9. Errors', table(['Error', 'Description', 'Message (en)', 'Message (fr)', 'Thrown by'], errorRows))}
   ${sec('tests', emo('test'), '10. Tests', testsHtml)}
+  ${sec('observability', emo('obs'), '11. Observability', obsHtml)}
+  ${sec('architecture', '🏛️', '12. Architecture (C4)', c4Html)}
+  ${sec('map', '🗺️', '13. System map (interactive)', '<p class="muted">Drill in: <strong>System → container → bounded context → aggregate flow</strong>. Boxes are colored by kind (containers/aggregates teal, externals orange, contexts gold, commands yellow, events purple, views blue). Click to go deeper; leaf boxes jump to their section; use ◀ back to climb out.</p>' + mapHtml)}
 </div></div>`;
 }

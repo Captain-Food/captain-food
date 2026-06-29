@@ -189,6 +189,11 @@ types:
 # --- Reads (queries) ------------------------------------------------------------------------------
 # A query declares only its args, return type (`$ref` into `#/types`), roles and slice. `@reads` is
 # INHERITED from the return type's binding above (reads live on the type, not the query).
+# --- Reads (queries) ------------------------------------------------------------------------------
+# CONVENTION: a query that takes arguments is generated to accept a SINGLE input class
+# `<Query>QueryInput` (args are never inlined on the field) — parallel to mutations' `<Command>Input`.
+# The input is non-null when any arg is required, nullable when all args are optional filters. Declare
+# args here as usual; the codegen produces the input type + value-object inputs for any entity-typed arg.
 queries:
 
   me:
@@ -533,3 +538,11 @@ mutations:
     roles: [CUSTOMER]
     slice: V1
     payload: {}
+
+
+subscriptions:
+  orderStatusChanged:
+    description: "Order status change events (for the owning customer or restaurant)."
+    returns: { $ref: '#/types/Order' }
+    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V0

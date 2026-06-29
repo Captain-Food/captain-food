@@ -1,0 +1,167 @@
+version: 1
+description: >
+  Observability CONTRACTS for critical workflows — a first-class part of the Captain.Food DSL, not an
+  afterthought. Each contract declares, for one workflow, the REQUIRED spans, identifiers, attributes,
+  metrics, success/error semantics and SLOs that production telemetry must satisfy, so a workflow can be
+  asserted to be not only implemented but DIAGNOSABLE. Contracts bind to the domain via `$ref`s into
+  actors.yaml / commands.yaml / events.yaml / scalars.yaml, so the codegen proves they never drift from
+  the model (a span that claims to publish `OrderPlaced` must reference a real event).
+
+  Implementation rule (see docs/claude/observability.md): OpenTelemetry stays in framework boundaries
+  (command bus, event store, publisher, consumers, projections, GraphQL gateway, BAM projector,
+  middleware) — NEVER in aggregates or pure domain handlers. The `business.*` attributes below are set
+  by those decorators, not scattered through the domain.
+
+  Convention per contract:
+    - feature / criticality : workflow identity and importance.
+    - workflow              : $ref bindings to the saga/aggregate, command, emitted + inbound events.
+    - run_identity          : ids every run must carry; `correlation_id` and `trace_id` are mandatory
+                              (correlation_id is business-facing and survives the whole causality chain;
+                              trace_id is technical and may rotate across async boundaries).
+    - spans                 : required spans, each with an OTel `kind`
+                              (SERVER|CLIENT|INTERNAL|PRODUCER|CONSUMER) and required attributes.
+    - metrics/business_metrics : technical vs business signals (kept separate — see BAM).
+    - status_rules          : how spans/attributes map to success | technical_error | business_rejected;
+                              `success.required_spans` must be a subset of the declared `spans`.
+    - latency_budget / error_budget : workflow SLOs.
+
+# =====================================================================
+# place-order — the V0 checkout saga (highest risk: external Stripe call)
+# Cart (OPEN) -> PlaceOrder -> PaymentIntentCreated -> [Stripe] -> PaymentCaptured
+#   -> OrderPlaced + CartCheckedOut   (or PaymentFailed -> abort, cart stays OPEN)
+# =====================================================================
+place-order:
+  feature: place-order
+  criticality: high
+  workflow:
+    saga: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    command: { $ref: 'commands.yaml#/PlaceOrder' }
+    emits:
+      - { $ref: 'events.yaml#/PaymentIntentCreated' }
+      - { $ref: 'events.yaml#/OrderPlaced' }
+      - { $ref: 'events.yaml#/CartCheckedOut' }
+    inbound:
+      - { $ref: 'events.yaml#/PaymentCaptured' }
+      - { $ref: 'events.yaml#/PaymentFailed' }
+
+  run_identity:
+    - { name: correlation_id, source: "command.correlation_id", required: true }
+    - { name: trace_id, source: "otel.trace_id", required: true }
+    - { name: order_id, source: "domain.aggregate_id", businessKey: { $ref: 'scalars.yaml#/OrderId' }, required: true }
+    - { name: command_type, source: "command.type", required: true }
+
+  spans:
+    - name: "command.receive"
+      kind: SERVER
+      required: true
+      attributes:
+        - { key: "business.command_type", type: string, required: true }
+        - { key: "business.actor", type: string, required: true }
+    - name: "command.validate"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.validation_status", type: string, required: true }
+    - name: "cart.read"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.aggregate_id", type: string, required: true }
+    - name: "payment.intent.create"
+      kind: CLIENT
+      required: true
+      attributes:
+        - { key: "messaging.system", type: string, required: true }
+        - { key: "business.result", type: string, required: true }
+    - name: "event.store.append"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.event_type", type: string, required: true }
+        - { key: "business.stream_id", type: string, required: true }
+    - name: "event.publish"
+      kind: PRODUCER
+      required: true
+      attributes:
+        - { key: "messaging.system", type: string, required: true }
+        - { key: "business.event_type", type: string, required: true }
+    - name: "event.consume.projection"
+      kind: CONSUMER
+      required: true
+      multiplicity: ">= 1"
+      attributes:
+        - { key: "business.projection_name", type: string, required: true }
+
+  metrics:
+    - { name: "place_order_duration_ms", type: histogram, attributes: ["result"] }
+  business_metrics:
+    - { name: "orders_placed_total", type: counter, attributes: ["status"] }
+    - { name: "checkout_payment_failures_total", type: counter, attributes: ["reason"] }
+
+  status_rules:
+    success:
+      required_spans: ["command.receive", "payment.intent.create", "event.store.append", "event.publish", "event.consume.projection"]
+      conditions: ["payment.intent.create.business.result == 'captured'"]
+    technical_error:
+      any_span_errors: true
+    business_rejected:
+      conditions: ["command.validate.business.validation_status == 'rejected'"]
+
+  latency_budget: { max_p95_ms: 800, max_p99_ms: 1500 }
+  error_budget: { max_error_rate_pct: 1.0 }
+
+# =====================================================================
+# refund — the compensation saga (Stripe refund driven by RefundProcess)
+# OrderRejected/Cancelled* or RefundRequested -> [Stripe refund] -> PaymentRefunded (recorded)
+# =====================================================================
+refund:
+  feature: refund
+  criticality: high
+  workflow:
+    saga: { $ref: 'actors.yaml#/RefundProcess' }
+    inbound:
+      - { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
+      - { $ref: 'events.yaml#/OrderCancelledByCustomer' }
+      - { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
+      - { $ref: 'events.yaml#/RefundRequested' }
+      - { $ref: 'events.yaml#/PaymentRefunded' }
+
+  run_identity:
+    - { name: correlation_id, source: "event.correlation_id", required: true }
+    - { name: trace_id, source: "otel.trace_id", required: true }
+    - { name: order_id, source: "domain.aggregate_id", businessKey: { $ref: 'scalars.yaml#/OrderId' }, required: true }
+
+  spans:
+    - name: "event.consume.trigger"
+      kind: CONSUMER
+      required: true
+      attributes:
+        - { key: "business.event_type", type: string, required: true }
+        - { key: "business.correlation_id", type: string, required: true }
+    - name: "refund.request"
+      kind: CLIENT
+      required: true
+      attributes:
+        - { key: "messaging.system", type: string, required: true }
+        - { key: "business.result", type: string, required: true }
+    - name: "event.store.append"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.event_type", type: string, required: true }
+
+  metrics:
+    - { name: "refund_duration_ms", type: histogram, attributes: ["result"] }
+  business_metrics:
+    - { name: "refunds_settled_total", type: counter, attributes: ["trigger"] }
+    - { name: "saga_compensation_total", type: counter, attributes: ["workflow"] }
+
+  status_rules:
+    success:
+      required_spans: ["refund.request", "event.store.append"]
+      conditions: ["refund.request.business.result == 'refunded'"]
+    technical_error:
+      any_span_errors: true
+
+  latency_budget: { max_p95_ms: 1000, max_p99_ms: 3000 }
+  error_budget: { max_error_rate_pct: 2.0 }

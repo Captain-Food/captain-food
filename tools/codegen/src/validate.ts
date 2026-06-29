@@ -25,6 +25,7 @@ export interface Coverage {
   readsLinks: number;
   storyLinks: number;
   testCases: number;
+  obsContracts: number;
 }
 
 /**
@@ -50,7 +51,7 @@ function targetsFile(ref: string, file: SourceFile, contextFile: SourceFile): bo
 export function validate(model: Model): { report: ValidationReport; derived: Derived; coverage: Coverage } {
   const issues: Issue[] = [];
   const add = (i: Issue) => issues.push(i);
-  const coverage: Coverage = { refs: 0, views: 0, viewColumns: 0, viewFedBy: 0, mutationLinks: 0, readsLinks: 0, storyLinks: 0, testCases: 0 };
+  const coverage: Coverage = { refs: 0, views: 0, viewColumns: 0, viewFedBy: 0, mutationLinks: 0, readsLinks: 0, storyLinks: 0, testCases: 0, obsContracts: 0 };
 
   // --- 1. Referential integrity: every `$ref` anywhere must resolve -----------------------------
   for (const file of Object.keys(model.defs) as SourceFile[]) {
@@ -349,19 +350,37 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
       return typeof typeRef === 'string' ? refName(typeRef) : null;
     };
 
-    // command → its (single) aggregate handler + the events it emits + the errors it may throw.
-    const handlerOf = new Map<string, { actor: string; emits: Set<string>; throws: Set<string> }>();
+    // Per-actor INBOX: each (actor, message) entry → what it emits / may throw. `message` is a command
+    // (aggregate handler) OR an event (process-manager reaction), so a test's `when` may be either.
+    type InboxEntry = { actor: string; message: string; isCommand: boolean; emits: Set<string>; throws: Set<string> };
+    const inbox = new Map<string, Map<string, InboxEntry>>();
+    const inboxEntries: InboxEntry[] = [];
+    const emittedEvents = new Set<string>();   // every event some actor emits → must be asserted in a `then`
+    const throwableErrors = new Set<string>(); // every error some handler may throw → must be asserted in a `thrown`
     for (const a of model.actors) {
+      const byMsg = new Map<string, InboxEntry>();
       for (const e of a.receives) {
-        if (!e.message?.$ref?.startsWith('commands.yaml#/')) continue;
-        const cmd = refName(e.message.$ref);
-        if (cmd) handlerOf.set(cmd, {
+        const msg = refName(e.message?.$ref ?? '');
+        if (!msg) continue;
+        const entry: InboxEntry = {
           actor: a.name,
+          message: msg,
+          isCommand: (e.message?.$ref ?? '').startsWith('commands.yaml#/'),
           emits: new Set(e.emits.map((r) => refName(r.$ref)).filter((n): n is string => !!n)),
           throws: new Set(e.throws.map((r) => refName(r.$ref)).filter((n): n is string => !!n)),
-        });
+        };
+        byMsg.set(msg, entry);
+        inboxEntries.push(entry);
+        entry.emits.forEach((ev) => emittedEvents.add(ev));
+        entry.throws.forEach((er) => throwableErrors.add(er));
       }
+      inbox.set(a.name, byMsg);
     }
+
+    // What the test suite actually exercises (for coverage detection below).
+    const usedMessages = new Set<string>(); // `${actor}::${message}`
+    const usedEvents = new Set<string>();   // events appearing in a given/then, or as an event `when`
+    const usedErrors = new Set<string>();   // errors appearing in a `thrown`
 
     // 7a. fixtures: data shape.
     for (const [name, fx] of Object.entries(fixtures)) {
@@ -371,23 +390,31 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
       checkData(ref, fx.data, where);
     }
 
-    // 7b. tests: actor handles the when-command; then-events ⊆ handler emits; data shapes.
+    // 7b. tests: the actor handles the `when` message; `then` ⊆ emits; `thrown` ⊆ throws; data shapes.
     coverage.testCases = Object.keys(tests).length;
     for (const [name, t] of Object.entries(tests)) {
       const where = `tests.yaml/tests.${name}`;
       const actorName = refName((t?.actor as { $ref?: string } | undefined)?.$ref ?? '');
       const when = t?.when as { type?: { $ref?: string }; data?: unknown } | undefined;
       const whenRef = when?.type?.$ref;
-      if (typeof whenRef !== 'string') { add({ level: 'error', rule: 'test-no-when', location: where, message: 'test has no `when.type.$ref` command.' }); continue; }
+      if (typeof whenRef !== 'string') { add({ level: 'error', rule: 'test-no-when', location: where, message: 'test has no `when.type.$ref` (command or event).' }); continue; }
       checkData(whenRef, when?.data, `${where}.when`);
 
-      const cmd = refName(whenRef);
-      const handler = cmd ? handlerOf.get(cmd) : undefined;
-      if (!handler) add({ level: 'error', rule: 'test-command-unhandled', location: `${where}.when`, message: `command '${cmd}' is handled by no aggregate (actors.yaml).` });
-      else if (actorName && actorName !== handler.actor) add({ level: 'error', rule: 'test-wrong-actor', location: `${where}.actor`, message: `actor '${actorName}' does not handle '${cmd}' (handled by '${handler.actor}').` });
+      const msg = refName(whenRef) ?? '';
+      const entry = actorName && msg ? inbox.get(actorName)?.get(msg) : undefined;
+      if (!entry) add({ level: 'error', rule: 'test-message-not-handled', location: `${where}.when`, message: `actor '${actorName}' does not receive '${msg}' (actors.yaml inbox).` });
+      else {
+        usedMessages.add(`${actorName}::${msg}`);
+        if (!entry.isCommand) usedEvents.add(msg); // an event `when` (process-manager reaction) exercises that event
+      }
+
+      // `given` preconditions exercise their events too.
+      (Array.isArray(t?.given) ? (t.given as Array<{ $ref?: string }>) : []).forEach((g) => {
+        const ev = fixtureEvent(g?.$ref); if (ev) usedEvents.add(ev);
+      });
 
       // A test must assert SOMETHING: `then` (events emitted — possibly [] for an idempotent no-op)
-      // and/or `thrown` (the command is rejected with one of these errors).
+      // and/or `thrown` (the message is rejected with one of these errors).
       const hasThen = Object.prototype.hasOwnProperty.call(t, 'then');
       const hasThrown = Object.prototype.hasOwnProperty.call(t, 'thrown');
       if (!hasThen && !hasThrown) add({ level: 'error', rule: 'test-no-assertion', location: where, message: 'test asserts nothing — declare `then` (events, [] for a no-op) and/or `thrown` (errors).' });
@@ -395,16 +422,91 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
       const thens = Array.isArray(t?.then) ? (t.then as Array<{ $ref?: string }>) : [];
       thens.forEach((th, i) => {
         const ev = fixtureEvent(th?.$ref);
-        if (ev && handler && !handler.emits.has(ev)) add({ level: 'error', rule: 'test-then-not-emitted', location: `${where}.then[${i}]`, message: `expected event '${ev}' is not emitted by '${handler.actor}' for '${cmd}'.` });
+        if (!ev) return;
+        usedEvents.add(ev);
+        if (entry && !entry.emits.has(ev)) add({ level: 'error', rule: 'test-then-not-emitted', location: `${where}.then[${i}]`, message: `expected event '${ev}' is not emitted by '${entry.actor}' for '${msg}'.` });
       });
 
       // `thrown` lists the error(s) the rejection may raise — each must be one the handler DECLARES it
-      // throws for this command (actors.yaml), the rejection mirror of `then` ⊆ emits.
+      // throws for this message (actors.yaml), the rejection mirror of `then` ⊆ emits.
       const throwns = Array.isArray(t?.thrown) ? (t.thrown as Array<{ $ref?: string }>) : [];
       throwns.forEach((th, i) => {
         const err = typeof th?.$ref === 'string' ? refName(th.$ref) : null;
-        if (err && handler && !handler.throws.has(err)) add({ level: 'error', rule: 'test-thrown-not-declared', location: `${where}.thrown[${i}]`, message: `error '${err}' is not declared in '${handler.actor}' throws for '${cmd}' (actors.yaml).` });
+        if (!err) return;
+        usedErrors.add(err);
+        if (entry && !entry.throws.has(err)) add({ level: 'error', rule: 'test-thrown-not-declared', location: `${where}.thrown[${i}]`, message: `error '${err}' is not declared in '${entry.actor}' throws for '${msg}' (actors.yaml).` });
       });
+    }
+
+    // 7c. COVERAGE: every model item reachable from the actor model must be EXERCISED by a test.
+    // (These are warnings, surfaced so the suite can be grown until nothing is left uncovered.)
+    for (const e of inboxEntries) {
+      if (!usedMessages.has(`${e.actor}::${e.message}`)) add({ level: 'warning', rule: 'test-uncovered-message', location: `actors.yaml/${e.actor}`, message: `no test exercises ${e.isCommand ? 'command' : 'event'} '${e.message}' on '${e.actor}'.` });
+    }
+    for (const ev of emittedEvents) {
+      if (!usedEvents.has(ev)) add({ level: 'warning', rule: 'test-uncovered-event', location: `events.yaml/${ev}`, message: `emitted event '${ev}' is asserted by no test (in a \`then\`/\`given\`).` });
+    }
+    for (const er of throwableErrors) {
+      if (!usedErrors.has(er)) add({ level: 'warning', rule: 'test-uncovered-error', location: `errors.yaml/${er}`, message: `throwable error '${er}' is asserted by no test (in a \`thrown\`).` });
+    }
+  }
+
+  // --- 8. Observability contracts (observability.yaml) -----------------------------------------
+  // Each critical-workflow contract is checked for the mandatory shape (every `$ref` binding already
+  // resolved in §1): the mandatory run identifiers, well-formed spans, and a coherent success rule.
+  {
+    const SPAN_KINDS = new Set(['SERVER', 'CLIENT', 'INTERNAL', 'PRODUCER', 'CONSUMER']);
+    const obs = (model.defs['observability.yaml'] ?? {}) as Record<string, SchemaNode>;
+    for (const [feature, raw] of Object.entries(obs)) {
+      const c = raw as Record<string, unknown>;
+      const at = `observability.yaml/${feature}`;
+      coverage.obsContracts++;
+
+      // workflow must bind to the domain (a command and/or a saga/aggregate).
+      const wf = (c.workflow ?? {}) as Record<string, unknown>;
+      if (!wf.command && !wf.saga && !wf.aggregate) add({ level: 'error', rule: 'obs-no-workflow-binding', location: at, message: 'workflow must bind a `command` and/or `saga`/`aggregate` ($ref into the model).' });
+
+      // mandatory run identifiers: correlation_id (business, whole chain) + trace_id (technical).
+      const ids = Array.isArray(c.run_identity) ? (c.run_identity as Array<Record<string, unknown>>) : [];
+      const idNames = new Set(ids.map((i) => i?.name));
+      for (const must of ['correlation_id', 'trace_id']) {
+        if (!idNames.has(must)) add({ level: 'error', rule: 'obs-missing-id', location: `${at}.run_identity`, message: `run_identity must declare the mandatory id '${must}'.` });
+      }
+
+      // spans: at least one; each with a name and a valid OTel kind.
+      const spans = Array.isArray(c.spans) ? (c.spans as Array<Record<string, unknown>>) : [];
+      if (!spans.length) add({ level: 'error', rule: 'obs-no-spans', location: at, message: 'contract declares no spans.' });
+      const spanNames = new Set<string>();
+      spans.forEach((s, i) => {
+        if (typeof s?.name !== 'string') add({ level: 'error', rule: 'obs-span-no-name', location: `${at}.spans[${i}]`, message: 'span has no `name`.' });
+        else spanNames.add(s.name);
+        if (typeof s?.kind === 'string' && !SPAN_KINDS.has(s.kind)) add({ level: 'error', rule: 'obs-span-kind', location: `${at}.spans[${i}]`, message: `span kind '${s.kind}' is not one of ${[...SPAN_KINDS].join('|')}.` });
+      });
+
+      // status_rules.success.required_spans must be a subset of the declared spans.
+      const success = ((c.status_rules ?? {}) as Record<string, unknown>).success as Record<string, unknown> | undefined;
+      const reqSpans = Array.isArray(success?.required_spans) ? (success!.required_spans as string[]) : [];
+      for (const rs of reqSpans) {
+        if (!spanNames.has(rs)) add({ level: 'error', rule: 'obs-required-span-undeclared', location: `${at}.status_rules.success`, message: `required_span '${rs}' is not a declared span.` });
+      }
+    }
+  }
+
+  // --- 9. C4 consistency (architecture/c4-l2.yaml): every actor is mapped to a bounded context -----
+  {
+    const l2 = (model.defs['architecture/c4-l2.yaml'] ?? {}) as Record<string, SchemaNode>;
+    const bcs = (l2.boundedContexts ?? {}) as Record<string, Record<string, unknown>>;
+    const mapped = new Set<string>();
+    for (const bc of Object.values(bcs)) {
+      for (const ref of [...(Array.isArray(bc.aggregates) ? bc.aggregates : []), ...(Array.isArray(bc.processManagers) ? bc.processManagers : [])]) {
+        const n = refName((ref as { $ref?: string })?.$ref ?? '');
+        if (n) mapped.add(n);
+      }
+    }
+    if (Object.keys(bcs).length) {
+      for (const a of model.actors) {
+        if (!mapped.has(a.name)) add({ level: 'warning', rule: 'c4-actor-unmapped', location: 'architecture/c4-l2.yaml', message: `actor '${a.name}' belongs to no bounded context (C4 L2 drift).` });
+      }
     }
   }
 

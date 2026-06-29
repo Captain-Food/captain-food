@@ -1,0 +1,99 @@
+version: 1
+description: >
+  C4 Level 2 (Containers) + the domain's bounded contexts for Captain.Food — a SOURCE-managed DSL
+  artifact (not generated). Structurizr DSL is the GENERATED target (see docs/claude/c4.md). Bounded
+  contexts bind to their aggregates via `$ref` into actors.yaml, so the codegen proves no phantom
+  context references a missing aggregate and every aggregate has a home. L2 containers map to
+  deployable runtime units; bounded contexts map to consistency boundaries within them.
+
+system:
+  name: Captain.Food
+  description: "Local-first food ordering & delivery for independent restaurants and food trucks (V0: Tours)."
+
+# --- Bounded contexts (domain decomposition; consistency boundaries) ---
+boundedContexts:
+  restaurant-onboarding:
+    description: "Onboard accounts and their locations; lifecycle and acceptance mode."
+    aggregates:
+      - { $ref: 'actors.yaml#/RestaurantAccount' }
+      - { $ref: 'actors.yaml#/Restaurant' }
+  catalog:
+    description: "Catalog tree, products, offers (SKUs), option lists, per-offer stock; HubRise import."
+    aggregates:
+      - { $ref: 'actors.yaml#/Catalog' }
+  cart:
+    description: "Pre-checkout selection for one restaurant, validated per line against the live catalog."
+    aggregates:
+      - { $ref: 'actors.yaml#/Cart' }
+  ordering:
+    description: "Order lifecycle + checkout/refund sagas (the V0 risk point: external Stripe)."
+    aggregates:
+      - { $ref: 'actors.yaml#/Order' }
+    processManagers:
+      - { $ref: 'actors.yaml#/PlaceOrderProcess' }
+      - { $ref: 'actors.yaml#/RefundProcess' }
+  customer:
+    description: "Customer identity (phone-keyed), favorites, profile, address book; cart binding."
+    aggregates:
+      - { $ref: 'actors.yaml#/Customer' }
+    processManagers:
+      - { $ref: 'actors.yaml#/CartBindingProcess' }
+
+# --- Containers (deployable / runtime units) ---
+containers:
+  web-client:
+    technology: "Next.js (App Router), React, TypeScript, Tailwind"
+    description: "Customer mobile-first web client; multi-tenant via {restaurantSlug}.captain.food."
+  #TODO: Add a separate web-admin container for restaurant back-office.
+  #TODO: Add a separate mobile app container for customers.
+  #TODO: Add a separate mobile app container for restaurant staff.
+  #TODO: Add a separate mobile app container for delivery partners.
+  web-admin:
+    technology: "Next.js, React, TypeScript"
+    description: "Restaurant/admin back-office."
+  api:
+    technology: "Node + TypeScript (Hono or NestJS), GraphQL"
+    description: "CQRS-light write+read API. Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql)."
+    realizes:
+      - { $ref: 'actors.yaml#/RestaurantAccount' }
+      - { $ref: 'actors.yaml#/Restaurant' }
+      - { $ref: 'actors.yaml#/Catalog' }
+      - { $ref: 'actors.yaml#/Cart' }
+      - { $ref: 'actors.yaml#/Order' }
+      - { $ref: 'actors.yaml#/Customer' }
+      - { $ref: 'actors.yaml#/PlaceOrderProcess' }
+      - { $ref: 'actors.yaml#/RefundProcess' }
+      - { $ref: 'actors.yaml#/CartBindingProcess' }
+  event-store:
+    technology: "Managed PostgreSQL (e.g. Supabase)"
+    description: "Append-only domain_events table (the write model / source of truth at runtime)."
+  read-models:
+    technology: "Managed PostgreSQL"
+    description: "Denormalized View_* projection tables fed from the event log; queries read here, never domain_events."
+  bam:
+    technology: "Projection worker"
+    description: "Business Activity Monitoring projector — consumes the same event stream to answer business questions."
+  otel-collector:
+    technology: "OpenTelemetry Collector"
+    description: "Receives traces/metrics/logs from the api and bam containers; exports to the backend(s)."
+
+# --- External systems ---
+externalSystems:
+  stripe: { description: "Payments (PaymentIntent capture, refunds); later Stripe Connect." }
+  hubrise: { description: "Existing restaurant catalog/orders systems; import via the Anti-Corruption Layer." }
+  delivery-partner: { description: "Delivery partner (e.g. Avelo37); post-V0." }
+  supabase-auth: { description: "Passwordless OTP identity for customers (not a domain concern)." }
+
+# --- Key relationships (integrations that MUST appear in the views) ---
+relationships:
+  - { from: web-client, to: api, description: "GraphQL over HTTPS (/customer/graphql, /public/graphql)" }
+  - { from: web-admin, to: api, description: "GraphQL (/restaurant-account/graphql, /restaurant/graphql, /admin/graphql)" }
+  - { from: api, to: event-store, description: "Append domain events (command side)" }
+  - { from: api, to: read-models, description: "Read projections (query side) + projection updates" }
+  - { from: api, to: stripe, description: "Create PaymentIntents, request refunds; receive webhooks (inbound facts)" }
+  - { from: api, to: hubrise, description: "Import catalog / sync inventory via ACL (inbound facts)" }
+  - { from: api, to: supabase-auth, description: "OTP verify / session (out of domain)" }
+  - { from: api, to: delivery-partner, description: "Dispatch + status (post-V0; inbound facts)" }
+  - { from: bam, to: event-store, description: "Consume the event stream for business metrics" }
+  - { from: api, to: otel-collector, description: "Export traces/metrics/logs (OTLP)" }
+  - { from: bam, to: otel-collector, description: "Export traces/metrics/logs (OTLP)" }

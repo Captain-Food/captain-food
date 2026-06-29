@@ -1,0 +1,67 @@
+version: 1
+description: >
+  C4 Level 3 (Components) for the `api` container of Captain.Food — SOURCE-managed DSL. Components are
+  the internal modules of the CQRS-light + event-log backend. Command handlers bind to their aggregate
+  via `$ref` into actors.yaml; projection updaters bind to their read model via `$ref` into views.yaml,
+  so the codegen proves every runtime component maps to a declared part of the model (no phantom
+  components, no unmapped aggregates/views). Instrumentation lives in the framework components below
+  (command bus, event store adapter, publisher, consumers, projections, gateway, middleware), NEVER in
+  the aggregates — see docs/claude/observability.md.
+
+container: api
+
+components:
+  graphql-gateway:
+    description: "Per-role GraphQL endpoint (/{role}/graphql); applies the @auth/@public ACL; entry span (SERVER)."
+    instrumented: true
+  observability-middleware:
+    description: "Attaches business.* attributes + correlation/cause ids to spans; structured JSON logging; the only place domain context meets OTel."
+    instrumented: true
+  command-bus:
+    description: "Dispatches commands to handlers; span 'command.receive'/'command.validate'/'command.handle'."
+    instrumented: true
+  command-handlers:
+    description: "One handler per aggregate; validates invariants then appends events. Pure domain — NOT instrumented."
+    instrumented: false
+    handles:
+      - { $ref: 'actors.yaml#/RestaurantAccount' }
+      - { $ref: 'actors.yaml#/Restaurant' }
+      - { $ref: 'actors.yaml#/Catalog' }
+      - { $ref: 'actors.yaml#/Cart' }
+      - { $ref: 'actors.yaml#/Order' }
+      - { $ref: 'actors.yaml#/Customer' }
+  process-managers:
+    description: "Sagas coordinating aggregates + externals (checkout, refund, cart binding)."
+    instrumented: true
+    handles:
+      - { $ref: 'actors.yaml#/PlaceOrderProcess' }
+      - { $ref: 'actors.yaml#/RefundProcess' }
+      - { $ref: 'actors.yaml#/CartBindingProcess' }
+  event-store-adapter:
+    description: "Appends to domain_events; span 'event.store.append' with business.event_type/stream_id."
+    instrumented: true
+  event-publisher:
+    description: "Publishes appended events to the bus; span 'event.publish' (PRODUCER)."
+    instrumented: true
+  message-consumers:
+    description: "Consume domain + inbound integration events; span 'event.consume.*' (CONSUMER)."
+    instrumented: true
+  projection-updaters:
+    description: "Update the View_* read models from events; span 'event.consume.projection'."
+    instrumented: true
+    updates:
+      - { $ref: 'views.yaml#/View_RestaurantAccount' }
+      - { $ref: 'views.yaml#/View_Restaurant' }
+      - { $ref: 'views.yaml#/View_Customer' }
+      - { $ref: 'views.yaml#/View_Catalog' }
+      - { $ref: 'views.yaml#/View_Cart' }
+      - { $ref: 'views.yaml#/View_OrderTracking' }
+  bam-projector:
+    description: "Business Activity Monitoring projection (runs in the bam container); business_metrics only."
+    instrumented: true
+  hubrise-acl:
+    description: "Anti-Corruption Layer translating HubRise payloads (SKU/option_list/'9.80 EUR') into the domain."
+    instrumented: true
+  stripe-adapter:
+    description: "Creates PaymentIntents / refunds; records inbound webhook facts (PaymentCaptured/Failed/Refunded)."
+    instrumented: true

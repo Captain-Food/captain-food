@@ -26,6 +26,9 @@ export const SOURCE_FILES = [
   'api.yaml',
   'stories.yaml',
   'tests.yaml',
+  'observability.yaml',
+  'architecture/c4-l2.yaml',
+  'architecture/c4-l3.yaml',
 ] as const;
 
 export type SourceFile = (typeof SOURCE_FILES)[number];

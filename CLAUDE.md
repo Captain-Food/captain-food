@@ -78,7 +78,42 @@ validation. In the story map, inbound events are marked 📥.
 - **HubRise interop**: the `ref` field (scalar `ExternalReference`) is the idempotent import key. HubRise→domain translation goes through an Anti-Corruption Layer; do not let `SKU`/`option_list`/`"9.80 EUR"` leak into the domain.
 - Slugs: lowercase, dash-separated (`^[a-z0-9]+(?:-[a-z0-9]+)*$`).
 
+## Operating model (read [docs/PLAYBOOK.md](docs/PLAYBOOK.md))
+
+The project runs on a strict operating model: the **YAML DSL is the source of truth**, everything else
+is **generated/derived**, **planning is separate from execution**, and **observability is a contract**.
+Topic rules live in [docs/claude/](docs/claude/) — read the relevant one before working:
+[dsl.md](docs/claude/dsl.md) · [codegen.md](docs/claude/codegen.md) ·
+[observability.md](docs/claude/observability.md) · [c4.md](docs/claude/c4.md) ·
+[adr.md](docs/claude/adr.md) · [loops.md](docs/claude/loops.md). Decisions are recorded in
+[docs/adr/](docs/adr/).
+
+Generator/reviewer/observability agents are defined in `.claude/agents/`; acceptance gates are wired as
+hooks in `.claude/settings.json` (`.claude/hooks/stop-gate.sh`, `validate-generated.sh`). `make help`
+lists entrypoints. The validator (`cd tools/codegen && npm run validate`) is the single executable gate —
+it covers schema, behaviour-test coverage, observability contracts, and C4 consistency in one run; it
+must be **0 errors** (only the known view design-holes warn).
+
+### Non-negotiable rules
+
+- DSL source files (`specs/**`) are **never** modified by autonomous/execution loops — only plan mode
+  proposes DSL changes, with approval. C4 (`specs/architecture/*.yaml`) and observability contracts
+  (`specs/observability.yaml`) are **source** DSL, not generated.
+- Business code (aggregates / pure command handlers) stays **independent of the telemetry SDK**;
+  instrumentation lives only in framework/middleware boundaries (see `c4-l3.yaml` `instrumented` flags).
+- Every critical workflow must have an observability contract in `specs/observability.yaml`.
+- If a **behaviour test** fails, fix the generator/runtime — not the test. If an **observability test**
+  fails, fix instrumentation/middleware — not the domain model.
+- Review and validation gates are executable and **blocking**; never hand-edit generated output
+  (`tools/codegen/out/**`, the `database.md` GENERATED region) — change the spec/emitter and regenerate.
+- Every recurring agent/loop failure becomes a new rule, test, or ADR.
+- Autonomous loops/routines run under the **weekly time budget** (`make budgeted-loop` or the routine
+  guard) — Claude Code has no native cap; see [docs/claude/loops.md](docs/claude/loops.md) / ADR-0014.
+
 ## Project status
 
-The repo currently contains **only the specs** ([specs/](specs/)). Application code (apps/, packages/)
-does not exist yet.
+The repo currently contains the **specs** ([specs/](specs/)), the **codegen** generator/validator
+([tools/codegen/](tools/codegen/)), and the **operating-model scaffold** ([docs/](docs/),
+`.claude/agents`, `.claude/hooks`, `Makefile`). Application code (apps/, packages/) does **not** exist
+yet, so the runtime layers of the playbook — OpenTelemetry emission, Kubernetes probes, BAM projections,
+GraphQL operation observability — are specified as **contracts + ADRs** and deferred until then.

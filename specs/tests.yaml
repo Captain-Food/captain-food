@@ -3,21 +3,23 @@ description: >
   Captain.Food BEHAVIOUR tests (Given / When / Then) over the actor model. Reusable EVENT instances
   (with their sample data) are CENTRALIZED in `fixtures` and referenced by `$ref: '#/fixtures/<name>'`
   from a test's `given` / `then`, so the same fact is declared once and reused everywhere (a `then` of
-  one test is often the `given` of another). A test names the ACTOR under test; `when` is the command
-  it receives (inline, since it is test-specific); the outcome is asserted with:
-    - then   : the events the handler must emit (an EMPTY list `[]` asserts a NO-OP → idempotency);
-    - thrown : the error(s) the command is rejected with — a LIST, since several errors may apply to
+  one test is often the `given` of another). A test names the ACTOR under test; `when` is the message
+  it receives — a COMMAND (aggregate handler) OR an EVENT (process-manager reaction) — and the outcome
+  is asserted with:
+    - then   : the events the handler must emit (an EMPTY list `[]` asserts a NO-OP → idempotency /
+               a saga reaction that records nothing);
+    - thrown : the error(s) the message is rejected with — a LIST, since several errors may apply to
                one rejection scenario (validated against the handler's declared `throws`).
 
-  Naming: a test key is `Test<Aggregate><Behaviour>` (PascalCase) so related cases regroup by
-  aggregate; `name` is a readable sentence describing the case. Suffix conventions: `…IsRejected`
-  (error case), `…IsNoOp` / `…Again…` (idempotency).
+  Naming: a test key is `Test<Aggregate><Behaviour>` (PascalCase) so related cases regroup by actor;
+  `name` is a readable sentence. Suffixes: `…IsRejected` (error), `…IsNoOp` / `…Again…` (idempotency).
 
-  Validated by the codegen (tests.yaml is a source file):
+  Validated by the codegen (tests.yaml is a source file) — see `npm run validate`:
     - every `$ref` resolves (events / commands / actors / errors / local fixtures);
-    - the `when` command is one the named actor HANDLES (actors.yaml);
+    - the `when` message is one the named actor RECEIVES (actors.yaml inbox);
     - each `then` event is one that handler EMITS, and each `thrown` error one it may THROW;
-    - every `data` key exists on the referenced event/command schema (no typos, no stale fields).
+    - every `data` key exists AND every required property is set (recursive, incl. nested value objects);
+    - COVERAGE: every inbox message, emitted event and throwable error is exercised by some test.
 
 # =====================================================================
 # Centralized event fixtures (declare each fact + its data ONCE, reuse it)
@@ -39,25 +41,61 @@ fixtures:
   restaurantFavorited:
     type: { $ref: 'events.yaml#/RestaurantFavorited' }
     data: { customerId: "cust-1", restaurantId: "resto-1" }
+  restaurantUnfavorited:
+    type: { $ref: 'events.yaml#/RestaurantUnfavorited' }
+    data: { customerId: "cust-1", restaurantId: "resto-1" }
+  customerAddressSet:
+    type: { $ref: 'events.yaml#/CustomerAddressSet' }
+    data: { customerId: "cust-1", addressId: "addr-1", label: "Home", address: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" } }
+  customerAddressRemoved:
+    type: { $ref: 'events.yaml#/CustomerAddressRemoved' }
+    data: { customerId: "cust-1", addressId: "addr-1" }
+  customerPaymentMethodSet:
+    type: { $ref: 'events.yaml#/CustomerPaymentMethodSet' }
+    data: { customerId: "cust-1", paymentMethodId: "pm_123" }
 
   # --- Restaurant account & location ---
   restaurantAccountRegistered:
     type: { $ref: 'events.yaml#/RestaurantAccountRegistered' }
     data: { restaurantAccountId: "acct-1", legalName: "SARL Chez Marco", defaultCurrency: "EUR", defaultTaxRate: { delivery: 10.0 }, timezone: "Europe/Paris", createdBy: "user-1" }
+  restaurantAccountUpdated:
+    type: { $ref: 'events.yaml#/RestaurantAccountUpdated' }
+    data: { restaurantAccountId: "acct-1", legalName: "SARL Chez Marco II", updatedBy: "user-1" }
+  restaurantAccountDeleted:
+    type: { $ref: 'events.yaml#/RestaurantAccountDeleted' }
+    data: { restaurantAccountId: "acct-1", reason: "Closed business" }
   restaurantRegistered:
     type: { $ref: 'events.yaml#/RestaurantRegistered' }
     data: { restaurantId: "resto-1", accountId: "acct-1", slug: "chez-marco", displayName: "Chez Marco", address: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }, timezone: "Europe/Paris", createdBy: "user-1" }
+  restaurantUpdated:
+    type: { $ref: 'events.yaml#/RestaurantUpdated' }
+    data: { restaurantId: "resto-1", displayName: "Chez Marco — Centre", updatedBy: "user-1" }
   restaurantActivated:
     type: { $ref: 'events.yaml#/RestaurantActivated' }
     data: { restaurantId: "resto-1" }
+  restaurantDeactivated:
+    type: { $ref: 'events.yaml#/RestaurantDeactivated' }
+    data: { restaurantId: "resto-1", reason: "Holidays" }
   restaurantAcceptanceModeChanged:
     type: { $ref: 'events.yaml#/RestaurantAcceptanceModeChanged' }
     data: { restaurantId: "resto-1", mode: "BUSY", changedBy: "user-1" }
+  restaurantRemoved:
+    type: { $ref: 'events.yaml#/RestaurantRemoved' }
+    data: { restaurantId: "resto-1", accountId: "acct-1", reason: "Delisted" }
 
   # --- Catalog ---
   catalogCreated:
     type: { $ref: 'events.yaml#/CatalogCreated' }
     data: { catalogId: "cat-1", restaurantId: "resto-1", name: "Main" }
+  catalogCategoryAdded:
+    type: { $ref: 'events.yaml#/CatalogCategoryAdded' }
+    data: { catalogId: "cat-1", restaurantId: "resto-1", category: { id: "pcat-1", catalogId: "cat-1", name: "Pizzas" } }
+  catalogCategoryUpdated:
+    type: { $ref: 'events.yaml#/CatalogCategoryUpdated' }
+    data: { catalogId: "cat-1", restaurantId: "resto-1", category: { id: "pcat-1", catalogId: "cat-1", name: "Pizzas & Calzones" } }
+  catalogCategoryRemoved:
+    type: { $ref: 'events.yaml#/CatalogCategoryRemoved' }
+    data: { catalogId: "cat-1", restaurantId: "resto-1", productCategoryId: "pcat-1" }
   productAdded:
     type: { $ref: 'events.yaml#/ProductAdded' }
     data:
@@ -71,6 +109,55 @@ fixtures:
         taxRate: { delivery: 10.0 }
         offers:
           - { id: "off-1", productId: "prod-1", name: "Default", price: { amountCents: 980, currency: "EUR" }, availability: "AVAILABLE" }
+  productUpdated:
+    type: { $ref: 'events.yaml#/ProductUpdated' }
+    data:
+      catalogId: "cat-1"
+      restaurantId: "resto-1"
+      product:
+        id: "prod-1"
+        catalogId: "cat-1"
+        restaurantId: "resto-1"
+        name: "Margherita (large)"
+        taxRate: { delivery: 10.0 }
+        offers:
+          - { id: "off-1", productId: "prod-1", name: "Default", price: { amountCents: 1180, currency: "EUR" }, availability: "AVAILABLE" }
+  productRemoved:
+    type: { $ref: 'events.yaml#/ProductRemoved' }
+    data: { catalogId: "cat-1", restaurantId: "resto-1", productId: "prod-1" }
+  optionListAdded:
+    type: { $ref: 'events.yaml#/OptionListAdded' }
+    data:
+      catalogId: "cat-1"
+      restaurantId: "resto-1"
+      optionList:
+        id: "ol-1"
+        name: "Size"
+        minSelections: 1
+        multipleSelection: false
+        options:
+          - { id: "opt-1", optionListId: "ol-1", name: "Large", price: { amountCents: 200, currency: "EUR" }, default: true, availability: "AVAILABLE" }
+  optionListUpdated:
+    type: { $ref: 'events.yaml#/OptionListUpdated' }
+    data:
+      catalogId: "cat-1"
+      restaurantId: "resto-1"
+      optionList:
+        id: "ol-1"
+        name: "Size"
+        minSelections: 1
+        multipleSelection: false
+        options:
+          - { id: "opt-1", optionListId: "ol-1", name: "Extra Large", price: { amountCents: 300, currency: "EUR" }, default: true, availability: "AVAILABLE" }
+  optionListRemoved:
+    type: { $ref: 'events.yaml#/OptionListRemoved' }
+    data: { catalogId: "cat-1", restaurantId: "resto-1", optionListId: "ol-1" }
+  offerStockUpdated:
+    type: { $ref: 'events.yaml#/OfferStockUpdated' }
+    data: { catalogId: "cat-1", restaurantId: "resto-1", offerId: "off-1", stock: { quantity: 5, status: "IN_STOCK" } }
+  catalogImported:
+    type: { $ref: 'events.yaml#/CatalogImported' }
+    data: { catalogId: "cat-1", restaurantId: "resto-1", source: "HUBRISE", categories: [], products: [], optionLists: [] }
 
   # --- Cart ---
   cartStarted:
@@ -78,9 +165,16 @@ fixtures:
     data: { cartId: "cart-1", restaurantId: "resto-1" }
   cartLineAdded:
     type: { $ref: 'events.yaml#/CartLineAdded' }
-    data:
-      cartId: "cart-1"
-      line: { cartLineId: "line-1", offerId: "off-1", quantity: 2 }
+    data: { cartId: "cart-1", line: { cartLineId: "line-1", offerId: "off-1", quantity: 2 } }
+  cartLineQuantityChanged:
+    type: { $ref: 'events.yaml#/CartLineQuantityChanged' }
+    data: { cartId: "cart-1", cartLineId: "line-1", quantity: 3 }
+  cartLineRemoved:
+    type: { $ref: 'events.yaml#/CartLineRemoved' }
+    data: { cartId: "cart-1", cartLineId: "line-1" }
+  cartCheckedOut:
+    type: { $ref: 'events.yaml#/CartCheckedOut' }
+    data: { cartId: "cart-1", orderId: "order-1" }
 
   # --- Order ---
   orderPlaced:
@@ -97,18 +191,569 @@ fixtures:
   orderAcceptedByRestaurant:
     type: { $ref: 'events.yaml#/OrderAcceptedByRestaurant' }
     data: { orderId: "order-1", restaurantId: "resto-1", acceptedBy: "user-1" }
+  orderPreparationStarted:
+    type: { $ref: 'events.yaml#/OrderPreparationStarted' }
+    data: { orderId: "order-1", restaurantId: "resto-1" }
+  orderMarkedReady:
+    type: { $ref: 'events.yaml#/OrderMarkedReady' }
+    data: { orderId: "order-1", restaurantId: "resto-1" }
   orderDelivered:
     type: { $ref: 'events.yaml#/OrderDelivered' }
     data: { orderId: "order-1", restaurantId: "resto-1" }
+  orderRejectedByRestaurant:
+    type: { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
+    data: { orderId: "order-1", restaurantId: "resto-1", reason: "Out of ingredients" }
+  orderCancelledByCustomer:
+    type: { $ref: 'events.yaml#/OrderCancelledByCustomer' }
+    data: { orderId: "order-1", restaurantId: "resto-1", reason: "Changed my mind" }
+  orderCancelledByRestaurant:
+    type: { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
+    data: { orderId: "order-1", restaurantId: "resto-1", reason: "Kitchen closed" }
+  orderRated:
+    type: { $ref: 'events.yaml#/OrderRated' }
+    data: { orderId: "order-1", restaurantId: "resto-1", riderThumb: "UP" }
   restaurantRated:
     type: { $ref: 'events.yaml#/RestaurantRated' }
     data: { orderId: "order-1", restaurantId: "resto-1", stars: 5, comment: "Excellent!" }
+  riderTipped:
+    type: { $ref: 'events.yaml#/RiderTipped' }
+    data: { orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 200, currency: "EUR" } }
+  refundRequested:
+    type: { $ref: 'events.yaml#/RefundRequested' }
+    data: { orderId: "order-1", restaurantId: "resto-1", reason: "Late delivery" }
+
+  # --- Payments (saga) ---
+  paymentIntentCreated:
+    type: { $ref: 'events.yaml#/PaymentIntentCreated' }
+    data: { paymentIntentId: "pi_123", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
 
 # =====================================================================
-# Tests (Given / When / Then) — grouped by aggregate, reusing the fixtures above
+# Tests (Given / When / Then) — grouped by the actor under test
 # =====================================================================
 tests:
-  # ----------------------------- Customer -----------------------------
+  # ----------------------- RestaurantAccount -------------------------
+  TestRestaurantAccountRegistered:
+    name: "Registers a restaurant account"
+    actor: { $ref: 'actors.yaml#/RestaurantAccount' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RegisterRestaurantAccount' }
+      data: { restaurantAccountId: "acct-1", legalName: "SARL Chez Marco", defaultCurrency: "EUR", defaultTaxRate: { delivery: 10.0 }, timezone: "Europe/Paris" }
+    then:
+      - { $ref: '#/fixtures/restaurantAccountRegistered' }
+
+  TestRestaurantAccountRegisterIsRejected:
+    name: "Rejects registering an account with an invalid currency or an already-used external ref"
+    actor: { $ref: 'actors.yaml#/RestaurantAccount' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RegisterRestaurantAccount' }
+      data: { restaurantAccountId: "acct-1", legalName: "SARL Chez Marco", defaultCurrency: "EURO", defaultTaxRate: { delivery: 10.0 } }
+    thrown:
+      - { $ref: 'errors.yaml#/InvalidCurrency' }
+      - { $ref: 'errors.yaml#/RefAlreadyUsed' }
+
+  TestRestaurantAccountUpdated:
+    name: "Updates account-level fields (legal name)"
+    actor: { $ref: 'actors.yaml#/RestaurantAccount' }
+    given:
+      - { $ref: '#/fixtures/restaurantAccountRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateRestaurantAccount' }
+      data: { restaurantAccountId: "acct-1", legalName: "SARL Chez Marco II" }
+    then:
+      - { $ref: '#/fixtures/restaurantAccountUpdated' }
+
+  TestRestaurantAccountUpdateIsRejected:
+    name: "Rejects updating a missing account or an update with no editable field"
+    actor: { $ref: 'actors.yaml#/RestaurantAccount' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/UpdateRestaurantAccount' }
+      data: { restaurantAccountId: "acct-missing" }
+    thrown:
+      - { $ref: 'errors.yaml#/RestaurantAccountNotFound' }
+      - { $ref: 'errors.yaml#/NoEditableFieldProvided' }
+
+  TestRestaurantAccountDeleted:
+    name: "Deletes a restaurant account"
+    actor: { $ref: 'actors.yaml#/RestaurantAccount' }
+    given:
+      - { $ref: '#/fixtures/restaurantAccountRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/DeleteRestaurantAccount' }
+      data: { restaurantAccountId: "acct-1", reason: "Closed business" }
+    then:
+      - { $ref: '#/fixtures/restaurantAccountDeleted' }
+
+  # -------------------------- Restaurant -----------------------------
+  TestRestaurantLocationRegistered:
+    name: "Registers a location under an existing account"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantAccountRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/RegisterRestaurant' }
+      data: { restaurantId: "resto-1", accountId: "acct-1", slug: "chez-marco", displayName: "Chez Marco", address: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }, timezone: "Europe/Paris" }
+    then:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+
+  TestRestaurantRegisterIsRejected:
+    name: "Rejects registering a location when the account is missing, the slug is taken, or the external ref is already used"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RegisterRestaurant' }
+      data: { restaurantId: "resto-1", accountId: "acct-missing", slug: "chez-marco", displayName: "Chez Marco", address: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" } }
+    thrown:
+      - { $ref: 'errors.yaml#/RestaurantAccountNotFound' }
+      - { $ref: 'errors.yaml#/SlugAlreadyTaken' }
+      - { $ref: 'errors.yaml#/RefAlreadyUsed' }
+
+  TestRestaurantActivated:
+    name: "Activates a registered restaurant"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ActivateRestaurant' }
+      data: { restaurantId: "resto-1" }
+    then:
+      - { $ref: '#/fixtures/restaurantActivated' }
+
+  TestRestaurantActivateAgainIsNoOp:
+    name: "Re-activating an already-active restaurant is a no-op (idempotent)"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+      - { $ref: '#/fixtures/restaurantActivated' }
+    when:
+      type: { $ref: 'commands.yaml#/ActivateRestaurant' }
+      data: { restaurantId: "resto-1" }
+    then: []
+
+  TestRestaurantActivateIsRejected:
+    name: "Rejects activating a missing restaurant or one with no orderable offer"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/ActivateRestaurant' }
+      data: { restaurantId: "resto-missing" }
+    thrown:
+      - { $ref: 'errors.yaml#/RestaurantNotFound' }
+      - { $ref: 'errors.yaml#/RestaurantNotReadyForActivation' }
+
+  TestRestaurantUpdated:
+    name: "Updates editable location fields (display name)"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateRestaurant' }
+      data: { restaurantId: "resto-1", displayName: "Chez Marco — Centre" }
+    then:
+      - { $ref: '#/fixtures/restaurantUpdated' }
+
+  TestRestaurantUpdateIsRejected:
+    name: "Rejects updating a missing restaurant or an update with no editable field"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/UpdateRestaurant' }
+      data: { restaurantId: "resto-missing" }
+    thrown:
+      - { $ref: 'errors.yaml#/RestaurantNotFound' }
+      - { $ref: 'errors.yaml#/NoEditableFieldProvided' }
+
+  TestRestaurantDeactivated:
+    name: "Deactivates an active restaurant"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+      - { $ref: '#/fixtures/restaurantActivated' }
+    when:
+      type: { $ref: 'commands.yaml#/DeactivateRestaurant' }
+      data: { restaurantId: "resto-1", reason: "Holidays" }
+    then:
+      - { $ref: '#/fixtures/restaurantDeactivated' }
+
+  TestRestaurantAcceptanceModeChanged:
+    name: "Switches an active restaurant to BUSY"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+      - { $ref: '#/fixtures/restaurantActivated' }
+    when:
+      type: { $ref: 'commands.yaml#/ChangeOrderAcceptanceMode' }
+      data: { restaurantId: "resto-1", mode: "BUSY" }
+    then:
+      - { $ref: '#/fixtures/restaurantAcceptanceModeChanged' }
+
+  TestRestaurantAcceptanceModeIsRejected:
+    name: "Rejects changing acceptance mode when the restaurant is inactive or already in that mode"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ChangeOrderAcceptanceMode' }
+      data: { restaurantId: "resto-1", mode: "BUSY" }
+    thrown:
+      - { $ref: 'errors.yaml#/RestaurantNotActive' }
+      - { $ref: 'errors.yaml#/AcceptanceModeUnchanged' }
+
+  TestRestaurantRemoved:
+    name: "Removes (delists) a location from its account"
+    actor: { $ref: 'actors.yaml#/Restaurant' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/RemoveRestaurant' }
+      data: { restaurantId: "resto-1", accountId: "acct-1", reason: "Delisted" }
+    then:
+      - { $ref: '#/fixtures/restaurantRemoved' }
+
+  # --------------------------- Catalog -------------------------------
+  TestCatalogCreated:
+    name: "Creates a catalog for a registered restaurant"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/restaurantRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/CreateCatalog' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", name: "Main" }
+    then:
+      - { $ref: '#/fixtures/catalogCreated' }
+
+  TestCatalogCreateIsRejected:
+    name: "Rejects creating a catalog for a missing restaurant or with a duplicate ref"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/CreateCatalog' }
+      data: { catalogId: "cat-1", restaurantId: "resto-missing", name: "Main" }
+    thrown:
+      - { $ref: 'errors.yaml#/RestaurantNotFound' }
+      - { $ref: 'errors.yaml#/RefNotUnique' }
+
+  TestCatalogProductAdded:
+    name: "Adds a product with one offer to a catalog"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/catalogCreated' }
+    when:
+      type: { $ref: 'commands.yaml#/AddProduct' }
+      data:
+        productId: "prod-1"
+        catalogId: "cat-1"
+        restaurantId: "resto-1"
+        name: "Margherita"
+        taxRate: { delivery: 10.0 }
+        offers:
+          - { id: "off-1", productId: "prod-1", name: "Default", price: { amountCents: 980, currency: "EUR" }, availability: "AVAILABLE" }
+    then:
+      - { $ref: '#/fixtures/productAdded' }
+
+  TestCatalogAddProductIsRejected:
+    name: "Rejects adding a product when the catalog/category is missing, a price currency mismatches, or a ref is duplicated"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/AddProduct' }
+      data:
+        productId: "prod-1"
+        catalogId: "cat-missing"
+        restaurantId: "resto-1"
+        name: "Margherita"
+        taxRate: { delivery: 10.0 }
+        offers:
+          - { id: "off-1", productId: "prod-1", name: "Default", price: { amountCents: 980, currency: "USD" }, availability: "AVAILABLE" }
+    thrown:
+      - { $ref: 'errors.yaml#/CatalogNotFound' }
+      - { $ref: 'errors.yaml#/CurrencyMismatch' }
+      - { $ref: 'errors.yaml#/CatalogCategoryRefNotFound' }
+      - { $ref: 'errors.yaml#/RefNotUnique' }
+
+  TestCatalogProductUpdated:
+    name: "Updates an existing product (full replace)"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/productAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateProduct' }
+      data:
+        catalogId: "cat-1"
+        restaurantId: "resto-1"
+        product:
+          id: "prod-1"
+          catalogId: "cat-1"
+          restaurantId: "resto-1"
+          name: "Margherita (large)"
+          taxRate: { delivery: 10.0 }
+          offers:
+            - { id: "off-1", productId: "prod-1", name: "Default", price: { amountCents: 1180, currency: "EUR" }, availability: "AVAILABLE" }
+    then:
+      - { $ref: '#/fixtures/productUpdated' }
+
+  TestCatalogUpdateProductIsRejected:
+    name: "Rejects updating a missing product, removing its last offer, or mismatching the currency"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/UpdateProduct' }
+      data:
+        catalogId: "cat-1"
+        restaurantId: "resto-1"
+        product:
+          id: "prod-missing"
+          catalogId: "cat-1"
+          restaurantId: "resto-1"
+          name: "Ghost"
+          taxRate: { delivery: 10.0 }
+          offers:
+            - { id: "off-9", productId: "prod-missing", name: "Default", price: { amountCents: 980, currency: "USD" }, availability: "AVAILABLE" }
+    thrown:
+      - { $ref: 'errors.yaml#/ProductNotFound' }
+      - { $ref: 'errors.yaml#/ProductMustHaveOffer' }
+      - { $ref: 'errors.yaml#/CurrencyMismatch' }
+
+  TestCatalogProductRemoved:
+    name: "Removes a product from a catalog"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/productAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/RemoveProduct' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", productId: "prod-1" }
+    then:
+      - { $ref: '#/fixtures/productRemoved' }
+
+  TestCatalogCategoryAdded:
+    name: "Adds a category to a catalog"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/catalogCreated' }
+    when:
+      type: { $ref: 'commands.yaml#/AddCatalogCategory' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", category: { id: "pcat-1", catalogId: "cat-1", name: "Pizzas" } }
+    then:
+      - { $ref: '#/fixtures/catalogCategoryAdded' }
+
+  TestCatalogAddCategoryIsRejected:
+    name: "Rejects adding a category when the catalog/parent is missing or the ref is duplicated"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/AddCatalogCategory' }
+      data: { catalogId: "cat-missing", restaurantId: "resto-1", category: { id: "pcat-1", catalogId: "cat-missing", name: "Pizzas" } }
+    thrown:
+      - { $ref: 'errors.yaml#/CatalogNotFound' }
+      - { $ref: 'errors.yaml#/ParentCatalogCategoryNotFound' }
+      - { $ref: 'errors.yaml#/RefNotUnique' }
+
+  TestCatalogCategoryUpdated:
+    name: "Updates a catalog category (full replace)"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/catalogCategoryAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateCatalogCategory' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", category: { id: "pcat-1", catalogId: "cat-1", name: "Pizzas & Calzones" } }
+    then:
+      - { $ref: '#/fixtures/catalogCategoryUpdated' }
+
+  TestCatalogUpdateCategoryIsRejected:
+    name: "Rejects updating a missing category or one that would create a cycle"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/UpdateCatalogCategory' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", category: { id: "pcat-missing", catalogId: "cat-1", name: "Ghost" } }
+    thrown:
+      - { $ref: 'errors.yaml#/CatalogCategoryNotFound' }
+      - { $ref: 'errors.yaml#/CatalogCategoryCycle' }
+
+  TestCatalogCategoryRemoved:
+    name: "Removes a category from a catalog"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/catalogCategoryAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/RemoveCatalogCategory' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", productCategoryId: "pcat-1" }
+    then:
+      - { $ref: '#/fixtures/catalogCategoryRemoved' }
+
+  TestCatalogRemoveCategoryIsRejected:
+    name: "Rejects removing a missing category or one that still has children/products"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RemoveCatalogCategory' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", productCategoryId: "pcat-missing" }
+    thrown:
+      - { $ref: 'errors.yaml#/CatalogCategoryNotFound' }
+      - { $ref: 'errors.yaml#/CatalogCategoryNotEmpty' }
+
+  TestCatalogOptionListAdded:
+    name: "Adds an option list (modifier group) to a catalog"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/catalogCreated' }
+    when:
+      type: { $ref: 'commands.yaml#/AddOptionList' }
+      data:
+        catalogId: "cat-1"
+        restaurantId: "resto-1"
+        optionList:
+          id: "ol-1"
+          name: "Size"
+          minSelections: 1
+          multipleSelection: false
+          options:
+            - { id: "opt-1", optionListId: "ol-1", name: "Large", price: { amountCents: 200, currency: "EUR" }, default: true, availability: "AVAILABLE" }
+    then:
+      - { $ref: '#/fixtures/optionListAdded' }
+
+  TestCatalogAddOptionListIsRejected:
+    name: "Rejects adding an option list with no option or invalid selection bounds"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/AddOptionList' }
+      data:
+        catalogId: "cat-missing"
+        restaurantId: "resto-1"
+        optionList:
+          id: "ol-1"
+          name: "Size"
+          minSelections: 5
+          multipleSelection: false
+          options:
+            - { id: "opt-1", optionListId: "ol-1", name: "Large", price: { amountCents: 200, currency: "EUR" }, default: true, availability: "AVAILABLE" }
+    thrown:
+      - { $ref: 'errors.yaml#/CatalogNotFound' }
+      - { $ref: 'errors.yaml#/OptionListMustHaveOption' }
+      - { $ref: 'errors.yaml#/InvalidSelectionBounds' }
+
+  TestCatalogOptionListUpdated:
+    name: "Updates an option list (full replace)"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/optionListAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateOptionList' }
+      data:
+        catalogId: "cat-1"
+        restaurantId: "resto-1"
+        optionList:
+          id: "ol-1"
+          name: "Size"
+          minSelections: 1
+          multipleSelection: false
+          options:
+            - { id: "opt-1", optionListId: "ol-1", name: "Extra Large", price: { amountCents: 300, currency: "EUR" }, default: true, availability: "AVAILABLE" }
+    then:
+      - { $ref: '#/fixtures/optionListUpdated' }
+
+  TestCatalogUpdateOptionListIsRejected:
+    name: "Rejects updating a missing option list or leaving it with no option"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/UpdateOptionList' }
+      data:
+        catalogId: "cat-1"
+        restaurantId: "resto-1"
+        optionList:
+          id: "ol-missing"
+          name: "Size"
+          minSelections: 1
+          multipleSelection: false
+          options:
+            - { id: "opt-1", optionListId: "ol-missing", name: "Large", price: { amountCents: 200, currency: "EUR" }, default: true, availability: "AVAILABLE" }
+    thrown:
+      - { $ref: 'errors.yaml#/OptionListNotFound' }
+      - { $ref: 'errors.yaml#/OptionListMustHaveOption' }
+
+  TestCatalogOptionListRemoved:
+    name: "Removes an option list from a catalog"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/optionListAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/RemoveOptionList' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", optionListId: "ol-1" }
+    then:
+      - { $ref: '#/fixtures/optionListRemoved' }
+
+  TestCatalogRemoveOptionListIsRejected:
+    name: "Rejects removing a missing option list or one still used by an offer"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RemoveOptionList' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", optionListId: "ol-missing" }
+    thrown:
+      - { $ref: 'errors.yaml#/OptionListNotFound' }
+      - { $ref: 'errors.yaml#/OptionListInUse' }
+
+  TestCatalogOfferStockUpdated:
+    name: "Sets the stock level of an offer"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/productAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateOfferStock' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", offerId: "off-1", quantity: 5 }
+    then:
+      - { $ref: '#/fixtures/offerStockUpdated' }
+
+  TestCatalogUpdateOfferStockIsRejected:
+    name: "Rejects setting stock for a missing or non-stock-tracked offer"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/UpdateOfferStock' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", offerId: "off-missing", quantity: 5 }
+    thrown:
+      - { $ref: 'errors.yaml#/OfferNotFound' }
+      - { $ref: 'errors.yaml#/OfferNotStockTracked' }
+
+  TestCatalogOfferStockSyncedFromHubRise:
+    name: "Records an inbound HubRise inventory sync (event reaction, no command)"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/productAdded' }
+    when:
+      type: { $ref: 'events.yaml#/OfferStockUpdated' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", offerId: "off-1", stock: { quantity: 3, status: "LOW_STOCK" } }
+    then:
+      - { $ref: '#/fixtures/offerStockUpdated' }
+
+  TestCatalogImported:
+    name: "Imports a full catalog from an external source"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given:
+      - { $ref: '#/fixtures/catalogCreated' }
+    when:
+      type: { $ref: 'commands.yaml#/ImportCatalog' }
+      data: { catalogId: "cat-1", restaurantId: "resto-1", source: "HUBRISE", categories: [], products: [], optionLists: [] }
+    then:
+      - { $ref: '#/fixtures/catalogImported' }
+
+  TestCatalogImportIsRejected:
+    name: "Rejects importing into a missing catalog, on a translation failure, or with a missing ref"
+    actor: { $ref: 'actors.yaml#/Catalog' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/ImportCatalog' }
+      data: { catalogId: "cat-missing", restaurantId: "resto-1", source: "HUBRISE", categories: [], products: [], optionLists: [] }
+    thrown:
+      - { $ref: 'errors.yaml#/CatalogNotFound' }
+      - { $ref: 'errors.yaml#/CatalogTranslationFailed' }
+      - { $ref: 'errors.yaml#/MissingRef' }
+
+  # ----------------------------- Customer ----------------------------
   TestCustomerRegisteredOnFirstVerification:
     name: "Registers a customer on first phone verification"
     actor: { $ref: 'actors.yaml#/Customer' }
@@ -128,6 +773,16 @@ tests:
       type: { $ref: 'commands.yaml#/RegisterCustomer' }
       data: { customerId: "cust-2", phone: "+33612345678" }
     then: []
+
+  TestCustomerRegisterUnverifiedPhoneIsRejected:
+    name: "Rejects registering a customer whose phone is not verified"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RegisterCustomer' }
+      data: { customerId: "cust-1", phone: "+33600000000" }
+    thrown:
+      - { $ref: 'errors.yaml#/PhoneNotVerified' }
 
   TestCustomerEmailUpdated:
     name: "Updates the customer email"
@@ -205,179 +860,61 @@ tests:
     thrown:
       - { $ref: 'errors.yaml#/RestaurantNotFound' }
 
-  # ----------------------- Restaurant account ------------------------
-  TestRestaurantAccountRegistered:
-    name: "Registers a restaurant account"
-    actor: { $ref: 'actors.yaml#/RestaurantAccount' }
-    given: []
-    when:
-      type: { $ref: 'commands.yaml#/RegisterRestaurantAccount' }
-      data: { restaurantAccountId: "acct-1", legalName: "SARL Chez Marco", defaultCurrency: "EUR", defaultTaxRate: { delivery: 10.0 }, timezone: "Europe/Paris" }
-    then:
-      - { $ref: '#/fixtures/restaurantAccountRegistered' }
-
-  TestRestaurantAccountRegisterWithInvalidCurrencyIsRejected:
-    name: "Rejects registering an account whose currency is not a valid ISO code, or whose ref is already used"
-    actor: { $ref: 'actors.yaml#/RestaurantAccount' }
-    given: []
-    when:
-      type: { $ref: 'commands.yaml#/RegisterRestaurantAccount' }
-      data: { restaurantAccountId: "acct-1", legalName: "SARL Chez Marco", defaultCurrency: "EURO", defaultTaxRate: { delivery: 10.0 } }
-    thrown:
-      - { $ref: 'errors.yaml#/InvalidCurrency' }
-      - { $ref: 'errors.yaml#/RefAlreadyUsed' }
-
-  # -------------------------- Restaurant -----------------------------
-  TestRestaurantLocationRegistered:
-    name: "Registers a location under an existing account"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
+  TestCustomerRestaurantUnfavorited:
+    name: "Removes a restaurant from favorites"
+    actor: { $ref: 'actors.yaml#/Customer' }
     given:
-      - { $ref: '#/fixtures/restaurantAccountRegistered' }
+      - { $ref: '#/fixtures/customerRegistered' }
+      - { $ref: '#/fixtures/restaurantFavorited' }
     when:
-      type: { $ref: 'commands.yaml#/RegisterRestaurant' }
-      data: { restaurantId: "resto-1", accountId: "acct-1", slug: "chez-marco", displayName: "Chez Marco", address: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }, timezone: "Europe/Paris" }
+      type: { $ref: 'commands.yaml#/UnmarkRestaurantAsFavorite' }
+      data: { customerId: "cust-1", restaurantId: "resto-1" }
     then:
-      - { $ref: '#/fixtures/restaurantRegistered' }
+      - { $ref: '#/fixtures/restaurantUnfavorited' }
 
-  TestRestaurantRegisterIsRejected:
-    name: "Rejects registering a location when the account is missing, the slug is taken, or the external ref is already used"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
-    given: []
-    when:
-      type: { $ref: 'commands.yaml#/RegisterRestaurant' }
-      data: { restaurantId: "resto-1", accountId: "acct-missing", slug: "chez-marco", displayName: "Chez Marco", address: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" } }
-    thrown:
-      - { $ref: 'errors.yaml#/RestaurantAccountNotFound' }
-      - { $ref: 'errors.yaml#/SlugAlreadyTaken' }
-      - { $ref: 'errors.yaml#/RefAlreadyUsed' }
-
-  TestRestaurantActivated:
-    name: "Activates a registered restaurant"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
+  TestCustomerUnfavoriteNonFavoriteIsNoOp:
+    name: "Unfavoriting a restaurant that is not a favorite is a no-op (idempotent)"
+    actor: { $ref: 'actors.yaml#/Customer' }
     given:
-      - { $ref: '#/fixtures/restaurantRegistered' }
+      - { $ref: '#/fixtures/customerRegistered' }
     when:
-      type: { $ref: 'commands.yaml#/ActivateRestaurant' }
-      data: { restaurantId: "resto-1" }
-    then:
-      - { $ref: '#/fixtures/restaurantActivated' }
-
-  TestRestaurantActivateAgainIsNoOp:
-    name: "Re-activating an already-active restaurant is a no-op (idempotent)"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
-    given:
-      - { $ref: '#/fixtures/restaurantRegistered' }
-      - { $ref: '#/fixtures/restaurantActivated' }
-    when:
-      type: { $ref: 'commands.yaml#/ActivateRestaurant' }
-      data: { restaurantId: "resto-1" }
+      type: { $ref: 'commands.yaml#/UnmarkRestaurantAsFavorite' }
+      data: { customerId: "cust-1", restaurantId: "resto-1" }
     then: []
 
-  TestRestaurantActivateNotReadyIsRejected:
-    name: "Rejects activating a restaurant that has no orderable offer yet"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
+  TestCustomerAddressSet:
+    name: "Saves a delivery address in the customer's address book"
+    actor: { $ref: 'actors.yaml#/Customer' }
     given:
-      - { $ref: '#/fixtures/restaurantRegistered' }
+      - { $ref: '#/fixtures/customerRegistered' }
     when:
-      type: { $ref: 'commands.yaml#/ActivateRestaurant' }
-      data: { restaurantId: "resto-1" }
-    thrown:
-      - { $ref: 'errors.yaml#/RestaurantNotReadyForActivation' }
-
-  TestRestaurantAcceptanceModeChanged:
-    name: "Switches an active restaurant to BUSY"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
-    given:
-      - { $ref: '#/fixtures/restaurantRegistered' }
-      - { $ref: '#/fixtures/restaurantActivated' }
-    when:
-      type: { $ref: 'commands.yaml#/ChangeOrderAcceptanceMode' }
-      data: { restaurantId: "resto-1", mode: "BUSY" }
+      type: { $ref: 'commands.yaml#/SetCustomerAddress' }
+      data: { customerId: "cust-1", addressId: "addr-1", label: "Home", address: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" } }
     then:
-      - { $ref: '#/fixtures/restaurantAcceptanceModeChanged' }
+      - { $ref: '#/fixtures/customerAddressSet' }
 
-  TestRestaurantAcceptanceModeUnchangedIsRejected:
-    name: "Rejects switching to the acceptance mode the restaurant is already in"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
+  TestCustomerAddressRemoved:
+    name: "Removes a saved address from the address book"
+    actor: { $ref: 'actors.yaml#/Customer' }
     given:
-      - { $ref: '#/fixtures/restaurantRegistered' }
-      - { $ref: '#/fixtures/restaurantActivated' }
-      - { $ref: '#/fixtures/restaurantAcceptanceModeChanged' }
+      - { $ref: '#/fixtures/customerRegistered' }
+      - { $ref: '#/fixtures/customerAddressSet' }
     when:
-      type: { $ref: 'commands.yaml#/ChangeOrderAcceptanceMode' }
-      data: { restaurantId: "resto-1", mode: "BUSY" }
-    thrown:
-      - { $ref: 'errors.yaml#/AcceptanceModeUnchanged' }
-
-  TestRestaurantAcceptanceModeWhenInactiveIsRejected:
-    name: "Rejects changing the acceptance mode of a non-active (DRAFT) restaurant"
-    actor: { $ref: 'actors.yaml#/Restaurant' }
-    given:
-      - { $ref: '#/fixtures/restaurantRegistered' }
-    when:
-      type: { $ref: 'commands.yaml#/ChangeOrderAcceptanceMode' }
-      data: { restaurantId: "resto-1", mode: "BUSY" }
-    thrown:
-      - { $ref: 'errors.yaml#/RestaurantNotActive' }
-
-  # --------------------------- Catalog -------------------------------
-  TestCatalogCreated:
-    name: "Creates a catalog for a registered restaurant"
-    actor: { $ref: 'actors.yaml#/Catalog' }
-    given:
-      - { $ref: '#/fixtures/restaurantRegistered' }
-    when:
-      type: { $ref: 'commands.yaml#/CreateCatalog' }
-      data: { catalogId: "cat-1", restaurantId: "resto-1", name: "Main" }
+      type: { $ref: 'commands.yaml#/RemoveCustomerAddress' }
+      data: { customerId: "cust-1", addressId: "addr-1" }
     then:
-      - { $ref: '#/fixtures/catalogCreated' }
+      - { $ref: '#/fixtures/customerAddressRemoved' }
 
-  TestCatalogCreateForUnknownRestaurantIsRejected:
-    name: "Rejects creating a catalog for a restaurant that does not exist"
-    actor: { $ref: 'actors.yaml#/Catalog' }
-    given: []
-    when:
-      type: { $ref: 'commands.yaml#/CreateCatalog' }
-      data: { catalogId: "cat-1", restaurantId: "resto-missing", name: "Main" }
-    thrown:
-      - { $ref: 'errors.yaml#/RestaurantNotFound' }
-
-  TestCatalogProductAdded:
-    name: "Adds a product with one offer to a catalog"
-    actor: { $ref: 'actors.yaml#/Catalog' }
+  TestCustomerPaymentMethodSet:
+    name: "Sets the customer's preferred Stripe payment method"
+    actor: { $ref: 'actors.yaml#/Customer' }
     given:
-      - { $ref: '#/fixtures/catalogCreated' }
+      - { $ref: '#/fixtures/customerRegistered' }
     when:
-      type: { $ref: 'commands.yaml#/AddProduct' }
-      data:
-        productId: "prod-1"
-        catalogId: "cat-1"
-        restaurantId: "resto-1"
-        name: "Margherita"
-        taxRate: { delivery: 10.0 }
-        offers:
-          - { id: "off-1", productId: "prod-1", name: "Default", price: { amountCents: 980, currency: "EUR" }, availability: "AVAILABLE" }
+      type: { $ref: 'commands.yaml#/SetCustomerPaymentMethod' }
+      data: { customerId: "cust-1", paymentMethodId: "pm_123" }
     then:
-      - { $ref: '#/fixtures/productAdded' }
-
-  TestCatalogAddProductIsRejected:
-    name: "Rejects adding a product when the catalog is missing, a price currency mismatches, or a ref is duplicated"
-    actor: { $ref: 'actors.yaml#/Catalog' }
-    given: []
-    when:
-      type: { $ref: 'commands.yaml#/AddProduct' }
-      data:
-        productId: "prod-1"
-        catalogId: "cat-missing"
-        restaurantId: "resto-1"
-        name: "Margherita"
-        taxRate: { delivery: 10.0 }
-        offers:
-          - { id: "off-1", productId: "prod-1", name: "Default", price: { amountCents: 980, currency: "USD" }, availability: "AVAILABLE" }
-    thrown:
-      - { $ref: 'errors.yaml#/CatalogNotFound' }
-      - { $ref: 'errors.yaml#/CurrencyMismatch' }
-      - { $ref: 'errors.yaml#/RefNotUnique' }
+      - { $ref: '#/fixtures/customerPaymentMethodSet' }
 
   # ----------------------------- Cart --------------------------------
   TestCartFirstLineAdded:
@@ -386,10 +923,7 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/AddCartLine' }
-      data:
-        cartId: "cart-1"
-        restaurantId: "resto-1"
-        line: { cartLineId: "line-1", offerId: "off-1", quantity: 2 }
+      data: { cartId: "cart-1", restaurantId: "resto-1", line: { cartLineId: "line-1", offerId: "off-1", quantity: 2 } }
     then:
       - { $ref: '#/fixtures/cartStarted' }
       - { $ref: '#/fixtures/cartLineAdded' }
@@ -400,14 +934,61 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/AddCartLine' }
-      data:
-        cartId: "cart-1"
-        restaurantId: "resto-1"
-        line: { cartLineId: "line-1", offerId: "off-missing", quantity: 99 }
+      data: { cartId: "cart-1", restaurantId: "resto-1", line: { cartLineId: "line-1", offerId: "off-missing", quantity: 99 } }
     thrown:
       - { $ref: 'errors.yaml#/OfferNotFound' }
       - { $ref: 'errors.yaml#/OfferUnavailable' }
       - { $ref: 'errors.yaml#/InsufficientStock' }
+
+  TestCartAddLineIsRejectedWhenCartInvalid:
+    name: "Rejects adding a line on a missing/closed/mismatched cart, with a bad option selection, or over the quantity limit"
+    actor: { $ref: 'actors.yaml#/Cart' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/AddCartLine' }
+      data: { cartId: "cart-1", restaurantId: "resto-2", line: { cartLineId: "line-1", offerId: "off-1", quantity: 1 } }
+    thrown:
+      - { $ref: 'errors.yaml#/CartNotFound' }
+      - { $ref: 'errors.yaml#/CartNotOpen' }
+      - { $ref: 'errors.yaml#/CartRestaurantMismatch' }
+      - { $ref: 'errors.yaml#/InvalidOptionSelection' }
+      - { $ref: 'errors.yaml#/QuantityExceedsLimit' }
+
+  TestCartLineQuantityChanged:
+    name: "Changes the quantity of an existing cart line"
+    actor: { $ref: 'actors.yaml#/Cart' }
+    given:
+      - { $ref: '#/fixtures/cartStarted' }
+      - { $ref: '#/fixtures/cartLineAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/ChangeCartLineQuantity' }
+      data: { cartId: "cart-1", cartLineId: "line-1", quantity: 3 }
+    then:
+      - { $ref: '#/fixtures/cartLineQuantityChanged' }
+
+  TestCartLineRemoved:
+    name: "Removes a line from a cart"
+    actor: { $ref: 'actors.yaml#/Cart' }
+    given:
+      - { $ref: '#/fixtures/cartStarted' }
+      - { $ref: '#/fixtures/cartLineAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/RemoveCartLine' }
+      data: { cartId: "cart-1", cartLineId: "line-1" }
+    then:
+      - { $ref: '#/fixtures/cartLineRemoved' }
+
+  TestCartRemoveLineIsRejected:
+    name: "Rejects removing a line from a missing/closed cart or a line that does not exist"
+    actor: { $ref: 'actors.yaml#/Cart' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RemoveCartLine' }
+      data: { cartId: "cart-missing", cartLineId: "line-missing" }
+    thrown:
+      - { $ref: 'errors.yaml#/CartNotFound' }
+      - { $ref: 'errors.yaml#/CartNotOpen' }
+      - { $ref: 'errors.yaml#/CartLineNotFound' }
 
   # ----------------------------- Order -------------------------------
   TestOrderAcceptedByRestaurant:
@@ -421,8 +1002,8 @@ tests:
     then:
       - { $ref: '#/fixtures/orderAcceptedByRestaurant' }
 
-  TestOrderAcceptUnknownIsRejected:
-    name: "Rejects accepting an order that does not exist or is not in an acceptable status"
+  TestOrderAcceptIsRejected:
+    name: "Rejects accepting a missing order or one not in an acceptable status"
     actor: { $ref: 'actors.yaml#/Order' }
     given: []
     when:
@@ -431,6 +1012,101 @@ tests:
     thrown:
       - { $ref: 'errors.yaml#/OrderNotFound' }
       - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+
+  TestOrderPreparationStarted:
+    name: "Restaurant starts preparing an accepted order"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderAcceptedByRestaurant' }
+    when:
+      type: { $ref: 'commands.yaml#/StartPreparation' }
+      data: { orderId: "order-1", restaurantId: "resto-1" }
+    then:
+      - { $ref: '#/fixtures/orderPreparationStarted' }
+
+  TestOrderMarkedReady:
+    name: "Restaurant marks the order ready for pickup/delivery"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderAcceptedByRestaurant' }
+      - { $ref: '#/fixtures/orderPreparationStarted' }
+    when:
+      type: { $ref: 'commands.yaml#/MarkOrderReady' }
+      data: { orderId: "order-1", restaurantId: "resto-1" }
+    then:
+      - { $ref: '#/fixtures/orderMarkedReady' }
+
+  TestOrderDelivered:
+    name: "The order is delivered to the customer"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderMarkedReady' }
+    when:
+      type: { $ref: 'commands.yaml#/MarkOrderDelivered' }
+      data: { orderId: "order-1", restaurantId: "resto-1" }
+    then:
+      - { $ref: '#/fixtures/orderDelivered' }
+
+  TestOrderRejected:
+    name: "Restaurant rejects a placed order"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+    when:
+      type: { $ref: 'commands.yaml#/RejectOrder' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Out of ingredients" }
+    then:
+      - { $ref: '#/fixtures/orderRejectedByRestaurant' }
+
+  TestOrderCancelledByCustomer:
+    name: "Customer cancels the order before acceptance"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+    when:
+      type: { $ref: 'commands.yaml#/CancelOrderByCustomer' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Changed my mind" }
+    then:
+      - { $ref: '#/fixtures/orderCancelledByCustomer' }
+
+  TestOrderCancelledByRestaurant:
+    name: "Restaurant cancels an order it had accepted"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderAcceptedByRestaurant' }
+    when:
+      type: { $ref: 'commands.yaml#/CancelOrderByRestaurant' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Kitchen closed" }
+    then:
+      - { $ref: '#/fixtures/orderCancelledByRestaurant' }
+
+  TestOrderRated:
+    name: "Customer rates the delivery (rider thumb) after delivery"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderDelivered' }
+    when:
+      type: { $ref: 'commands.yaml#/RateOrder' }
+      data: { orderId: "order-1", restaurantId: "resto-1", riderThumb: "UP" }
+    then:
+      - { $ref: '#/fixtures/orderRated' }
+
+  TestOrderRateOrderIsRejected:
+    name: "Rejects rating the delivery of a missing/not-delivered order or rating it twice"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RateOrder' }
+      data: { orderId: "order-missing", restaurantId: "resto-1", riderThumb: "UP" }
+    thrown:
+      - { $ref: 'errors.yaml#/OrderNotFound' }
+      - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+      - { $ref: 'errors.yaml#/OrderAlreadyRated' }
 
   TestOrderRestaurantRated:
     name: "Customer rates the restaurant after delivery"
@@ -444,17 +1120,6 @@ tests:
     then:
       - { $ref: '#/fixtures/restaurantRated' }
 
-  TestOrderRateBeforeDeliveryIsRejected:
-    name: "Rejects rating the restaurant before the order is delivered"
-    actor: { $ref: 'actors.yaml#/Order' }
-    given:
-      - { $ref: '#/fixtures/orderPlaced' }
-    when:
-      type: { $ref: 'commands.yaml#/RateRestaurant' }
-      data: { orderId: "order-1", restaurantId: "resto-1", stars: 5 }
-    thrown:
-      - { $ref: 'errors.yaml#/InvalidOrderStatus' }
-
   TestOrderRateRestaurantTwiceIsRejected:
     name: "Rejects rating the restaurant a second time for the same order"
     actor: { $ref: 'actors.yaml#/Order' }
@@ -467,3 +1132,158 @@ tests:
       data: { orderId: "order-1", restaurantId: "resto-1", stars: 4 }
     thrown:
       - { $ref: 'errors.yaml#/RestaurantAlreadyRated' }
+
+  TestOrderRiderTipped:
+    name: "Customer tips the rider after delivery"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderDelivered' }
+    when:
+      type: { $ref: 'commands.yaml#/TipRider' }
+      data: { orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 200, currency: "EUR" } }
+    then:
+      - { $ref: '#/fixtures/riderTipped' }
+
+  TestOrderTipRiderIsRejected:
+    name: "Rejects tipping for a missing/not-delivered order or tipping twice"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/TipRider' }
+      data: { orderId: "order-missing", restaurantId: "resto-1", amount: { amountCents: 200, currency: "EUR" } }
+    thrown:
+      - { $ref: 'errors.yaml#/OrderNotFound' }
+      - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+      - { $ref: 'errors.yaml#/RiderAlreadyTipped' }
+
+  TestOrderRefundRequested:
+    name: "Customer requests a refund for a delivered order"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderDelivered' }
+    when:
+      type: { $ref: 'commands.yaml#/RequestRefund' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Late delivery" }
+    then:
+      - { $ref: '#/fixtures/refundRequested' }
+
+  # ---------------------- PlaceOrderProcess (saga) -------------------
+  TestPlaceOrderCreatesPaymentIntent:
+    name: "Checkout reads the open cart, prices it, and creates a Stripe payment intent"
+    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    given:
+      - { $ref: '#/fixtures/cartStarted' }
+      - { $ref: '#/fixtures/cartLineAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/PlaceOrder' }
+      data:
+        orderId: "order-1"
+        restaurantId: "resto-1"
+        cartId: "cart-1"
+        customerContact: { displayName: "Johnny", phone: "+33612345678" }
+        serviceType: "DELIVERY"
+        deliveryAddress: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }
+        paymentMethodId: "pm_123"
+    then:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+
+  TestPlaceOrderIsRejected:
+    name: "Rejects checkout when the restaurant is paused, the cart is empty, the delivery address is missing or out of area, or the payment is declined"
+    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    given:
+      - { $ref: '#/fixtures/cartStarted' }
+    when:
+      type: { $ref: 'commands.yaml#/PlaceOrder' }
+      data:
+        orderId: "order-1"
+        restaurantId: "resto-1"
+        cartId: "cart-1"
+        customerContact: { displayName: "Johnny", phone: "+33612345678" }
+        serviceType: "DELIVERY"
+        paymentMethodId: "pm_declined"
+    thrown:
+      - { $ref: 'errors.yaml#/RestaurantPaused' }
+      - { $ref: 'errors.yaml#/CartEmpty' }
+      - { $ref: 'errors.yaml#/DeliveryAddressRequired' }
+      - { $ref: 'errors.yaml#/OutsideDeliveryArea' }
+      - { $ref: 'errors.yaml#/PaymentDeclined' }
+
+  TestPlaceOrderPaymentCapturedPlacesOrder:
+    name: "On payment capture the saga materializes the order and closes the cart"
+    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+    when:
+      type: { $ref: 'events.yaml#/PaymentCaptured' }
+      data: { paymentIntentId: "pi_123", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
+    then:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/cartCheckedOut' }
+
+  TestPlaceOrderPaymentFailedPlacesNothing:
+    name: "On payment failure the saga aborts and places no order (cart stays open)"
+    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+    when:
+      type: { $ref: 'events.yaml#/PaymentFailed' }
+      data: { paymentIntentId: "pi_123", restaurantId: "resto-1", reason: "card_declined" }
+    then: []
+
+  # ------------------------ RefundProcess (saga) ---------------------
+  TestRefundOnOrderRejected:
+    name: "Requests a Stripe refund when an order is rejected by the restaurant"
+    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Out of ingredients" }
+    then: []
+
+  TestRefundOnOrderCancelledByCustomer:
+    name: "Requests a Stripe refund when the customer cancels the order"
+    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/OrderCancelledByCustomer' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Changed my mind" }
+    then: []
+
+  TestRefundOnOrderCancelledByRestaurant:
+    name: "Requests a Stripe refund when the restaurant cancels the order"
+    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Kitchen closed" }
+    then: []
+
+  TestRefundOnRefundRequested:
+    name: "Validates eligibility and requests a Stripe refund on a customer refund request"
+    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/RefundRequested' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Late delivery" }
+    then: []
+
+  TestRefundSettledFactRecorded:
+    name: "Records the settled refund fact reported back by Stripe"
+    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/PaymentRefunded' }
+      data: { refundId: "re_1", paymentIntentId: "pi_123", orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
+    then: []
+
+  # ---------------------- CartBindingProcess (saga) ------------------
+  TestCartBindingOnCustomerIdentified:
+    name: "Binds a returning visitor's open guest carts when they are identified"
+    actor: { $ref: 'actors.yaml#/CartBindingProcess' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/CustomerIdentified' }
+      data: { customerId: "cust-1", authRef: "auth-supabase-1" }
+    then: []

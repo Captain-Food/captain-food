@@ -1,0 +1,45 @@
+# Claude rules — codegen (`tools/codegen`)
+
+The generator/validator is TypeScript run via `tsx`. There is **no LLM in the generation loop** — it is
+deterministic.
+
+## Commands
+
+- `npm run typecheck` — `tsc --noEmit`.
+- `npm run validate` — `tsx src/cli.ts --check` (validate only, writes nothing).
+- `npm run generate` — `tsx src/cli.ts` (validate + write artifacts).
+
+## Layout
+
+- `src/load.ts` — parse `specs/*.yaml` into the typed model. `SOURCE_FILES` (in `src/model.ts`) is the
+  load order; add new spec files there.
+- `src/refs.ts` — `$ref` parsing/resolution (cross-file + local `#/...`).
+- `src/validate.ts` — referential integrity + semantic checks (this is our "schema"; ADR-0002).
+- `src/emit/*` — emitters: `documentation.ts` (md), `documentation-html.ts` (html), `database.ts`
+  (views SQL + `database.md` §2 injection), `schema.ts` (GraphQL SDL).
+- `src/cli.ts` — orchestration + the coverage report printed by `validate`/`generate`.
+
+## Output policy
+
+- Generated artifacts go to `tools/codegen/out/**` (gitignored) and the marker-injected
+  `specs/database.md` §2 (between `<!-- GENERATED:views START/END -->`).
+- Generated files carry a "GENERATED — do not edit by hand" banner. **Never hand-edit `out/**`** or
+  injected regions; change the spec or the emitter and regenerate.
+- `out/documentation.generated.{md,html}` is the navigable product doc; `views.generated.sql` the DDL;
+  `schema.generated.graphql` the SDL (the hand-written `schema.graphql` was removed);
+  `c4.generated.dsl`/`c4.generated.md` the Structurizr/Mermaid views.
+
+## GraphQL conventions (emit/schema.ts)
+
+- **Every query with args takes one generated input class** `<Query>QueryInput` — args are never inlined
+  (parallel to mutations' `<Command>Input`). Input is `!` when any arg is required, nullable when all
+  args are optional. Entity-typed args pull in their `…Input` value-object types automatically.
+- One mutation = one command; result is `<Mutation>Payload` always carrying `correlationId`.
+
+## Validation must stay green
+
+- 0 errors is required. The only accepted warnings are the known view design-holes
+  (`view-fedby-unused`, `view-column-no-source` ×3). Any new warning is a real signal — fix or justify.
+- When you add a spec concept, add its validation rule in the same change (the model must not be able to
+  drift silently). Adding a new source file = add it to `SOURCE_FILES` so its `$ref`s are checked.
+- `noUncheckedIndexedAccess` is on: index access is `T | undefined` — guard (`?? {}`, `?? ''`).

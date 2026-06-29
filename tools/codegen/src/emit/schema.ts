@@ -160,6 +160,18 @@ function inputTypesBlock(model: Model): string {
     visit(m.command, 'commands.yaml');
   }
 
+  // Every QUERY that takes arguments gets its own generated input type `<Query>QueryInput` (args are
+  // never inlined on the field). Value objects referenced by a query arg are collected like mutation
+  // ones, so they also get an `…Input`.
+  const scalars = scalarNames(model);
+  const queryInputs: string[] = [];
+  for (const q of model.api.queries) {
+    if (!q.args.length) continue;
+    const fields = q.args.map((a) => `${I}${a.name}: ${apiFieldType(model, a, true)}`);
+    queryInputs.push(`input ${pascal(q.name)}QueryInput {\n${fields.join('\n')}\n}`);
+    for (const a of q.args) if (a.ref && !scalars.has(a.type)) visit(a.type, 'entities.yaml');
+  }
+
   // De-dupe the referenced value-object inputs (a value object reached from several commands).
   const emitted = new Set<string>();
   const objectInputs: string[] = [];
@@ -170,7 +182,7 @@ function inputTypesBlock(model: Model): string {
     if (!def) continue;
     objectInputs.push(`input ${name}Input {\n${objectFields(model, def, file, true).join('\n')}\n}`);
   }
-  return [...commandInputs, ...objectInputs].join('\n\n');
+  return [...commandInputs, ...queryInputs, ...objectInputs].join('\n\n');
 }
 
 // --- Payloads (mutation results: always correlationId + minimal extras) ---------------------------
@@ -190,8 +202,9 @@ function authDirective(roles: string[]): string {
 
 function queryBlock(model: Model): string {
   const fields = model.api.queries.map((q) => {
-    const args = q.args.map((a) => `${a.name}: ${apiFieldType(model, a, true)}`).join(', ');
-    const argStr = args ? `(${args})` : '';
+    // Args are never inlined: a query with arguments takes a single generated input class. The input is
+    // non-null when any arg is required, nullable when all args are optional filters.
+    const argStr = q.args.length ? `(input: ${pascal(q.name)}QueryInput${q.args.some((a) => a.required) ? '!' : ''})` : '';
     const inner = q.returnsList ? `[${q.returnsType}!]` : q.returnsType;
     const ret = `${inner}${q.returnsNullable ? '' : '!'}`;
     const reads = `@reads(views: [${q.reads.map((v) => `"${v}"`).join(', ')}])`;
@@ -229,7 +242,7 @@ ${DIRECTIVES}
 ${H('Output types (entities.yaml + FK-derived navigation + projections)')}
 ${outputTypesBlock(model)}
 
-${H('Input types (mutation command payloads)')}
+${H('Input types (mutation command payloads + query args)')}
 ${inputTypesBlock(model)}
 
 ${H('Mutation payloads')}

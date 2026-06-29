@@ -8,6 +8,7 @@ import { emitDocumentation } from './emit/documentation.ts';
 import { emitDocumentationHtml } from './emit/documentation-html.ts';
 import { emitViewsMarkdown, emitViewsSql } from './emit/database.ts';
 import { emitSchema } from './emit/schema.ts';
+import { emitStructurizr, emitMermaid } from './emit/c4.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..', '..');
@@ -81,6 +82,9 @@ function main(): void {
   console.error(
     `• tests:  ${coverage.testCases} behaviour tests, ${Object.keys((model.defs['tests.yaml']?.fixtures ?? {}) as object).length} fixtures`,
   );
+  console.error(
+    `• obs:    ${coverage.obsContracts} observability contracts · C4: ${Object.keys((model.defs['architecture/c4-l2.yaml']?.boundedContexts ?? {}) as object).length} bounded contexts`,
+  );
 
   // Make the spec-based validation visible: list what was actually cross-checked.
   console.error('• validated against specs:');
@@ -90,6 +94,8 @@ function main(): void {
   console.error('    - views: aggregate→actors, fedBy→events, column types→scalars, indexes→columns, fk→views');
   console.error(`    - stories: ${coverage.storyLinks} step→op links resolve, persona role authorized for each op (roles/UserType)`);
   console.error(`    - tests: ${coverage.testCases} Given/When/Then cases — fixture/command data fields, actor handles \`when\`, \`then\` events ⊆ emits, \`thrown\` errors ⊆ handler throws`);
+  console.error(`    - observability: ${coverage.obsContracts} workflow contracts — $ref bindings resolve, mandatory ids (correlation_id/trace_id), span kinds, success.required_spans ⊆ declared spans`);
+  console.error('    - c4: bounded-context↔actor mapping (no unmapped aggregate / phantom container ref)');
 
   if (report.issues.length) {
     console.error(`• checks: ${report.errors.length} error(s), ${report.warnings.length} warning(s)`);
@@ -129,6 +135,14 @@ function main(): void {
   const schemaTarget = join(args.outDir, 'schema.generated.graphql');
   writeFileSync(schemaTarget, emitSchema(model), 'utf8');
   console.error(`✓ wrote ${schemaTarget}`);
+
+  const dslTarget = join(args.outDir, 'c4.generated.dsl');
+  writeFileSync(dslTarget, emitStructurizr(model), 'utf8');
+  console.error(`✓ wrote ${dslTarget}`);
+
+  const mermaidTarget = join(args.outDir, 'c4.generated.md');
+  writeFileSync(mermaidTarget, emitMermaid(model), 'utf8');
+  console.error(`✓ wrote ${mermaidTarget}`);
 
   const databaseMd = join(args.specsDir, 'database.md');
   if (injectGenerated(databaseMd, 'views', emitViewsMarkdown(model))) {

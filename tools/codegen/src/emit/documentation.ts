@@ -19,13 +19,14 @@ const USER_TYPE_EMOJI: Record<string, string> = {
 const KIND_EMOJI: Record<string, string> = {
   scalar: '🔤', entity: '📦', command: '📩', event: '⚡', view: '🗄️', actor: '🎭',
   type: '🧩', query: '🔎', mutation: '✏️', error: '⛔', property: '🔹',
-  story: '🎬', activity: '🧭', test: '🧪',
+  story: '🎬', activity: '🧭', test: '🧪', obs: '📡', context: '🔲', container: '🧱', component: '⚙️',
 };
 const emo = (kind: string) => KIND_EMOJI[kind] ?? '•';
 
 // --- anchors & links --------------------------------------------------------------------------
 // Anchors are EXPLICIT (`<a id>`), so emoji in the visible header never affects the link target.
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]+/g, '-');
+const pascal = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const anchor = (kind: string, name: string) => `${kind}-${slug(name)}`;
 const propAnchor = (kind: string, owner: string, field: string) => `${anchor(kind, owner)}--${slug(field)}`;
 const idTag = (id: string) => `<a id="${id}"></a>`;
@@ -131,14 +132,18 @@ export function emitDocumentation(model: Model, derived: Derived): string {
   // 2. API (queries, mutations, output types)
   // ============================================================================================
   const queriesDoc = model.api.queries.map((q) => {
-    const args = q.args.map((a) => `\`${a.name}${a.required ? '' : '?'}\`: ${apiType(a)}`).join(', ') || '—';
+    const fieldList = q.args.map((a) => `\`${a.name}${a.required ? '' : '?'}\`: ${apiType(a)}`).join(', ');
+    // Queries with args take a single generated input class (`<Query>QueryInput`); args are never inlined.
+    const input = q.args.length
+      ? `- **Input**: 🧩 \`${pascal(q.name)}QueryInput${q.args.some((a) => a.required) ? '!' : ''}\` — ${fieldList}`
+      : `- **Input**: _(none)_`;
     const ret = `${typeSet.has(q.returnsType) || entitySet.has(q.returnsType) ? link(typeSet.has(q.returnsType) ? 'type' : 'entity', q.returnsType) : `\`${q.returnsType}\``}${q.returnsList ? ' (list)' : ''}`;
     const reads = q.reads.map((v) => link('view', v)).join(', ') || '—';
     const roles = q.roles.join(', ');
     return [
       itemHead('query', 'Query', q.name),
       q.description ? `\n${q.description}\n` : '',
-      `- **Args**: ${args}`,
+      input,
       `- **Returns**: ${ret} · **reads** ${reads}`,
       `- **Roles**: ${roles} · **slice** ${q.slice}`,
     ].join('\n');
@@ -339,6 +344,80 @@ export function emitDocumentation(model: Model, derived: Derived): string {
     return blocks;
   })();
 
+  // Link any `$ref` to its anchored subsection, picking the kind from the target file.
+  const anyLink = (ref: unknown): string => {
+    if (typeof ref !== 'string') return '—';
+    const [file, name] = [ref.split('#/')[0], ref.split('#/')[1] ?? ''];
+    const kind = file === 'commands.yaml' ? 'command' : file === 'events.yaml' ? 'event'
+      : file === 'actors.yaml' ? 'actor' : file === 'views.yaml' ? 'view'
+      : file === 'scalars.yaml' ? 'scalar' : 'entity';
+    return link(kind, name);
+  };
+  const refList = (arr: unknown): string =>
+    (Array.isArray(arr) ? arr : []).map((r) => anyLink((r as { $ref?: string })?.$ref)).join(', ') || '—';
+
+  // ============================================================================================
+  // 10. OBSERVABILITY (workflow contracts)
+  // ============================================================================================
+  const obsDoc = Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>).map(([feature, c]) => {
+    const wf = (c.workflow ?? {}) as Record<string, unknown>;
+    const ids = (Array.isArray(c.run_identity) ? c.run_identity : []) as Array<Record<string, unknown>>;
+    const idRows = ids.map((i) => [`\`${String(i.name)}\``, `\`${String(i.source ?? '')}\``, i.required ? '✅' : '⬜', i.businessKey ? anyLink((i.businessKey as { $ref?: string }).$ref) : '—']);
+    const spans = (Array.isArray(c.spans) ? c.spans : []) as Array<Record<string, unknown>>;
+    const spanRows = spans.map((s) => {
+      const attrs = (Array.isArray(s.attributes) ? s.attributes : []) as Array<Record<string, unknown>>;
+      const a = attrs.map((x) => `\`${String(x.key)}\`${x.required ? '*' : ''}`).join(', ') || '—';
+      return [`\`${String(s.name)}\``, `\`${String(s.kind ?? '')}\``, s.required ? '✅' : '⬜', s.multiplicity ? `\`${String(s.multiplicity)}\`` : '—', a];
+    });
+    const metricList = (key: string) => ((Array.isArray(c[key]) ? c[key] : []) as Array<Record<string, unknown>>).map((m) => `\`${String(m.name)}\` _(${String(m.type)})_`).join(', ') || '—';
+    const sr = (c.status_rules ?? {}) as Record<string, Record<string, unknown>>;
+    const lat = (c.latency_budget ?? {}) as Record<string, unknown>;
+    const err = (c.error_budget ?? {}) as Record<string, unknown>;
+    const success = sr.success ? `success ⇐ spans [${(sr.success.required_spans as string[] ?? []).map((s) => `\`${s}\``).join(', ')}]` : '';
+    return [
+      `${idTag(anchor('obs', feature))}\n#### ${emo('obs')} Contract: \`${feature}\``,
+      `\n_criticality: **${String(c.criticality ?? '—')}**_\n`,
+      `- **Workflow**: ${wf.saga ? `saga ${anyLink((wf.saga as { $ref?: string }).$ref)}` : ''}${wf.command ? ` · command ${anyLink((wf.command as { $ref?: string }).$ref)}` : ''}`,
+      `- **Emits**: ${refList(wf.emits)} · **Inbound**: ${refList(wf.inbound)}`,
+      idRows.length ? `\n**Run identity**\n\n${mdTable(['Id', 'Source', 'Req.', 'Business key'], idRows)}` : '',
+      spanRows.length ? `\n**Spans** (\`*\` = required attribute)\n\n${mdTable(['Span', 'Kind', 'Req.', 'Multiplicity', 'Attributes'], spanRows)}` : '',
+      `\n- **Metrics**: ${metricList('metrics')} · **Business metrics**: ${metricList('business_metrics')}`,
+      success ? `- **Status rules**: ${success}` : '',
+      `- **SLOs**: p95 ≤ ${String(lat.max_p95_ms ?? '—')}ms · p99 ≤ ${String(lat.max_p99_ms ?? '—')}ms · error rate ≤ ${String(err.max_error_rate_pct ?? '—')}%`,
+    ].filter(Boolean).join('\n');
+  }).join('\n\n');
+
+  // ============================================================================================
+  // 11. ARCHITECTURE (C4 L2/L3)
+  // ============================================================================================
+  const c4Doc = (() => {
+    const l2 = (defs['architecture/c4-l2.yaml'] ?? {}) as Record<string, Record<string, unknown>>;
+    const l3 = (defs['architecture/c4-l3.yaml'] ?? {}) as Record<string, unknown>;
+    const sys = (l2.system ?? {}) as Record<string, unknown>;
+    const bcs = (l2.boundedContexts ?? {}) as Record<string, Record<string, unknown>>;
+    const containers = (l2.containers ?? {}) as Record<string, Record<string, unknown>>;
+    const externals = (l2.externalSystems ?? {}) as Record<string, Record<string, unknown>>;
+    const rels = (Array.isArray(l2.relationships) ? l2.relationships : []) as Array<Record<string, unknown>>;
+    const comps = (l3.components ?? {}) as Record<string, Record<string, unknown>>;
+
+    const bcRows = Object.entries(bcs).map(([n, bc]) => [`${emo('context')} \`${n}\``, String(bc.description ?? ''), `${refList(bc.aggregates)}${bc.processManagers ? ` · ${refList(bc.processManagers)}` : ''}`]);
+    const cRows = Object.entries(containers).map(([n, c]) => [`${emo('container')} \`${n}\``, String(c.technology ?? ''), `${String(c.description ?? '')}${c.realizes ? `<br>realizes: ${refList(c.realizes)}` : ''}`]);
+    const xRows = Object.entries(externals).map(([n, x]) => [`🔌 \`${n}\``, String(x.description ?? '')]);
+    const relRows = rels.map((r) => [`\`${String(r.from)}\` → \`${String(r.to)}\``, String(r.description ?? '')]);
+    const compRows = Object.entries(comps).map(([n, c]) => {
+      const bind = c.handles ? `handles ${refList(c.handles)}` : c.updates ? `updates ${refList(c.updates)}` : '—';
+      return [`${emo('component')} \`${n}\``, c.instrumented ? '📡 yes' : '— no', String(c.description ?? ''), bind];
+    });
+    return [
+      `**System**: \`${String(sys.name ?? 'Captain.Food')}\` — ${String(sys.description ?? '')}`,
+      `\n### 🔲 L2 — Bounded contexts\n\n${mdTable(['Context', 'Description', 'Aggregates / process managers'], bcRows)}`,
+      `\n### 🧱 L2 — Containers\n\n${mdTable(['Container', 'Technology', 'Description'], cRows)}`,
+      `\n### 🔌 L2 — External systems\n\n${mdTable(['System', 'Description'], xRows)}`,
+      `\n### ➡️ L2 — Relationships\n\n${mdTable(['Edge', 'Description'], relRows)}`,
+      `\n### ⚙️ L3 — Components of the \`api\` container\n\n${mdTable(['Component', 'Instrumented', 'Description', 'Binds'], compRows)}`,
+    ].join('\n');
+  })();
+
   const sec = (id: string, emoji: string, title: string) => `${idTag('sec-' + id)}\n## ${emoji} ${title}`;
   return `<!-- GENERATED by tools/codegen — do not edit by hand. Source: specs/*.yaml. -->
 # 📖 Captain.Food — Product Documentation (generated)
@@ -351,7 +430,7 @@ system end-to-end without reading code.
 **Roles**: 🌐 PUBLIC · 🙋 CUSTOMER · 🏪 RESTAURANT_ACCOUNT · 🍽️ RESTAURANT · 🛵 RIDER · 🛠️ ADMIN · 🔌 EXTERNAL
 **Markers**: ✅ required · ⬜ optional · 🛶 V0 · 🔭 V1 · 🔒 internal · ⚠️ design hole
 
-**Contents** — [🎬 Stories](#sec-stories) · [🧰 API](#sec-api) · [${emo('actor')} Actors](#sec-actors) · [${emo('view')} Views](#sec-views) · [${emo('command')} Commands](#sec-commands) · [${emo('event')} Events](#sec-events) · [${emo('entity')} Entities](#sec-entities) · [${emo('scalar')} Scalars](#sec-scalars) · [${emo('error')} Errors](#sec-errors) · [${emo('test')} Tests](#sec-tests)
+**Contents** — [🎬 Stories](#sec-stories) · [🧰 API](#sec-api) · [${emo('actor')} Actors](#sec-actors) · [${emo('view')} Views](#sec-views) · [${emo('command')} Commands](#sec-commands) · [${emo('event')} Events](#sec-events) · [${emo('entity')} Entities](#sec-entities) · [${emo('scalar')} Scalars](#sec-scalars) · [${emo('error')} Errors](#sec-errors) · [${emo('test')} Tests](#sec-tests) · [${emo('obs')} Observability](#sec-observability) · [🏛️ Architecture](#sec-architecture)
 
 ${sec('stories', '🎬', '1. Stories')}
 
@@ -425,5 +504,20 @@ error(s) a rejection may raise. The codegen validates every case against the mod
 handling actor, \`Then\` ⊆ emits, \`Thrown\` ⊆ the handler's declared throws).
 
 ${testsDoc}
+
+${sec('observability', emo('obs'), '11. Observability')}
+
+Explicit observability **contracts** for critical workflows (\`specs/observability.yaml\`): required
+spans, mandatory identifiers, attributes, metrics, success/error semantics and SLOs. Bound to the domain
+by \`$ref\`, so they cannot drift. OpenTelemetry stays in framework boundaries — never in aggregates.
+
+${obsDoc}
+
+${sec('architecture', '🏛️', '12. Architecture (C4)')}
+
+C4 views as source-managed DSL (\`specs/architecture/c4-l{2,3}.yaml\`). Bounded contexts bind their
+aggregates; components bind the aggregates they handle and the read models they update.
+
+${c4Doc}
 `;
 }
