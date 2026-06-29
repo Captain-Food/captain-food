@@ -221,6 +221,14 @@ queries:
     roles: [PUBLIC]
     slice: V0
 
+  operation:
+    description: "Poll a command/operation's status by its correlationId (the pull counterpart of the operationStatusChanged subscription). Transient — resolver-served, no View_*."
+    args:
+      correlationId: { $ref: 'scalars.yaml#/CorrelationId', required: true }
+    returns: { $ref: '#/types/Operation', nullable: true }
+    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]
+    slice: V0
+
   me:
     description: "The signed-in customer's own profile (resolves the session authRef → Customer via View_Customer)."
     returns: { $ref: '#/types/CustomerProfile', nullable: true }

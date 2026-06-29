@@ -11,9 +11,21 @@ system:
   description: "Local-first food ordering & delivery for independent restaurants and food trucks (V0: Tours)."
 
 # --- Bounded contexts (domain decomposition; consistency boundaries) ---
+# A context binds its AGGREGATES / process managers (domain ownership). This is the SINGLE, explicit
+# declaration of which context an actor — and therefore every command it handles — belongs to.
+# Operation→context in the generated docs is DERIVED from it, deterministically (no guessing):
+#   • a MUTATION  → the context of the aggregate/process-manager that HANDLES its command. So
+#     customer-performed writes like placeOrder / rateOrder / addCartLine live in `order` (handled by
+#     Order / PlaceOrderProcess / Cart), NOT in `customer`; acceptOrder shares `order` for the same reason.
+#   • a QUERY / SUBSCRIPTION → the context of the PERFORMER `roles` below (reads/discovery are caller-
+#     facing: browsing restaurants is a `customer` activity even though it reads restaurant data),
+#     falling back to the read model's context when the roles span several contexts (e.g. `orders`).
+# The optional `roles` lists the UserType(s) that perform a context's read/discovery use-cases. Each
+# UserType maps to at most one context; ADMIN / EXTERNAL / RIDER are neutral (no home → cross-cutting).
 boundedContexts:
-  restaurant-onboarding:
-    description: "Onboard accounts and their locations; lifecycle and acceptance mode."
+  restaurant:
+    description: "Restaurant provider domain: accounts, locations, lifecycle, order-acceptance mode (incl. catalog & order-fulfilment operations performed by restaurant staff)."
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     aggregates:
       - { $ref: 'actors.yaml#/RestaurantAccount' }
       - { $ref: 'actors.yaml#/Restaurant' }
@@ -21,19 +33,17 @@ boundedContexts:
     description: "Catalog tree, products, offers (SKUs), option lists, per-offer stock; HubRise import."
     aggregates:
       - { $ref: 'actors.yaml#/Catalog' }
-  cart:
-    description: "Pre-checkout selection for one restaurant, validated per line against the live catalog."
+  order:
+    description: "Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe)."
     aggregates:
       - { $ref: 'actors.yaml#/Cart' }
-  ordering:
-    description: "Order lifecycle + checkout/refund sagas (the V0 risk point: external Stripe)."
-    aggregates:
       - { $ref: 'actors.yaml#/Order' }
     processManagers:
       - { $ref: 'actors.yaml#/PlaceOrderProcess' }
       - { $ref: 'actors.yaml#/RefundProcess' }
   customer:
-    description: "Customer identity (phone-keyed), favorites, profile, address book; cart binding."
+    description: "Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favorites, profile, address book, cart & ordering use-cases; cart binding."
+    roles: [CUSTOMER, PUBLIC]
     aggregates:
       - { $ref: 'actors.yaml#/Customer' }
     processManagers:
@@ -44,9 +54,12 @@ containers:
   web-client:
     technology: "Next.js (App Router), React, TypeScript, Tailwind"
     description: "Customer mobile-first web client; multi-tenant via {restaurantSlug}.captain.food."
+  web-restaurant:
+    technology: "Next.js, React, TypeScript"
+    description: "Restaurant web app/dashboard: onboarding (incl. Google Business Profile 'Order online' setup — ADR-019), catalog, order queue, payouts (/restaurant-account/graphql, /restaurant/graphql)."
   web-admin:
     technology: "Next.js, React, TypeScript"
-    description: "Restaurant/admin back-office (resolves the #TODO: a dedicated back-office container)."
+    description: "Platform back-office for Captain.Food staff (/admin/graphql): restaurant approvals, pre-registration pipeline, ops."
   mobile-customer:
     technology: "React Native / Expo (iOS + Android)"
     description: "Customer mobile app (post-V0); same GraphQL API as web-client (/customer/graphql, /public/graphql)."
@@ -92,7 +105,8 @@ externalSystems:
 # --- Key relationships (integrations that MUST appear in the views) ---
 relationships:
   - { from: web-client, to: api, description: "GraphQL over HTTPS (/customer/graphql, /public/graphql)" }
-  - { from: web-admin, to: api, description: "GraphQL (/restaurant-account/graphql, /restaurant/graphql, /admin/graphql)" }
+  - { from: web-restaurant, to: api, description: "GraphQL (/restaurant-account/graphql, /restaurant/graphql)" }
+  - { from: web-admin, to: api, description: "GraphQL (/admin/graphql)" }
   - { from: mobile-customer, to: api, description: "GraphQL (/customer/graphql, /public/graphql) — post-V0" }
   - { from: mobile-restaurant, to: api, description: "GraphQL (/restaurant/graphql) — post-V0" }
   - { from: mobile-rider, to: api, description: "GraphQL (/rider/graphql) — post-V0" }

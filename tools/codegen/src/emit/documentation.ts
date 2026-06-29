@@ -1,6 +1,7 @@
 import type { ApiField, Model, SchemaNode } from '../model.ts';
 import type { Derived } from '../validate.ts';
 import { refName } from '../refs.ts';
+import { buildContextMap, CROSS } from './contexts.ts';
 
 /**
  * Emit `documentation.generated.md` — a single, fully detailed, NAVIGABLE product documentation built
@@ -20,6 +21,7 @@ const KIND_EMOJI: Record<string, string> = {
   scalar: '🔤', entity: '📦', command: '📩', event: '⚡', view: '🗄️', actor: '🎭',
   type: '🧩', query: '🔎', mutation: '✏️', error: '⛔', property: '🔹',
   story: '🎬', activity: '🧭', test: '🧪', obs: '📡', context: '🔲', container: '🧱', component: '⚙️',
+  subscription: '🔔',
 };
 const emo = (kind: string) => KIND_EMOJI[kind] ?? '•';
 
@@ -129,52 +131,61 @@ export function emitDocumentation(model: Model, derived: Derived): string {
   }).join('\n\n');
 
   // ============================================================================================
-  // 2. API (queries, mutations, output types)
+  // The whole doc is organized TOP-LEVEL by bounded context (c4-l2); each item is attributed to one.
   // ============================================================================================
-  const queriesDoc = model.api.queries.map((q) => {
+  const cx = buildContextMap(model);
+  type Doc = { ctx: string; md: string }; // a rendered item tagged with its bounded context
+  const inCtx = (docs: Doc[], ctx: string) => docs.filter((d) => d.ctx === ctx);
+
+  // 2. API operations — tagged by bounded context (queries + mutations + subscriptions).
+  const apiDocs: Doc[] = [];
+  for (const q of model.api.queries) {
     const fieldList = q.args.map((a) => `\`${a.name}${a.required ? '' : '?'}\`: ${apiType(a)}`).join(', ');
-    // Queries with args take a single generated input class (`<Query>QueryInput`); args are never inlined.
-    const input = q.args.length
-      ? `- **Input**: 🧩 \`${pascal(q.name)}QueryInput${q.args.some((a) => a.required) ? '!' : ''}\` — ${fieldList}`
-      : `- **Input**: _(none)_`;
+    const input = q.args.length ? `- **Input**: 🧩 \`${pascal(q.name)}QueryInput${q.args.some((a) => a.required) ? '!' : ''}\` — ${fieldList}` : `- **Input**: _(none)_`;
     const ret = `${typeSet.has(q.returnsType) || entitySet.has(q.returnsType) ? link(typeSet.has(q.returnsType) ? 'type' : 'entity', q.returnsType) : `\`${q.returnsType}\``}${q.returnsList ? ' (list)' : ''}`;
     const reads = q.reads.map((v) => link('view', v)).join(', ') || '—';
-    const roles = q.roles.join(', ');
-    return [
-      itemHead('query', 'Query', q.name),
-      q.description ? `\n${q.description}\n` : '',
-      input,
-      `- **Returns**: ${ret} · **reads** ${reads}`,
-      `- **Roles**: ${roles} · **slice** ${q.slice}`,
-    ].join('\n');
-  }).join('\n\n');
-
-  const mutationsDoc = model.api.mutations.map((m) => {
+    apiDocs.push({ ctx: cx.ofOperation(q.roles, q.reads.length ? cx.ofReads(q.reads) : cx.ofType(q.returnsType)), md: [
+      itemHead('query', 'Query', q.name), q.description ? `\n${q.description}\n` : '',
+      input, `- **Returns**: ${ret} · **reads** ${reads}`, `- **Roles**: ${q.roles.join(', ')} · **slice** ${q.slice}`,
+    ].join('\n') });
+  }
+  for (const m of model.api.mutations) {
     const payload = m.payload.map((f) => `\`${f.name}\`: ${apiType(f)}`).join(', ');
     const h = cmdHandler.get(m.command);
-    return [
+    // A mutation belongs to the context of the aggregate/PM that HANDLES its command (declared in c4-l2),
+    // not the performer — e.g. placeOrder/rateOrder are customer-performed but live in the order context.
+    apiDocs.push({ ctx: cx.ofCommand(m.command), md: [
       itemHead('mutation', 'Mutation', m.name),
       `\n- **Command**: ${link('command', m.command)}${h ? ` → handled by ${link('actor', h.actor)}` : ''}`,
       `- **Roles**: ${m.roles.join(', ')} · **slice** ${m.slice}`,
       `- **Payload**: correlationId${payload ? `, ${payload}` : ''}`,
-    ].join('\n');
-  }).join('\n\n');
+    ].join('\n') });
+  }
+  for (const s of model.api.subscriptions) {
+    const fieldList = s.args.map((a) => `\`${a.name}${a.required ? '' : '?'}\`: ${apiType(a)}`).join(', ');
+    const input = s.args.length ? `- **Input**: 🧩 \`${pascal(s.name)}SubscriptionInput${s.args.some((a) => a.required) ? '!' : ''}\` — ${fieldList}` : `- **Input**: _(none)_`;
+    const ret = `${typeSet.has(s.returnsType) || entitySet.has(s.returnsType) ? link(typeSet.has(s.returnsType) ? 'type' : 'entity', s.returnsType) : `\`${s.returnsType}\``}${s.returnsList ? ' (list)' : ''}`;
+    apiDocs.push({ ctx: cx.ofOperation(s.roles, cx.ofType(s.returnsType)), md: [
+      `${idTag(anchor('subscription', s.name))}\n#### ${emo('subscription')} Subscription: [\`${s.name}\`](#${anchor('subscription', s.name)})`,
+      s.description ? `\n${s.description}\n` : '', input, `- **Streams**: ${ret}`, `- **Roles**: ${s.roles.join(', ')} · **slice** ${s.slice}`,
+    ].join('\n') });
+  }
 
-  const typesDoc = model.api.types.map((t) => {
+  const typeDocs: Doc[] = model.api.types.map((t) => {
     const reads = t.reads.map((v) => link('view', v)).join(', ');
     const rows = t.properties.map((f) => [`${idTag(propAnchor('type', t.name, f.name))}\`${f.name}\``, apiType(f), f.nullable ? '⬜' : '✅']);
-    return [
+    return { ctx: cx.ofType(t.name), md: [
       itemHead('type', 'Type', t.name),
       t.description ? `\n${t.description}\n` : '',
       reads ? `- **Read model**: ${reads}` : '- **Read model**: _(resolved within a parent projection)_',
       rows.length ? `\n${mdTable(['Field', 'Type', 'Required'], rows)}` : '',
-    ].join('\n');
-  }).join('\n\n');
+    ].join('\n') };
+  });
 
   // ============================================================================================
   // 3. ACTORS
   // ============================================================================================
-  const actorsDoc = model.actors.map((a) => {
+  const actorDocs: Doc[] = model.actors.map((a) => {
     const rows = a.receives.map((e) => {
       const msgName = refName(e.message.$ref) ?? '?';
       const isCmd = e.message.$ref.startsWith('commands.yaml#/');
@@ -184,17 +195,17 @@ export function emitDocumentation(model: Model, derived: Derived): string {
       return [msg, emits, throws];
     });
     const kind = a.type === 'aggregate' ? '🧩 aggregate' : '⚙️ process manager';
-    return [
+    return { ctx: cx.ofActor(a.name), md: [
       itemHead('actor', 'Actor', a.name),
       `\n_${kind}_${a.description ? ` — ${a.description}` : ''}\n`,
       mdTable(['Receives', 'Emits →', 'Throws'], rows),
-    ].join('\n');
-  }).join('\n\n');
+    ].join('\n') };
+  });
 
   // ============================================================================================
   // 4. VIEWS (read models)
   // ============================================================================================
-  const viewsDoc = model.views.map((v) => {
+  const viewDocs: Doc[] = model.views.map((v) => {
     const slice = v.slice === 'V1' ? '🔭 V1' : '🛶 V0';
     const fedBy = v.fedBy.map((r) => link('event', refName(r.$ref) ?? '')).join(', ') || '—';
     const cols = v.columns.map((c) => {
@@ -211,7 +222,7 @@ export function emitDocumentation(model: Model, derived: Derived): string {
       }).join(', ') || '⚠️ _(none)_';
       return [`\`${c.name}\``, `${typeCell}${fk}`, source, flags, (c.note ?? '').replace(/\s+/g, ' ')];
     });
-    return [
+    return { ctx: cx.ofView(v.name), md: [
       itemHead('view', 'View', v.name),
       `\n- **Source**: ${v.reference ? '📦 reference (static seed)' : link('actor', v.aggregate)} · ${slice}${v.internal ? ' · 🔒 internal' : ''}`,
       v.note ? `- **Note**: ${v.note.replace(/\s+/g, ' ')}` : '',
@@ -219,92 +230,87 @@ export function emitDocumentation(model: Model, derived: Derived): string {
       v.rules.length ? `- **Rules**: ${v.rules.join(' ')}` : '',
       `- **Fed by**: ${fedBy}`,
       `\n${mdTable(['Column', 'Type', 'Sourced from', 'Constraints', 'Notes'], cols)}`,
-    ].filter(Boolean).join('\n');
-  }).join('\n\n');
+    ].filter(Boolean).join('\n') };
+  });
 
   // ============================================================================================
   // 5. COMMANDS
   // ============================================================================================
-  const commandsDoc = Object.keys(defs['commands.yaml'])
+  const commandDocs: Doc[] = Object.keys(defs['commands.yaml'])
     .filter((c) => cmdHandler.has(c)) // skip command value objects (not handled by an actor)
     .map((c) => {
       const h = cmdHandler.get(c)!;
       const mut = mutByCommand.get(c);
       const rows = propRows(defs['commands.yaml'][c] ?? {}, 'command', c);
-      return [
+      return { ctx: cx.ofCommand(c), md: [
         itemHead('command', 'Command', c),
         desc('commands.yaml', c) ? `\n${desc('commands.yaml', c)}\n` : '',
         `- **Dispatched by**: ${mut ? link('mutation', mut) : '—'} · **handled by** ${link('actor', h.actor)}`,
         `- **Emits**: ${h.emits.map((e) => link('event', e)).join(', ') || '—'}`,
         `- **Throws**: ${h.throws.map((e) => link('error', e)).join(', ') || '—'}`,
         rows.length ? `\n${mdTable(['Field', 'Type', 'Required', 'Description'], rows)}` : '',
-      ].join('\n');
-    }).join('\n\n');
+      ].join('\n') };
+    });
 
   // ============================================================================================
   // 6. EVENTS
   // ============================================================================================
   const nonProjected = new Set(model.nonProjectedEvents);
-  const eventsDoc = Object.keys(defs['events.yaml']).map((ev) => {
+  const eventDocs: Doc[] = Object.keys(defs['events.yaml']).map((ev) => {
     const rows = propRows(defs['events.yaml'][ev] ?? {}, 'event', ev);
     const projected = (evtViews.get(ev) ?? []).map((v) => link('view', v)).join(', ')
       || (nonProjected.has(ev) ? '_non-projected (saga/transient)_' : '—');
-    return [
+    return { ctx: cx.ofEvent(ev), md: [
       itemHead('event', 'Event', ev),
       desc('events.yaml', ev) ? `\n${desc('events.yaml', ev)}\n` : '',
       `- **Emitted by**: ${(evtEmittedBy.get(ev) ?? []).map((a) => link('actor', a)).join(', ') || '_inbound / external_'}`,
       `- **Consumed by**: ${(evtConsumedBy.get(ev) ?? []).map((a) => link('actor', a)).join(', ') || '—'}`,
       `- **Projected into**: ${projected}`,
       rows.length ? `\n${mdTable(['Field', 'Type', 'Required', 'Description'], rows)}` : '',
-    ].join('\n');
-  }).join('\n\n');
+    ].join('\n') };
+  });
 
   // ============================================================================================
   // 7. ENTITIES (value objects & aggregates)
   // ============================================================================================
-  const entitiesDoc = Object.keys(defs['entities.yaml']).map((e) => {
+  const entityDocs: Doc[] = Object.keys(defs['entities.yaml']).map((e) => {
     const rows = propRows(defs['entities.yaml'][e] ?? {}, 'entity', e);
-    return [
+    return { ctx: cx.ofEntity(e), md: [
       itemHead('entity', 'Entity', e),
       desc('entities.yaml', e) ? `\n${desc('entities.yaml', e)}\n` : '',
       rows.length ? mdTable(['Field', 'Type', 'Required', 'Description'], rows) : '_(no fields)_',
-    ].join('\n');
-  }).join('\n\n');
+    ].join('\n') };
+  });
 
   // ============================================================================================
   // 8. SCALARS
   // ============================================================================================
-  const scalarsDoc = (() => {
-    const rows = Object.entries(defs['scalars.yaml']).map(([name, d]) => {
-      const n = d as Record<string, unknown>;
-      let t = String(n.type ?? '?');
-      if (Array.isArray(n.enum)) t = `enum (${(n.enum as string[]).join(' \\| ')})`;
-      else if (typeof n.format === 'string') t += ` _${n.format}_`;
-      else if (typeof n.pattern === 'string') t += ` \`${n.pattern}\``;
-      return [`${idTag(anchor('scalar', name))}${emo('scalar')} \`${name}\``, t, String(n.description ?? '').replace(/\s+/g, ' ')];
-    });
-    return mdTable(['Scalar', 'Type', 'Description'], rows);
-  })();
+  type Row = { ctx: string; cells: string[] };
+  const scalarRows: Row[] = Object.entries(defs['scalars.yaml']).map(([name, d]) => {
+    const n = d as Record<string, unknown>;
+    let t = String(n.type ?? '?');
+    if (Array.isArray(n.enum)) t = `enum (${(n.enum as string[]).join(' \\| ')})`;
+    else if (typeof n.format === 'string') t += ` _${n.format}_`;
+    else if (typeof n.pattern === 'string') t += ` \`${n.pattern}\``;
+    return { ctx: cx.ofScalar(name), cells: [`${idTag(anchor('scalar', name))}${emo('scalar')} \`${name}\``, t, String(n.description ?? '').replace(/\s+/g, ' ')] };
+  });
 
   // ============================================================================================
   // 9. ERRORS (referenced by command `throws`)
   // ============================================================================================
-  const errorsDoc = (() => {
-    const rows = Object.entries(defs['errors.yaml']).map(([name, d]) => {
-      const n = d as Record<string, unknown>;
-      const msgs = (n.messages as Record<string, unknown> | undefined) ?? {};
-      const en = (msgs.en as string | undefined) ?? '';
-      const fr = (msgs.fr as string | undefined) ?? '';
-      const by = (errThrownBy.get(name) ?? []).map((c) => link('command', c)).join(', ') || '—';
-      return [`${idTag(anchor('error', name))}${emo('error')} \`${name}\``, String(n.description ?? '').replace(/\s+/g, ' '), `🇬🇧 ${en}`, `🇫🇷 ${fr}`, by];
-    });
-    return mdTable(['Error', 'Description', 'Message (en)', 'Message (fr)', 'Thrown by'], rows);
-  })();
+  const errorRows: Row[] = Object.entries(defs['errors.yaml']).map(([name, d]) => {
+    const n = d as Record<string, unknown>;
+    const msgs = (n.messages as Record<string, unknown> | undefined) ?? {};
+    const en = (msgs.en as string | undefined) ?? '';
+    const fr = (msgs.fr as string | undefined) ?? '';
+    const by = (errThrownBy.get(name) ?? []).map((c) => link('command', c)).join(', ') || '—';
+    return { ctx: cx.ofError(name), cells: [`${idTag(anchor('error', name))}${emo('error')} \`${name}\``, String(n.description ?? '').replace(/\s+/g, ' '), `🇬🇧 ${en}`, `🇫🇷 ${fr}`, by] };
+  });
 
   // ============================================================================================
   // 10. TESTS (behaviour Given/When/Then — grouped by the aggregate under test)
   // ============================================================================================
-  const testsDoc = (() => {
+  const testDocs: Doc[] = (() => {
     const tDefs = (defs['tests.yaml'] ?? {}) as Record<string, Record<string, SchemaNode>>;
     const fixtures = (tDefs.fixtures ?? {}) as Record<string, { type?: { $ref?: string } }>;
     const tests = (tDefs.tests ?? {}) as Record<string, Record<string, unknown>>;
@@ -316,9 +322,9 @@ export function emitDocumentation(model: Model, derived: Derived): string {
     const evLinks = (arr: unknown): string =>
       (Array.isArray(arr) ? arr : []).map((it) => { const e = fxEvent((it as { $ref?: string })?.$ref); return e ? link('event', e) : '—'; }).join(', ');
 
-    const blocks = model.actors.map((a) => {
+    return model.actors.map((a): Doc | null => {
       const entries = Object.entries(tests).filter(([, t]) => refName((t.actor as { $ref?: string })?.$ref ?? '') === a.name);
-      if (!entries.length) return '';
+      if (!entries.length) return null;
       const cases = entries.map(([name, t]) => {
         const cmd = refName(((t.when as { type?: { $ref?: string } })?.type)?.$ref ?? '') ?? '?';
         const given = Array.isArray(t.given) && t.given.length ? evLinks(t.given) : '_(none)_';
@@ -339,9 +345,8 @@ export function emitDocumentation(model: Model, derived: Derived): string {
           thrown,
         ].filter(Boolean).join('\n');
       }).join('\n\n');
-      return `### ${link('actor', a.name)}\n\n${cases}`;
-    }).filter(Boolean).join('\n\n');
-    return blocks;
+      return { ctx: cx.ofActor(a.name), md: `**${link('actor', a.name)}**\n\n${cases}` };
+    }).filter((d): d is Doc => d !== null);
   })();
 
   // Link any `$ref` to its anchored subsection, picking the kind from the target file.
@@ -359,7 +364,7 @@ export function emitDocumentation(model: Model, derived: Derived): string {
   // ============================================================================================
   // 10. OBSERVABILITY (workflow contracts)
   // ============================================================================================
-  const obsDoc = Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>).map(([feature, c]) => {
+  const obsDocs: Doc[] = Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>).map(([feature, c]) => {
     const wf = (c.workflow ?? {}) as Record<string, unknown>;
     const ids = (Array.isArray(c.run_identity) ? c.run_identity : []) as Array<Record<string, unknown>>;
     const idRows = ids.map((i) => [`\`${String(i.name)}\``, `\`${String(i.source ?? '')}\``, i.required ? '✅' : '⬜', i.businessKey ? anyLink((i.businessKey as { $ref?: string }).$ref) : '—']);
@@ -374,7 +379,10 @@ export function emitDocumentation(model: Model, derived: Derived): string {
     const lat = (c.latency_budget ?? {}) as Record<string, unknown>;
     const err = (c.error_budget ?? {}) as Record<string, unknown>;
     const success = sr.success ? `success ⇐ spans [${(sr.success.required_spans as string[] ?? []).map((s) => `\`${s}\``).join(', ')}]` : '';
-    return [
+    const cmd = refName((wf.command as { $ref?: string })?.$ref ?? '');
+    const saga = refName((wf.saga as { $ref?: string })?.$ref ?? '');
+    const ctx = cmd ? cx.ofCommand(cmd) : saga ? cx.ofActor(saga) : CROSS;
+    return { ctx, md: [
       `${idTag(anchor('obs', feature))}\n#### ${emo('obs')} Contract: \`${feature}\``,
       `\n_criticality: **${String(c.criticality ?? '—')}**_\n`,
       `- **Workflow**: ${wf.saga ? `saga ${anyLink((wf.saga as { $ref?: string }).$ref)}` : ''}${wf.command ? ` · command ${anyLink((wf.command as { $ref?: string }).$ref)}` : ''}`,
@@ -384,8 +392,8 @@ export function emitDocumentation(model: Model, derived: Derived): string {
       `\n- **Metrics**: ${metricList('metrics')} · **Business metrics**: ${metricList('business_metrics')}`,
       success ? `- **Status rules**: ${success}` : '',
       `- **SLOs**: p95 ≤ ${String(lat.max_p95_ms ?? '—')}ms · p99 ≤ ${String(lat.max_p99_ms ?? '—')}ms · error rate ≤ ${String(err.max_error_rate_pct ?? '—')}%`,
-    ].filter(Boolean).join('\n');
-  }).join('\n\n');
+    ].filter(Boolean).join('\n') };
+  });
 
   // ============================================================================================
   // 11. ARCHITECTURE (C4 L2/L3)
@@ -419,101 +427,62 @@ export function emitDocumentation(model: Model, derived: Derived): string {
   })();
 
   const sec = (id: string, emoji: string, title: string) => `${idTag('sec-' + id)}\n## ${emoji} ${title}`;
+
+  // --- assemble each bounded context as a TOP-LEVEL section (## 🔲), one subsection (###) per kind ---
+  const kindSub = (emoji: string, title: string, bodies: string[]) =>
+    bodies.length ? `### ${emoji} ${title} _(${bodies.length})_\n\n${bodies.join('\n\n')}` : '';
+  const docSub = (emoji: string, title: string, docs: Doc[], ctx: string) =>
+    kindSub(emoji, title, inCtx(docs, ctx).map((d) => d.md));
+  const rowSub = (emoji: string, title: string, head: string[], rows: Row[], ctx: string) => {
+    const r = rows.filter((x) => x.ctx === ctx);
+    return r.length ? `### ${emoji} ${title} _(${r.length})_\n\n${mdTable(head, r.map((x) => x.cells))}` : '';
+  };
+  const ctxBlocks = cx.order.map((ctx) => {
+    const parts = [
+      docSub('🧰', 'API operations', apiDocs, ctx),
+      docSub(emo('type'), 'Output types', typeDocs, ctx),
+      docSub(emo('actor'), 'Actors', actorDocs, ctx),
+      docSub(emo('view'), 'Views (read models)', viewDocs, ctx),
+      docSub(emo('command'), 'Commands', commandDocs, ctx),
+      docSub(emo('event'), 'Events', eventDocs, ctx),
+      docSub(emo('entity'), 'Entities', entityDocs, ctx),
+      rowSub(emo('scalar'), 'Scalars', ['Scalar', 'Type', 'Description'], scalarRows, ctx),
+      rowSub(emo('error'), 'Errors', ['Error', 'Description', 'Message (en)', 'Message (fr)', 'Thrown by'], errorRows, ctx),
+      docSub(emo('test'), 'Tests', testDocs, ctx),
+      docSub(emo('obs'), 'Observability', obsDocs, ctx),
+    ].filter(Boolean);
+    return { ctx, parts };
+  }).filter((b) => b.parts.length);
+
+  const ctxSections = ctxBlocks.map(({ ctx, parts }, i) =>
+    `${idTag('sec-ctx-' + slug(ctx))}\n## ${emo('context')} ${i + 1}. ${ctx}\n\n${cx.describe(ctx) ? `_${cx.describe(ctx)}_\n\n` : ''}${parts.join('\n\n')}`,
+  ).join('\n\n');
+  const ctxToc = ctxBlocks.map(({ ctx }) => `[${emo('context')} ${ctx}](#sec-ctx-${slug(ctx)})`).join(' · ');
+
   return `<!-- GENERATED by tools/codegen — do not edit by hand. Source: specs/*.yaml. -->
 # 📖 Captain.Food — Product Documentation (generated)
 
-A single, navigable view of the whole product, built from the specs. Every item — and every
-**property** 🔹 — is anchored and **cross-linked** to what it relates to; follow the links to walk the
-system end-to-end without reading code.
+A single, navigable view of the whole product, built from the specs and organized **top-level by
+bounded context** (🔲). Within each context: its API operations, output types, actors, views, commands,
+events, entities, scalars, errors, tests and observability contracts. Every item — and every
+**property** 🔹 — is anchored and **cross-linked**; \`cross-cutting\` holds the shared vocabulary and ops
+that belong to no single context. Stories and Architecture span all contexts.
 
-**Kinds**: ${emo('query')} query · ${emo('mutation')} mutation · ${emo('type')} type · ${emo('actor')} actor · ${emo('view')} view · ${emo('command')} command · ${emo('event')} event · ${emo('entity')} entity · ${emo('scalar')} scalar · ${emo('error')} error · ${emo('property')} property
+**Kinds**: ${emo('query')} query · ${emo('mutation')} mutation · ${emo('subscription')} subscription · ${emo('type')} type · ${emo('actor')} actor · ${emo('view')} view · ${emo('command')} command · ${emo('event')} event · ${emo('entity')} entity · ${emo('scalar')} scalar · ${emo('error')} error · ${emo('property')} property
 **Roles**: 🌐 PUBLIC · 🙋 CUSTOMER · 🏪 RESTAURANT_ACCOUNT · 🍽️ RESTAURANT · 🛵 RIDER · 🛠️ ADMIN · 🔌 EXTERNAL
 **Markers**: ✅ required · ⬜ optional · 🛶 V0 · 🔭 V1 · 🔒 internal · ⚠️ design hole
 
-**Contents** — [🎬 Stories](#sec-stories) · [🧰 API](#sec-api) · [${emo('actor')} Actors](#sec-actors) · [${emo('view')} Views](#sec-views) · [${emo('command')} Commands](#sec-commands) · [${emo('event')} Events](#sec-events) · [${emo('entity')} Entities](#sec-entities) · [${emo('scalar')} Scalars](#sec-scalars) · [${emo('error')} Errors](#sec-errors) · [${emo('test')} Tests](#sec-tests) · [${emo('obs')} Observability](#sec-observability) · [🏛️ Architecture](#sec-architecture)
+**Contents** — [🎬 Stories](#sec-stories) · ${ctxToc} · [🏛️ Architecture](#sec-architecture)
 
-${sec('stories', '🎬', '1. Stories')}
+${sec('stories', '🎬', 'Stories')}
 
 How each persona uses the API. \`personaRole\` is the persona's GraphQL path-role (UserType).
 
 ${storiesSection}
 
-${sec('api', '🧰', '2. API')}
+${ctxSections}
 
-### ${emo('query')} Queries
-
-${queriesDoc}
-
-### ${emo('mutation')} Mutations
-
-${mutationsDoc}
-
-### ${emo('type')} Output types
-
-${typesDoc}
-
-${sec('actors', emo('actor'), '3. Actors')}
-
-Aggregates (consistency boundaries) and process managers (sagas). Each row is an inbox entry:
-the message received → events emitted → errors thrown.
-
-${actorsDoc}
-
-${sec('views', emo('view'), '4. Views (read models)')}
-
-Denormalized \`View_*\` projection tables, rebuilt from the event log; queries read these, never \`domain_events\`.
-The **Sourced from** column links each column to the exact event property 🔹 that populates it.
-
-${viewsDoc}
-
-${sec('commands', emo('command'), '5. Commands')}
-
-Write-side requests (CQRS). Command value objects (not handled by an actor) are omitted.
-
-${commandsDoc}
-
-${sec('events', emo('event'), '6. Events')}
-
-Business event payloads (no technical envelope).
-
-${eventsDoc}
-
-${sec('entities', emo('entity'), '7. Entities')}
-
-Value objects and aggregate shapes (the write/domain model).
-
-${entitiesDoc}
-
-${sec('scalars', emo('scalar'), '8. Scalars')}
-
-Domain scalar types and enums.
-
-${scalarsDoc}
-
-${sec('errors', emo('error'), '9. Errors')}
-
-Anticipated domain errors raised by command handlers (the old invariants).
-
-${errorsDoc}
-
-${sec('tests', emo('test'), '10. Tests')}
-
-Behaviour tests (Given / When / Then) over the actor model, grouped by the aggregate under test.
-\`Given\`/\`Then\` reuse the centralized fixtures; \`Then\` ∅ marks an idempotent no-op; \`Thrown\` lists the
-error(s) a rejection may raise. The codegen validates every case against the model (data fields, the
-handling actor, \`Then\` ⊆ emits, \`Thrown\` ⊆ the handler's declared throws).
-
-${testsDoc}
-
-${sec('observability', emo('obs'), '11. Observability')}
-
-Explicit observability **contracts** for critical workflows (\`specs/observability.yaml\`): required
-spans, mandatory identifiers, attributes, metrics, success/error semantics and SLOs. Bound to the domain
-by \`$ref\`, so they cannot drift. OpenTelemetry stays in framework boundaries — never in aggregates.
-
-${obsDoc}
-
-${sec('architecture', '🏛️', '12. Architecture (C4)')}
+${sec('architecture', '🏛️', 'Architecture (C4)')}
 
 C4 views as source-managed DSL (\`specs/architecture/c4-l{2,3}.yaml\`). Bounded contexts bind their
 aggregates; components bind the aggregates they handle and the read models they update.

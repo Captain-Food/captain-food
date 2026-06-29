@@ -176,10 +176,13 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
 
   // 4c. queries: roles, reads present, return type resolves (entities.yaml type or an api projection), arg types.
   const outputTypes = new Set([...Object.keys(model.defs['entities.yaml']), ...api.types.map((t) => t.name)]);
+  // Types intentionally NOT view-backed (transient/boundary, e.g. Operation/PaymentIntent): a query
+  // returning one is resolver/tracker-served and needs no `@reads`.
+  const transientTypes = new Set(api.types.filter((t) => t.reads.length === 0).map((t) => t.name));
   for (const q of api.queries) {
     const where = `api.yaml/queries.${q.name}`;
     checkRoles(q.roles, where);
-    if (q.reads.length === 0) add({ level: 'error', rule: 'op-missing-reads', location: where, message: `return type '${q.returnsType || '?'}' declares no \`reads\` binding (→ @reads); bind it to a View_* in api.yaml types.` });
+    if (q.reads.length === 0 && !transientTypes.has(q.returnsType)) add({ level: 'error', rule: 'op-missing-reads', location: where, message: `return type '${q.returnsType || '?'}' declares no \`reads\` binding (→ @reads); bind it to a View_* in api.yaml types.` });
     if (!q.returnsType) add({ level: 'error', rule: 'query-no-returns', location: where, message: 'query has no return type.' });
     else if (!outputTypes.has(q.returnsType)) add({ level: 'error', rule: 'query-unknown-type', location: where, message: `return type '${q.returnsType}' is neither an entities.yaml type nor an api projection.` });
     for (const a of q.args) checkInline(a, `${where}.args.${a.name}`);
@@ -516,6 +519,19 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
     if (Object.keys(bcs).length) {
       for (const a of model.actors) {
         if (!mapped.has(a.name)) add({ level: 'warning', rule: 'c4-actor-unmapped', location: 'architecture/c4-l2.yaml', message: `actor '${a.name}' belongs to no bounded context (C4 L2 drift).` });
+      }
+    }
+    // A context's optional `roles` (UserType performers, driving op grouping in the docs) must be valid
+    // UserType values, and each UserType maps to at most one context (no overlapping ownership).
+    const userTypes = new Set(((model.defs['scalars.yaml']?.UserType as { enum?: string[] })?.enum) ?? []);
+    const roleOwner = new Map<string, string>();
+    for (const [cid, bc] of Object.entries(bcs)) {
+      for (const role of (Array.isArray(bc.roles) ? bc.roles : [])) {
+        const r = String(role);
+        if (userTypes.size && !userTypes.has(r)) add({ level: 'error', rule: 'c4-context-role-unknown', location: `architecture/c4-l2.yaml/${cid}`, message: `bounded-context role '${r}' is not a scalars.yaml#/UserType value.` });
+        const prev = roleOwner.get(r);
+        if (prev && prev !== cid) add({ level: 'error', rule: 'c4-context-role-overlap', location: `architecture/c4-l2.yaml/${cid}`, message: `UserType '${r}' is claimed by both '${prev}' and '${cid}' — each role maps to at most one context.` });
+        else roleOwner.set(r, cid);
       }
     }
   }

@@ -1,5 +1,6 @@
 import type { ApiField, Model, SchemaNode } from '../model.ts';
 import { refName } from '../refs.ts';
+import { buildContextMap, CROSS } from './contexts.ts';
 
 /**
  * Emit `documentation.generated.html` — the same product documentation as the Markdown version, but as
@@ -18,7 +19,7 @@ const ROLE_EMOJI: Record<string, string> = {
 const KIND_EMOJI: Record<string, string> = {
   scalar: '🔤', entity: '📦', command: '📩', event: '⚡', view: '🗄️', actor: '🎭',
   type: '🧩', query: '🔎', mutation: '✏️', error: '⛔', property: '🔹', story: '🎬', test: '🧪',
-  obs: '📡', context: '🔲', container: '🧱', component: '⚙️',
+  obs: '📡', context: '🔲', container: '🧱', component: '⚙️', subscription: '🔔',
 };
 const emo = (k: string) => KIND_EMOJI[k] ?? '•';
 
@@ -34,7 +35,7 @@ const KIND_CLASS: Record<string, string> = {
   type: 'k-type', entity: 'k-type', view: 'k-type', actor: 'k-type',
   scalar: 'k-scalar', query: 'k-op', mutation: 'k-op', command: 'k-op',
   event: 'k-event', error: 'k-error', property: 'k-prop', test: 'k-op',
-  obs: 'k-event', context: 'k-type', container: 'k-type', component: 'k-op',
+  obs: 'k-event', context: 'k-type', container: 'k-type', component: 'k-op', subscription: 'k-op',
 };
 const cls = (k: string) => KIND_CLASS[k] ?? 'k-id';
 
@@ -67,6 +68,10 @@ const THEME = `<style>
   details.sec > summary { cursor:pointer; padding:12px 16px; font-size:18px; color:#fff; list-style:none; position:sticky; top:0; background:var(--bg2); border-radius:6px; z-index:1; }
   details.sec[open] > summary { border-bottom:1px solid var(--line); border-radius:6px 6px 0 0; }
   details.sec > .body { padding:8px 16px 16px; }
+  details.subsec { border:1px solid var(--line); border-radius:6px; margin:10px 0; background:var(--bg); }
+  details.subsec > summary { cursor:pointer; padding:8px 12px; font-size:15px; color:var(--accent); list-style:none; }
+  details.subsec[open] > summary { border-bottom:1px solid var(--line); }
+  details.subsec > .body { padding:8px 12px; }
   details.item { border-left:2px solid var(--line); margin:10px 0; padding-left:12px; }
   details.item > summary { cursor:pointer; list-style:none; padding:3px 0; }
   summary::-webkit-details-marker { display:none; }
@@ -176,6 +181,14 @@ export function emitDocumentationHtml(model: Model): string {
   // ============================== sections ==============================
   const sec = (id: string, emoji: string, title: string, body: string) =>
     `<details class="sec" id="sec-${id}" open><summary>${emoji} ${esc(title)} <a class="perma" href="#sec-${id}">🔗</a></summary><div class="body">${body}</div></details>`;
+  // Each kind, inside a bounded-context section, is its own collapsible subsection.
+  const subsec = (emoji: string, title: string, count: number, body: string) =>
+    `<details class="subsec" open><summary>${emoji} ${esc(title)} <span class="muted">(${count})</span></summary><div class="body">${body}</div></details>`;
+
+  // The whole doc is grouped TOP-LEVEL by bounded context (c4-l2); each item is attributed to one.
+  const cx = buildContextMap(model);
+  type Doc = { ctx: string; html: string }; // a rendered item tagged with its bounded context
+  const inCtx = (docs: Doc[], ctx: string) => docs.filter((d) => d.ctx === ctx);
 
   // 1. Stories
   const storiesHtml = model.personas.map((p) => {
@@ -189,40 +202,51 @@ export function emitDocumentationHtml(model: Model): string {
       .replace('</summary>', ` ${badge}</summary>`);
   }).join('');
 
-  // 2. API
-  const queriesHtml = model.api.queries.map((q) => {
+  // 2. API operations — tagged by bounded context (queries + mutations + subscriptions interleaved).
+  const apiDocs: Doc[] = [];
+  for (const q of model.api.queries) {
     const fieldList = q.args.map((a) => `<span class="k-param">${esc(a.name)}${a.required ? '' : '?'}</span>: ${apiType(a)}`).join(', ');
-    // Queries with args take a single generated input class (`<Query>QueryInput`); args are never inlined.
     const inputType = q.args.length ? `${pascal(q.name)}QueryInput${q.args.some((a) => a.required) ? '!' : ''}` : '';
     const inputRel = q.args.length
       ? `<div class="rel"><span class="lbl">input:</span> <span class="k-type">🧩 ${esc(inputType)}</span> <span class="muted">{ ${fieldList} }</span></div>`
       : `<div class="rel"><span class="lbl">input:</span> <span class="muted">(none)</span></div>`;
-    const retName = q.returnsType;
-    const ret = (typeSet.has(retName) ? link('type', retName) : entitySet.has(retName) ? link('entity', retName) : `<span class="k-id">${esc(retName)}</span>`) + (q.returnsList ? ' []' : '');
+    const ret = (typeSet.has(q.returnsType) ? link('type', q.returnsType) : entitySet.has(q.returnsType) ? link('entity', q.returnsType) : `<span class="k-id">${esc(q.returnsType)}</span>`) + (q.returnsList ? ' []' : '');
     const reads = q.reads.map((v) => link('view', v)).join(', ') || '—';
-    const body = inputRel
-      + `<div class="rel"><span class="lbl">returns:</span> ${ret} · <span class="lbl">reads</span> ${reads}</div>`
+    const body = inputRel + `<div class="rel"><span class="lbl">returns:</span> ${ret} · <span class="lbl">reads</span> ${reads}</div>`
       + `<div class="rel"><span class="lbl">roles:</span> ${esc(q.roles.join(', '))} · <span class="badge">${q.slice}</span></div>`;
-    return item('query', 'Query', q.name, body, q.description);
-  }).join('');
-  const mutationsHtml = model.api.mutations.map((m) => {
+    const ctx = cx.ofOperation(q.roles, q.reads.length ? cx.ofReads(q.reads) : cx.ofType(q.returnsType));
+    apiDocs.push({ ctx, html: item('query', 'Query', q.name, body, q.description) });
+  }
+  for (const m of model.api.mutations) {
     const h = cmdHandler.get(m.command);
     const payload = m.payload.map((f) => `<span class="k-prop">${esc(f.name)}</span>: ${apiType(f)}`).join(', ');
     const body = `<div class="rel"><span class="lbl">command:</span> ${link('command', m.command)}${h ? ` → ${link('actor', h.actor)}` : ''}</div>`
       + `<div class="rel"><span class="lbl">roles:</span> ${esc(m.roles.join(', '))} · <span class="badge">${m.slice}</span></div>`
       + `<div class="rel"><span class="lbl">payload:</span> <span class="muted">correlationId</span>${payload ? `, ${payload}` : ''}</div>`;
-    return item('mutation', 'Mutation', m.name, body);
-  }).join('');
-  const typesHtml = model.api.types.map((t) => {
+    // A mutation belongs to the context of the aggregate/PM that HANDLES its command (declared in c4-l2),
+    // not the performer — e.g. placeOrder/rateOrder are customer-performed but live in the order context.
+    apiDocs.push({ ctx: cx.ofCommand(m.command), html: item('mutation', 'Mutation', m.name, body) });
+  }
+  for (const s of model.api.subscriptions) {
+    const fieldList = s.args.map((a) => `<span class="k-param">${esc(a.name)}${a.required ? '' : '?'}</span>: ${apiType(a)}`).join(', ');
+    const inputType = s.args.length ? `${pascal(s.name)}SubscriptionInput${s.args.some((a) => a.required) ? '!' : ''}` : '';
+    const inputRel = s.args.length
+      ? `<div class="rel"><span class="lbl">input:</span> <span class="k-type">🧩 ${esc(inputType)}</span> <span class="muted">{ ${fieldList} }</span></div>`
+      : `<div class="rel"><span class="lbl">input:</span> <span class="muted">(none)</span></div>`;
+    const ret = (typeSet.has(s.returnsType) ? link('type', s.returnsType) : entitySet.has(s.returnsType) ? link('entity', s.returnsType) : `<span class="k-id">${esc(s.returnsType)}</span>`) + (s.returnsList ? ' []' : '');
+    const body = inputRel + `<div class="rel"><span class="lbl">streams:</span> ${ret}</div>`
+      + `<div class="rel"><span class="lbl">roles:</span> ${esc(s.roles.join(', '))} · <span class="badge">${s.slice}</span></div>`;
+    apiDocs.push({ ctx: cx.ofOperation(s.roles, cx.ofType(s.returnsType)), html: item('subscription', 'Subscription', s.name, body, s.description) });
+  }
+  const typeDocs: Doc[] = model.api.types.map((t) => {
     const reads = t.reads.map((v) => link('view', v)).join(', ');
     const rows = t.properties.map((f) => [`<span id="${propAnchor('type', t.name, f.name)}" class="k-prop">${esc(f.name)}</span>`, apiType(f), reqCell(!f.nullable, f.nullable)]);
     const body = `<div class="rel"><span class="lbl">read model:</span> ${reads || '<span class="muted">(within a parent projection)</span>'}</div>${table(['Field', 'Type', 'Req.'], rows)}`;
-    return item('type', 'Type', t.name, body, t.description);
-  }).join('');
-  const apiHtml = `<h3>${emo('query')} Queries</h3>${queriesHtml}<h3>${emo('mutation')} Mutations</h3>${mutationsHtml}<h3>${emo('type')} Output types</h3>${typesHtml}`;
+    return { ctx: cx.ofType(t.name), html: item('type', 'Type', t.name, body, t.description) };
+  });
 
   // 3. Actors
-  const actorsHtml = model.actors.map((a) => {
+  const actorDocs: Doc[] = model.actors.map((a) => {
     const kind = a.type === 'aggregate' ? '🧩 aggregate' : '⚙️ process manager';
     const rows = a.receives.map((e) => {
       const isCmd = e.message.$ref.startsWith('commands.yaml#/');
@@ -230,11 +254,11 @@ export function emitDocumentationHtml(model: Model): string {
       const throws = e.throws.map((r) => link('error', refName(r.$ref) ?? '')).join(', ') || '—';
       return [link(isCmd ? 'command' : 'event', refName(e.message.$ref) ?? '?'), emits, throws];
     });
-    return item('actor', 'Actor', a.name, `<div class="rel muted">${kind}</div>${table(['Receives', 'Emits →', 'Throws'], rows)}`, a.description);
-  }).join('');
+    return { ctx: cx.ofActor(a.name), html: item('actor', 'Actor', a.name, `<div class="rel muted">${kind}</div>${table(['Receives', 'Emits →', 'Throws'], rows)}`, a.description) };
+  });
 
   // 4. Views
-  const viewsHtml = model.views.map((v) => {
+  const viewDocs: Doc[] = model.views.map((v) => {
     const slice = v.slice === 'V1' ? '🔭 V1' : '🛶 V0';
     const fedBy = v.fedBy.map((r) => link('event', refName(r.$ref) ?? '')).join(', ') || '—';
     const rows = v.columns.map((c) => {
@@ -251,57 +275,60 @@ export function emitDocumentationHtml(model: Model): string {
       + (v.note ? `<div class="desc">${esc(v.note.replace(/\s+/g, ' '))}</div>` : '')
       + `<div class="rel"><span class="lbl">fed by:</span> ${fedBy}</div>`
       + table(['Column', 'Type', 'Sourced from', 'Constraints', 'Notes'], rows);
-    return item('view', 'View', v.name, body);
-  }).join('');
+    return { ctx: cx.ofView(v.name), html: item('view', 'View', v.name, body) };
+  });
 
   // 5. Commands
-  const commandsHtml = Object.keys(defs['commands.yaml']).filter((c) => cmdHandler.has(c)).map((c) => {
+  const commandDocs: Doc[] = Object.keys(defs['commands.yaml']).filter((c) => cmdHandler.has(c)).map((c) => {
     const h = cmdHandler.get(c)!;
     const mut = mutByCommand.get(c);
     const body = `<div class="rel"><span class="lbl">dispatched by:</span> ${mut ? link('mutation', mut) : '—'} · <span class="lbl">handled by</span> ${link('actor', h.actor)}</div>`
       + `<div class="rel"><span class="lbl">emits:</span> ${h.emits.map((e) => link('event', e)).join(', ') || '—'}</div>`
       + `<div class="rel"><span class="lbl">throws:</span> ${h.throws.map((e) => link('error', e)).join(', ') || '—'}</div>`
       + table(['Field', 'Type', 'Req.', 'Description'], propRows(defs['commands.yaml'][c] ?? {}, 'command', c));
-    return item('command', 'Command', c, body, dDesc('commands.yaml', c));
-  }).join('');
+    return { ctx: cx.ofCommand(c), html: item('command', 'Command', c, body, dDesc('commands.yaml', c)) };
+  });
 
   // 6. Events
   const nonProjected = new Set(model.nonProjectedEvents);
-  const eventsHtml = Object.keys(defs['events.yaml']).map((ev) => {
+  const eventDocs: Doc[] = Object.keys(defs['events.yaml']).map((ev) => {
     const projected = (evtViews.get(ev) ?? []).map((v) => link('view', v)).join(', ') || (nonProjected.has(ev) ? '<span class="muted">non-projected</span>' : '—');
     const body = `<div class="rel"><span class="lbl">emitted by:</span> ${(evtEmittedBy.get(ev) ?? []).map((a) => link('actor', a)).join(', ') || '<span class="muted">inbound / external</span>'}</div>`
       + `<div class="rel"><span class="lbl">consumed by:</span> ${(evtConsumedBy.get(ev) ?? []).map((a) => link('actor', a)).join(', ') || '—'}</div>`
       + `<div class="rel"><span class="lbl">projected into:</span> ${projected}</div>`
       + table(['Field', 'Type', 'Req.', 'Description'], propRows(defs['events.yaml'][ev] ?? {}, 'event', ev));
-    return item('event', 'Event', ev, body, dDesc('events.yaml', ev));
-  }).join('');
+    return { ctx: cx.ofEvent(ev), html: item('event', 'Event', ev, body, dDesc('events.yaml', ev)) };
+  });
 
   // 7. Entities
-  const entitiesHtml = Object.keys(defs['entities.yaml']).map((e) =>
-    item('entity', 'Entity', e, table(['Field', 'Type', 'Req.', 'Description'], propRows(defs['entities.yaml'][e] ?? {}, 'entity', e)), dDesc('entities.yaml', e))).join('');
+  const entityDocs: Doc[] = Object.keys(defs['entities.yaml']).map((e) => ({
+    ctx: cx.ofEntity(e),
+    html: item('entity', 'Entity', e, table(['Field', 'Type', 'Req.', 'Description'], propRows(defs['entities.yaml'][e] ?? {}, 'entity', e)), dDesc('entities.yaml', e)),
+  }));
 
-  // 8. Scalars
-  const scalarRows = Object.entries(defs['scalars.yaml']).map(([name, d]) => {
+  // 8. Scalars (each row tagged with its context; rendered as a per-context table)
+  type Row = { ctx: string; cells: string[] };
+  const scalarRows: Row[] = Object.entries(defs['scalars.yaml']).map(([name, d]) => {
     const n = d as Record<string, unknown>;
     let t = `<span class="k-const">${esc(String(n.type ?? '?'))}</span>`;
     if (Array.isArray(n.enum)) t = `<span class="kw">enum</span> <span class="muted">(${(n.enum as string[]).map(esc).join(' | ')})</span>`;
     else if (typeof n.format === 'string') t += ` <span class="muted">${esc(n.format)}</span>`;
     else if (typeof n.pattern === 'string') t += ` <span class="muted">${esc(String(n.pattern))}</span>`;
-    return [`<span id="${anchor('scalar', name)}" class="k-scalar">${emo('scalar')} ${esc(name)}</span>`, t, esc(String(n.description ?? '').replace(/\s+/g, ' '))];
+    return { ctx: cx.ofScalar(name), cells: [`<span id="${anchor('scalar', name)}" class="k-scalar">${emo('scalar')} ${esc(name)}</span>`, t, esc(String(n.description ?? '').replace(/\s+/g, ' '))] };
   });
 
-  // 9. Errors
-  const errorRows = Object.entries(defs['errors.yaml']).map(([name, d]) => {
+  // 9. Errors (tagged with the context of the command that throws them)
+  const errorRows: Row[] = Object.entries(defs['errors.yaml']).map(([name, d]) => {
     const n = d as Record<string, unknown>;
     const msgs = (n.messages as Record<string, unknown> | undefined) ?? {};
     const en = (msgs.en as string | undefined) ?? '';
     const fr = (msgs.fr as string | undefined) ?? '';
     const by = (errThrownBy.get(name) ?? []).map((c) => link('command', c)).join(', ') || '—';
-    return [`<span id="${anchor('error', name)}" class="k-error">${emo('error')} ${esc(name)}</span>`, esc(String(n.description ?? '').replace(/\s+/g, ' ')), `🇬🇧 ${esc(en)}`, `🇫🇷 ${esc(fr)}`, by];
+    return { ctx: cx.ofError(name), cells: [`<span id="${anchor('error', name)}" class="k-error">${emo('error')} ${esc(name)}</span>`, esc(String(n.description ?? '').replace(/\s+/g, ' ')), `🇬🇧 ${esc(en)}`, `🇫🇷 ${esc(fr)}`, by] };
   });
 
-  // 10. Tests (behaviour Given/When/Then, grouped by the aggregate under test)
-  const testsHtml = (() => {
+  // 10. Tests (behaviour Given/When/Then) — rendered per actor, the actor placed in its context.
+  const testDocs: Doc[] = (() => {
     const tDefs = (defs['tests.yaml'] ?? {}) as Record<string, Record<string, SchemaNode>>;
     const fixtures = (tDefs.fixtures ?? {}) as Record<string, { type?: { $ref?: string } }>;
     const tests = (tDefs.tests ?? {}) as Record<string, Record<string, unknown>>;
@@ -315,7 +342,7 @@ export function emitDocumentationHtml(model: Model): string {
 
     return model.actors.map((a) => {
       const entries = Object.entries(tests).filter(([, t]) => refName((t.actor as { $ref?: string })?.$ref ?? '') === a.name);
-      if (!entries.length) return '';
+      if (!entries.length) return null;
       const cases = entries.map(([name, t]) => {
         const cmd = refName(((t.when as { type?: { $ref?: string } })?.type)?.$ref ?? '') ?? '?';
         const given = Array.isArray(t.given) && t.given.length ? evLinks(t.given) : '<span class="muted">(none)</span>';
@@ -329,8 +356,8 @@ export function emitDocumentationHtml(model: Model): string {
           + outcome;
         return item('test', 'Test', name, body, typeof t.name === 'string' ? t.name : undefined);
       }).join('');
-      return `<h3>${link('actor', a.name)}</h3>${cases}`;
-    }).filter(Boolean).join('');
+      return { ctx: cx.ofActor(a.name), html: `<h3>${link('actor', a.name)}</h3>${cases}` };
+    }).filter((d): d is Doc => d !== null);
   })();
 
   // any $ref -> a colored link, kind chosen from the target file.
@@ -346,7 +373,7 @@ export function emitDocumentationHtml(model: Model): string {
     (Array.isArray(arr) ? arr : []).map((r) => anyLink((r as { $ref?: string })?.$ref)).join(', ') || '—';
 
   // 11. Observability contracts
-  const obsHtml = Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>).map(([feature, c]) => {
+  const obsDocs: Doc[] = Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>).map(([feature, c]) => {
     const wf = (c.workflow ?? {}) as Record<string, unknown>;
     const ids = (Array.isArray(c.run_identity) ? c.run_identity : []) as Array<Record<string, unknown>>;
     const idRows = ids.map((i) => [`<span class="k-prop">${esc(String(i.name))}</span>`, `<span class="muted">${esc(String(i.source ?? ''))}</span>`, i.required ? '<span class="req">✅</span>' : '<span class="opt">⬜</span>', i.businessKey ? anyLink((i.businessKey as { $ref?: string }).$ref) : '—']);
@@ -368,8 +395,11 @@ export function emitDocumentationHtml(model: Model): string {
       + `<div class="rel"><span class="lbl">metrics:</span> ${metricList('metrics')} · <span class="lbl">business:</span> ${metricList('business_metrics')}</div>`
       + (reqSpans ? `<div class="rel"><span class="lbl">success ⇐ spans:</span> ${reqSpans}</div>` : '')
       + `<div class="rel"><span class="lbl">SLOs:</span> p95 ≤ ${esc(String(lat.max_p95_ms ?? '—'))}ms · p99 ≤ ${esc(String(lat.max_p99_ms ?? '—'))}ms · error ≤ ${esc(String(err.max_error_rate_pct ?? '—'))}%</div>`;
-    return item('obs', 'Contract', feature, body, `criticality: ${String(c.criticality ?? '—')}`);
-  }).join('');
+    const cmd = refName((wf.command as { $ref?: string })?.$ref ?? '');
+    const saga = refName((wf.saga as { $ref?: string })?.$ref ?? '');
+    const ctx = cmd ? cx.ofCommand(cmd) : saga ? cx.ofActor(saga) : CROSS;
+    return { ctx, html: item('obs', 'Contract', feature, body, `criticality: ${String(c.criticality ?? '—')}`) };
+  });
 
   // 12. Architecture (C4)
   const c4Html = (() => {
@@ -431,35 +461,56 @@ export function emitDocumentationHtml(model: Model): string {
     + '<script>' + MAP_JS.replace('__CF_DATA__', JSON.stringify(mapData)) + '</script>';
 
   const legend = [
-    `${emo('query')} <span class="k-op">query</span>`, `${emo('mutation')} <span class="k-op">mutation</span>`,
+    `${emo('query')} <span class="k-op">query</span>`, `${emo('mutation')} <span class="k-op">mutation</span>`, `${emo('subscription')} <span class="k-op">subscription</span>`,
     `${emo('type')} <span class="k-type">type</span>`, `${emo('actor')} <span class="k-type">actor</span>`,
     `${emo('view')} <span class="k-type">view</span>`, `${emo('command')} <span class="k-op">command</span>`,
     `${emo('event')} <span class="k-event">event</span>`, `${emo('entity')} <span class="k-type">entity</span>`,
     `${emo('scalar')} <span class="k-scalar">scalar</span>`, `${emo('error')} <span class="k-error">error</span>`,
     `🔹 <span class="k-prop">property</span>`, `<span class="k-param">parameter</span>`, `${emo('test')} <span class="k-op">test</span>`, `${emo('obs')} <span class="k-event">observability</span>`,
   ].join(' · ');
-  const toc = [['stories', '🎬 Stories'], ['api', '🧰 API'], ['actors', `${emo('actor')} Actors`], ['views', `${emo('view')} Views`], ['commands', `${emo('command')} Commands`], ['events', `${emo('event')} Events`], ['entities', `${emo('entity')} Entities`], ['scalars', `${emo('scalar')} Scalars`], ['errors', `${emo('error')} Errors`], ['tests', `${emo('test')} Tests`], ['observability', `${emo('obs')} Observability`], ['architecture', '🏛️ Architecture'], ['map', '🗺️ Map']]
-    .map(([id, t]) => `<a href="#sec-${id}">${t}</a>`).join('');
+  // Assemble each bounded context as a TOP-LEVEL section: a description + one subsection per kind
+  // (only non-empty kinds are shown). `cross-cutting` collects the shared vocabulary and ops.
+  const docSub = (emoji: string, title: string, docs: Doc[], ctx: string) => {
+    const d = inCtx(docs, ctx);
+    return d.length ? subsec(emoji, title, d.length, d.map((x) => x.html).join('')) : '';
+  };
+  const tableSub = (emoji: string, title: string, head: string[], rows: Row[], ctx: string) => {
+    const r = rows.filter((x) => x.ctx === ctx);
+    return r.length ? subsec(emoji, title, r.length, table(head, r.map((x) => x.cells))) : '';
+  };
+  const ctxBlocks = cx.order.map((ctx) => {
+    const inner = [
+      docSub('🧰', 'API operations', apiDocs, ctx),
+      docSub(emo('type'), 'Output types', typeDocs, ctx),
+      docSub(emo('actor'), 'Actors', actorDocs, ctx),
+      docSub(emo('view'), 'Views', viewDocs, ctx),
+      docSub(emo('command'), 'Commands', commandDocs, ctx),
+      docSub(emo('event'), 'Events', eventDocs, ctx),
+      docSub(emo('entity'), 'Entities', entityDocs, ctx),
+      tableSub(emo('scalar'), 'Scalars', ['Scalar', 'Type', 'Description'], scalarRows, ctx),
+      tableSub(emo('error'), 'Errors', ['Error', 'Description', 'Message (en)', 'Message (fr)', 'Thrown by'], errorRows, ctx),
+      docSub(emo('test'), 'Tests', testDocs, ctx),
+      docSub(emo('obs'), 'Observability', obsDocs, ctx),
+    ].join('');
+    return { ctx, inner };
+  }).filter((b) => b.inner);
+
+  const ctxSections = ctxBlocks
+    .map(({ ctx, inner }, i) => sec(`ctx-${slug(ctx)}`, emo('context'), `${i + 1}. ${ctx}`, `<div class="desc">${esc(cx.describe(ctx))}</div>${inner}`))
+    .join('');
+  const ctxToc = ctxBlocks.map(({ ctx }) => `<a href="#sec-ctx-${slug(ctx)}">${emo('context')} ${esc(ctx)}</a>`).join('');
+  const toc = `<a href="#sec-stories">🎬 Stories</a>${ctxToc}<a href="#sec-architecture">🏛️ Architecture</a><a href="#sec-map">🗺️ Map</a>`;
 
   return `${THEME}
 <div class="doc"><div class="wrap">
   <h1>📖 Captain.Food — Product Documentation</h1>
-  <p class="muted">Generated from the specs. Every item and property is anchored — click 🔗 to copy a deep link. Sections are collapsible.</p>
+  <p class="muted">Generated from the specs, organized <strong>top-level by bounded context</strong> (🔲). Every item and property is anchored — click 🔗 to copy a deep link. Sections are collapsible.</p>
   <p><strong>Kinds:</strong> ${legend}</p>
   <p><strong>Roles:</strong> ${Object.entries(ROLE_EMOJI).map(([r, e]) => `${e} ${r}`).join(' · ')}</p>
   <div class="toolbar"><button onclick="setAll(true)">⊞ Expand all</button> <button onclick="setAll(false)">⊟ Collapse all</button> &nbsp; <span class="toc">${toc}</span></div>
-  ${sec('stories', '🎬', '1. Stories', storiesHtml)}
-  ${sec('api', '🧰', '2. API', apiHtml)}
-  ${sec('actors', emo('actor'), '3. Actors', actorsHtml)}
-  ${sec('views', emo('view'), '4. Views (read models)', viewsHtml)}
-  ${sec('commands', emo('command'), '5. Commands', commandsHtml)}
-  ${sec('events', emo('event'), '6. Events', eventsHtml)}
-  ${sec('entities', emo('entity'), '7. Entities', entitiesHtml)}
-  ${sec('scalars', emo('scalar'), '8. Scalars', table(['Scalar', 'Type', 'Description'], scalarRows))}
-  ${sec('errors', emo('error'), '9. Errors', table(['Error', 'Description', 'Message (en)', 'Message (fr)', 'Thrown by'], errorRows))}
-  ${sec('tests', emo('test'), '10. Tests', testsHtml)}
-  ${sec('observability', emo('obs'), '11. Observability', obsHtml)}
-  ${sec('architecture', '🏛️', '12. Architecture (C4)', c4Html)}
-  ${sec('map', '🗺️', '13. System map (interactive)', '<p class="muted">Drill in: <strong>System → container → bounded context → aggregate flow</strong>. Boxes are colored by kind (containers/aggregates teal, externals orange, contexts gold, commands yellow, events purple, views blue). Click to go deeper; leaf boxes jump to their section; use ◀ back to climb out.</p>' + mapHtml)}
+  ${sec('stories', '🎬', 'Stories', storiesHtml)}
+  ${ctxSections}
+  ${sec('architecture', '🏛️', 'Architecture (C4)', c4Html)}
+  ${sec('map', '🗺️', 'System map (interactive)', '<p class="muted">Drill in: <strong>System → container → bounded context → aggregate flow</strong>. Boxes are colored by kind (containers/aggregates teal, externals orange, contexts gold, commands yellow, events purple, views blue). Click to go deeper; leaf boxes jump to their section; use ◀ back to climb out.</p>' + mapHtml)}
 </div></div>`;
 }

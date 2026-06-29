@@ -215,8 +215,9 @@ function queryBlock(model: Model): string {
     const argStr = q.args.length ? `(input: ${pascal(q.name)}QueryInput${q.args.some((a) => a.required) ? '!' : ''})` : '';
     const inner = q.returnsList ? `[${q.returnsType}!]` : q.returnsType;
     const ret = `${inner}${q.returnsNullable ? '' : '!'}`;
-    const reads = `@reads(views: [${q.reads.map((v) => `"${v}"`).join(', ')}])`;
-    return `${I}${q.name}${argStr}: ${ret} ${authDirective(q.roles)} ${reads}`;
+    // Transient/resolver-served queries (return type with no view) carry no @reads.
+    const reads = q.reads.length ? ` @reads(views: [${q.reads.map((v) => `"${v}"`).join(', ')}])` : '';
+    return `${I}${q.name}${argStr}: ${ret} ${authDirective(q.roles)}${reads}`;
   });
   return `type Query {\n${fields.join('\n')}\n}`;
 }
