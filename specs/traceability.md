@@ -30,7 +30,7 @@ Personas map 1:1 to GraphQL paths/roles: `PUBLIC` · `CUSTOMER` · `RESTAURANT` 
 | PUBLIC (guest) | `addCartLine` | AddCartLine | `Cart` (aggregate) | CartStarted, CartLineAdded |
 | PUBLIC (guest) | `removeCartLine` | RemoveCartLine | `Cart` | CartLineRemoved |
 | PUBLIC (guest) | `changeCartLineQuantity` | ChangeCartLineQuantity | `Cart` | CartLineQuantityChanged |
-| CUSTOMER | `registerCustomer` | RegisterCustomer | `Customer` (aggregate) | CustomerRegistered |
+| PUBLIC (guest) | `verifyPhone` | VerifyPhone | `Customer` (aggregate) | CustomerRegistered \| CustomerIdentified |
 | CUSTOMER | `placeOrder` | PlaceOrder | `PlaceOrderProcess` (saga) → `Order`, `Cart` | PaymentIntentCreated → OrderPlaced + CartCheckedOut |
 | RESTAURANT | `acceptOrder` | AcceptOrder | `Order` (aggregate) | OrderAcceptedByRestaurant |
 | RESTAURANT | `rejectOrder` | RejectOrder | `Order` → `RefundProcess` | OrderRejectedByRestaurant (+ refund) |

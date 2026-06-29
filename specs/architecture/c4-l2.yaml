@@ -44,13 +44,18 @@ containers:
   web-client:
     technology: "Next.js (App Router), React, TypeScript, Tailwind"
     description: "Customer mobile-first web client; multi-tenant via {restaurantSlug}.captain.food."
-  #TODO: Add a separate web-admin container for restaurant back-office.
-  #TODO: Add a separate mobile app container for customers.
-  #TODO: Add a separate mobile app container for restaurant staff.
-  #TODO: Add a separate mobile app container for delivery partners.
   web-admin:
     technology: "Next.js, React, TypeScript"
-    description: "Restaurant/admin back-office."
+    description: "Restaurant/admin back-office (resolves the #TODO: a dedicated back-office container)."
+  mobile-customer:
+    technology: "React Native / Expo (iOS + Android)"
+    description: "Customer mobile app (post-V0); same GraphQL API as web-client (/customer/graphql, /public/graphql)."
+  mobile-restaurant:
+    technology: "React Native / Expo"
+    description: "Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql)."
+  mobile-rider:
+    technology: "React Native / Expo"
+    description: "Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql)."
   api:
     technology: "Node + TypeScript (Hono or NestJS), GraphQL"
     description: "CQRS-light write+read API. Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql)."
@@ -88,6 +93,9 @@ externalSystems:
 relationships:
   - { from: web-client, to: api, description: "GraphQL over HTTPS (/customer/graphql, /public/graphql)" }
   - { from: web-admin, to: api, description: "GraphQL (/restaurant-account/graphql, /restaurant/graphql, /admin/graphql)" }
+  - { from: mobile-customer, to: api, description: "GraphQL (/customer/graphql, /public/graphql) — post-V0" }
+  - { from: mobile-restaurant, to: api, description: "GraphQL (/restaurant/graphql) — post-V0" }
+  - { from: mobile-rider, to: api, description: "GraphQL (/rider/graphql) — post-V0" }
   - { from: api, to: event-store, description: "Append domain events (command side)" }
   - { from: api, to: read-models, description: "Read projections (query side) + projection updates" }
   - { from: api, to: stripe, description: "Create PaymentIntents, request refunds; receive webhooks (inbound facts)" }

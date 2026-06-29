@@ -34,10 +34,19 @@ fixtures:
     data: { customerId: "cust-1", authRef: "auth-supabase-1" }
   customerInfoUpdated:
     type: { $ref: 'events.yaml#/CustomerInfoUpdated' }
+    data: { customerId: "cust-1", displayName: "Johnny B." }
+  customerEmailVerified:
+    type: { $ref: 'events.yaml#/CustomerEmailVerified' }
     data: { customerId: "cust-1", email: "johnny@example.com" }
+  customerPhoneChanged:
+    type: { $ref: 'events.yaml#/CustomerPhoneChanged' }
+    data: { customerId: "cust-1", phone: "+33699999999" }
+  customerLanguageChanged:
+    type: { $ref: 'events.yaml#/CustomerLanguageChanged' }
+    data: { customerId: "cust-1", locale: "en-US" }
   customerPreferencesSet:
     type: { $ref: 'events.yaml#/CustomerPreferencesSet' }
-    data: { customerId: "cust-1", locale: "fr-FR", timezone: "Europe/Paris", dietaryTags: ["vegan"] }
+    data: { customerId: "cust-1", timezone: "Europe/Paris", dietaryTags: ["vegan"] }
   restaurantFavorited:
     type: { $ref: 'events.yaml#/RestaurantFavorited' }
     data: { customerId: "cust-1", restaurantId: "resto-1" }
@@ -753,45 +762,143 @@ tests:
       - { $ref: 'errors.yaml#/CatalogTranslationFailed' }
       - { $ref: 'errors.yaml#/MissingRef' }
 
-  # ----------------------------- Customer ----------------------------
-  TestCustomerRegisteredOnFirstVerification:
-    name: "Registers a customer on first phone verification"
+  # ----------------------------- Customer (Supabase Auth wrapped — ADR-0015) ----------------------------
+  TestCustomerRequestPhoneVerification:
+    name: "Sends an SMS OTP to a phone (localized via the dialing code); emits nothing"
     actor: { $ref: 'actors.yaml#/Customer' }
     given: []
     when:
-      type: { $ref: 'commands.yaml#/RegisterCustomer' }
-      data: { customerId: "cust-1", phone: "+33612345678", displayName: "Johnny", locale: "fr-FR", timezone: "Europe/Paris" }
+      type: { $ref: 'commands.yaml#/RequestPhoneVerification' }
+      data: { dialingCode: "+33", nationalNumber: "612345678", locale: "fr-FR" }
+    then: []
+
+  TestCustomerVerifyPhoneRegisters:
+    name: "Verifying the OTP on a new phone registers the customer"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/VerifyPhone' }
+      data: { customerId: "cust-1", dialingCode: "+33", nationalNumber: "612345678", code: "123456", displayName: "Johnny", locale: "fr-FR", timezone: "Europe/Paris" }
     then:
       - { $ref: '#/fixtures/customerRegistered' }
 
-  TestCustomerRegisterReturningPhoneIsNoOp:
-    name: "Registering an already-known phone is a no-op (returning customer resolves, emits nothing)"
+  TestCustomerVerifyPhoneReturningIdentifies:
+    name: "Verifying the OTP on a known phone identifies the returning customer"
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
     when:
-      type: { $ref: 'commands.yaml#/RegisterCustomer' }
-      data: { customerId: "cust-2", phone: "+33612345678" }
-    then: []
+      type: { $ref: 'commands.yaml#/VerifyPhone' }
+      data: { customerId: "cust-2", dialingCode: "+33", nationalNumber: "612345678", code: "123456" }
+    then:
+      - { $ref: '#/fixtures/customerIdentified' }
 
-  TestCustomerRegisterUnverifiedPhoneIsRejected:
-    name: "Rejects registering a customer whose phone is not verified"
+  TestCustomerVerifyPhoneIsRejected:
+    name: "Rejects phone verification when the OTP is wrong or expired"
     actor: { $ref: 'actors.yaml#/Customer' }
     given: []
     when:
-      type: { $ref: 'commands.yaml#/RegisterCustomer' }
-      data: { customerId: "cust-1", phone: "+33600000000" }
+      type: { $ref: 'commands.yaml#/VerifyPhone' }
+      data: { customerId: "cust-1", dialingCode: "+33", nationalNumber: "612345678", code: "000000" }
     thrown:
-      - { $ref: 'errors.yaml#/PhoneNotVerified' }
+      - { $ref: 'errors.yaml#/InvalidVerificationCode' }
+      - { $ref: 'errors.yaml#/VerificationCodeExpired' }
 
-  TestCustomerEmailUpdated:
-    name: "Updates the customer email"
+  TestCustomerRequestEmailVerification:
+    name: "Sends an email magic link to verify/link an email; emits nothing"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/RequestEmailVerification' }
+      data: { customerId: "cust-1", email: "johnny@example.com" }
+    then: []
+
+  TestCustomerRequestEmailVerificationDuplicateIsRejected:
+    name: "Rejects requesting email verification for an email already used by another account"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/RequestEmailVerification' }
+      data: { customerId: "cust-1", email: "taken@example.com" }
+    thrown:
+      - { $ref: 'errors.yaml#/EmailAlreadyInUse' }
+
+  TestCustomerConfirmEmailVerification:
+    name: "Confirms the email magic link (token verified server-side) and links the email"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ConfirmEmailVerification' }
+      data: { customerId: "cust-1", token: "sb-magic-token-abc" }
+    then:
+      - { $ref: '#/fixtures/customerEmailVerified' }
+
+  TestCustomerConfirmEmailInvalidTokenIsRejected:
+    name: "Rejects email confirmation when the magic-link token is invalid or expired"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ConfirmEmailVerification' }
+      data: { customerId: "cust-1", token: "bad-token" }
+    thrown:
+      - { $ref: 'errors.yaml#/InvalidVerificationToken' }
+      - { $ref: 'errors.yaml#/VerificationCodeExpired' }
+
+  TestCustomerRequestPhoneChange:
+    name: "Sends an OTP to a new phone for a phone change; emits nothing"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/RequestPhoneChange' }
+      data: { customerId: "cust-1", newDialingCode: "+33", newNationalNumber: "699999999" }
+    then: []
+
+  TestCustomerRequestPhoneChangeDuplicateIsRejected:
+    name: "Rejects changing to a phone already used by another account"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/RequestPhoneChange' }
+      data: { customerId: "cust-1", newDialingCode: "+33", newNationalNumber: "600000000" }
+    thrown:
+      - { $ref: 'errors.yaml#/PhoneAlreadyInUse' }
+
+  TestCustomerConfirmPhoneChange:
+    name: "Confirms the OTP on the new phone and changes the phone"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ConfirmPhoneChange' }
+      data: { customerId: "cust-1", newDialingCode: "+33", newNationalNumber: "699999999", code: "123456" }
+    then:
+      - { $ref: '#/fixtures/customerPhoneChanged' }
+
+  TestCustomerChangeLanguage:
+    name: "Persists the customer's preferred language"
+    actor: { $ref: 'actors.yaml#/Customer' }
+    given:
+      - { $ref: '#/fixtures/customerRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ChangeLanguage' }
+      data: { customerId: "cust-1", locale: "en-US" }
+    then:
+      - { $ref: '#/fixtures/customerLanguageChanged' }
+
+  TestCustomerInfoUpdated:
+    name: "Updates the customer's display name"
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
     when:
       type: { $ref: 'commands.yaml#/UpdateCustomerInfo' }
-      data: { customerId: "cust-1", email: "johnny@example.com" }
+      data: { customerId: "cust-1", displayName: "Johnny B." }
     then:
       - { $ref: '#/fixtures/customerInfoUpdated' }
 
@@ -807,36 +914,15 @@ tests:
       - { $ref: 'errors.yaml#/NoEditableFieldProvided' }
 
   TestCustomerPreferencesSet:
-    name: "Sets the customer i18n and discovery preferences"
+    name: "Sets the customer's discovery preferences (timezone + dietary tags)"
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
     when:
       type: { $ref: 'commands.yaml#/SetCustomerPreferences' }
-      data: { customerId: "cust-1", locale: "fr-FR", timezone: "Europe/Paris", dietaryTags: ["vegan"] }
+      data: { customerId: "cust-1", timezone: "Europe/Paris", dietaryTags: ["vegan"] }
     then:
       - { $ref: '#/fixtures/customerPreferencesSet' }
-
-  TestCustomerIdentifiedOnReturn:
-    name: "Identifies a returning customer by authRef"
-    actor: { $ref: 'actors.yaml#/Customer' }
-    given:
-      - { $ref: '#/fixtures/customerRegistered' }
-    when:
-      type: { $ref: 'commands.yaml#/IdentifyCustomer' }
-      data: { authRef: "auth-supabase-1" }
-    then:
-      - { $ref: '#/fixtures/customerIdentified' }
-
-  TestCustomerIdentifyUnknownIsRejected:
-    name: "Rejects identifying a customer that does not exist"
-    actor: { $ref: 'actors.yaml#/Customer' }
-    given: []
-    when:
-      type: { $ref: 'commands.yaml#/IdentifyCustomer' }
-      data: { authRef: "auth-unknown" }
-    thrown:
-      - { $ref: 'errors.yaml#/CustomerNotFound' }
 
   TestCustomerRestaurantFavorited:
     name: "Marks a restaurant as favorite"

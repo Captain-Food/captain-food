@@ -497,7 +497,7 @@ RestaurantUnfavorited:
   required: [customerId, restaurantId]
 
 CustomerInfoUpdated:
-  description: "Customer updated their personal info (display name, email)."
+  description: "Customer updated their display name. (Email is verified-only — see CustomerEmailVerified.)"
   type: object
   properties:
     customerId:
@@ -505,20 +505,44 @@ CustomerInfoUpdated:
     displayName:
       $ref: 'scalars.yaml#/CustomerDisplayName'
       nullable: true
-    email:
-      $ref: 'scalars.yaml#/EmailAddress'
-      nullable: true
   required: [customerId]
 
-CustomerPreferencesSet:
-  description: "Customer set their discovery + i18n preferences (locale, timezone, dietary restrictions, favorite cuisines)."
+CustomerEmailVerified:
+  description: "An email was verified (Supabase magic link) and linked to the Customer — initial set OR a later change."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    email:
+      $ref: 'scalars.yaml#/EmailAddress'
+  required: [customerId, email]
+
+CustomerPhoneChanged:
+  description: "The Customer's phone was changed after re-verification (canonical E.164)."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
+    phone:
+      $ref: 'scalars.yaml#/PhoneNumber'
+  required: [customerId, phone]
+
+CustomerLanguageChanged:
+  description: "The Customer's preferred language (locale) was set/changed; localizes later SMS/email sends."
   type: object
   properties:
     customerId:
       $ref: 'scalars.yaml#/CustomerId'
     locale:
       $ref: 'scalars.yaml#/Locale'
-      nullable: true
+  required: [customerId, locale]
+
+CustomerPreferencesSet:
+  description: "Customer set their discovery + i18n preferences (timezone, dietary restrictions, favorite cuisines). Language is CustomerLanguageChanged."
+  type: object
+  properties:
+    customerId:
+      $ref: 'scalars.yaml#/CustomerId'
     timezone:
       $ref: 'scalars.yaml#/TimeZone'
       nullable: true

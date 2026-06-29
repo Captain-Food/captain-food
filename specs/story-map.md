@@ -69,7 +69,7 @@ Legend: ✍️ = command · 👁️ = read model · 📥 = inbound event · 🔑
 | | | Customer | View the priced cart | 👁️ |
 | | | Customer | Choose options / modifiers ⏱️ | 👁️ |
 | 5 | Verify phone (OTP) | Customer / Auth | Enter phone → SMS code → verify | 🔑 (Supabase Auth) |
-| | | Customer | First-time number creates the account | ✍️ `RegisterCustomer` → `CustomerRegistered` |
+| | | Customer | First-time number creates the account | ✍️ `requestPhoneVerification` → `verifyPhone` → `CustomerRegistered` |
 | | | Customer / Auth | Enrol passkey (biometric re-auth) ⏱️ | 🔑 |
 | 6 | Pay & place order | Customer | Confirm contact + service mode | 👁️ |
 | | | Customer | Pay (card / Apple Pay) & place order | ✍️ `PlaceOrder` → `PaymentIntentCreated`, `OrderPlaced` |
@@ -96,7 +96,7 @@ Legend: ✍️ = command (write) · 👁️ = read model (no command) · 📥 = 
 | **2. Publish the catalog** | Create a catalog ✍️ `CreateCatalog` · Add products ✍️ `AddProduct` | Update/remove product ✍️ · Categories & options ✍️ · Manage stock/availability ✍️ `UpdateOfferStock` (manual) **or** 📥 `OfferStockUpdated` (HubRise sync) · Photos ⏱️ |
 | **3. Discover** | List restaurants 👁️ `read_restaurants_public` | Search/filter by category 👁️ · Ratings & badges ⏱️ |
 | **4. Browse & build cart** | View resto + catalog 👁️ · Build cart ✍️ `AddCartLine` / `ChangeCartLineQuantity` / `RemoveCartLine` (server-side `Cart` aggregate, guest-allowed, validated per line) | Choose options/modifiers ⏱️ · Cross-device cart sync ⏱️ |
-| **5. Verify phone (OTP)** | Enter phone → SMS code → verify 🔑 · First-time number creates account ✍️ `RegisterCustomer` → `CustomerRegistered` | **Enrol passkey — Face ID/Touch ID, biometric re-auth, skips SMS** 🔑 ⏱️ · Social login (Google/Apple/Facebook) 🔑 ⏱️ · Optional email for receipts ⏱️ · Manage profile & saved addresses ✍️ ⏱️ |
+| **5. Verify phone (OTP)** | Enter phone → SMS code → verify 🔑 · First-time number creates account ✍️ `requestPhoneVerification` → `verifyPhone` → `CustomerRegistered` | **Enrol passkey — Face ID/Touch ID, biometric re-auth, skips SMS** 🔑 ⏱️ · Social login (Google/Apple/Facebook) 🔑 ⏱️ · Optional email for receipts ⏱️ · Manage profile & saved addresses ✍️ ⏱️ |
 | **6. Pay & place order** | Confirm contact + mode 👁️ · Pay via Stripe — **card + Apple Pay** (Express Checkout Element) + place order ✍️ `PlaceOrder` (saga; Stripe outcome arrives as 📥 `PaymentCaptured` / `PaymentFailed`) | Google Pay ⏱️ · Stripe Connect 3-way ⏱️ |
 | **7. Fulfil** | Accept ✍️ `AcceptOrder` · Reject ✍️ `RejectOrder` (+refund) | Start preparation ✍️ `StartPreparation` *(event to create)* · Busy/paused mode ✍️ · HubRise ⏱️ |
 | **8. Deliver / hand over** | Mark ready ✍️ `MarkOrderReady` · Delivered/handed over ✍️ `MarkOrderDelivered` | Request partner delivery ✍️ ⏱️ · partner status (`OUT_FOR_DELIVERY`…) 📥 `DeliveryStatusUpdated` ⏱️ · DeliveryJob ⏱️ |
@@ -113,7 +113,7 @@ Read left to right, this is the minimal story that proves value:
 
 1. An **admin** registers a resto (`RegisterRestaurant`), creates a catalog (`CreateCatalog`) with at least one product (`AddProduct`), then activates it (`ActivateRestaurant`).
 2. A **customer** sees the resto in the list, opens the catalog, and builds the cart — a server-side `Cart` aggregate validated line by line (`AddCartLine`…), so a guest gets immediate feedback on stock/options before checkout.
-3. To check out, they **verify their phone number** via an SMS one-time code (Supabase Auth). A new number creates the account (`RegisterCustomer` → `CustomerRegistered`); a known one just signs in. Account is required.
+3. To check out, they **verify their phone number** via an SMS one-time code (Supabase Auth). A new number creates the account (`requestPhoneVerification` → `verifyPhone` → `CustomerRegistered`); a known one just signs in. Account is required.
 4. They confirm contact details, pick delivery/collection, **pay via Stripe** and place the order (`PlaceOrder`).
 5. The **restaurant** accepts (`AcceptOrder`) or rejects (`RejectOrder`), marks ready (`MarkOrderReady`), then delivered (`MarkOrderDelivered`).
 6. The **customer** tracks the status in near real-time (polling).

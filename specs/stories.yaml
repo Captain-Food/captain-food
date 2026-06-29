@@ -29,8 +29,9 @@ public_user:
         AddToCartLine: { $ref: 'api.yaml#/mutations/addCartLine' }
         RemoveFromCart: { $ref: 'api.yaml#/mutations/removeCartLine' }
         ChangeCartLineQuantity: { $ref: 'api.yaml#/mutations/changeCartLineQuantity' }
-        Register: { $ref: 'api.yaml#/mutations/registerCustomer' }
-        Identify: { $ref: 'api.yaml#/mutations/identifyCustomer' }
+        EnterPhone: { $ref: 'api.yaml#/queries/phoneCountries' }
+        RequestPhoneOtp: { $ref: 'api.yaml#/mutations/requestPhoneVerification' }
+        VerifyPhone: { $ref: 'api.yaml#/mutations/verifyPhone' }
 
 customer:
   description: An authenticated person who orders food via Captain.Food.
@@ -69,7 +70,10 @@ customer:
       steps:
         ViewProfile: { $ref: 'api.yaml#/queries/me' }
         UpdatePersonalInfo: { $ref: 'api.yaml#/mutations/updateCustomerInfo' }
-        ChangePassword: { note: "Handled by the auth provider (Supabase Auth) — not a domain mutation." }
+        ChangeLanguage: { $ref: 'api.yaml#/mutations/changeLanguage' }
+        VerifyEmail: { $ref: 'api.yaml#/mutations/requestEmailVerification' }
+        ConfirmEmail: { $ref: 'api.yaml#/mutations/confirmEmailVerification' }
+        ChangePhone: { $ref: 'api.yaml#/mutations/requestPhoneChange' }
         SetPreferences: { $ref: 'api.yaml#/mutations/setCustomerPreferences' }
         SetAddress: { $ref: 'api.yaml#/mutations/setCustomerAddress' }
         RemoveAddress: { $ref: 'api.yaml#/mutations/removeCustomerAddress' }

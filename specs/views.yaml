@@ -141,13 +141,16 @@ nonProjectedEvents:
 View_Customer:
   aggregate: Customer
   slice: V0
-  note: "Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs RegisterCustomer idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts."
+  note: "Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs VerifyPhone idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts. The stored `locale` localizes authenticated SMS/email sends."
   fedBy:
     - { $ref: 'events.yaml#/CustomerRegistered' }
     - { $ref: 'events.yaml#/RestaurantRated' }
     - { $ref: 'events.yaml#/RestaurantFavorited' }
     - { $ref: 'events.yaml#/RestaurantUnfavorited' }
     - { $ref: 'events.yaml#/CustomerInfoUpdated' }
+    - { $ref: 'events.yaml#/CustomerEmailVerified' }
+    - { $ref: 'events.yaml#/CustomerPhoneChanged' }
+    - { $ref: 'events.yaml#/CustomerLanguageChanged' }
     - { $ref: 'events.yaml#/CustomerPreferencesSet' }
     - { $ref: 'events.yaml#/CustomerAddressSet' }
     - { $ref: 'events.yaml#/CustomerAddressRemoved' }
@@ -160,7 +163,9 @@ View_Customer:
       from: [{ $ref: 'events.yaml#/CustomerRegistered/properties/customerId' }]
       pk: true
     phone:
-      from: [{ $ref: 'events.yaml#/CustomerRegistered/properties/phone' }]
+      from:
+        - { $ref: 'events.yaml#/CustomerRegistered/properties/phone' }
+        - { $ref: 'events.yaml#/CustomerPhoneChanged/properties/phone' }
       unique: true
     auth_ref:
       from: [{ $ref: 'events.yaml#/CustomerRegistered/properties/authRef' }]
@@ -175,14 +180,18 @@ View_Customer:
     email:
       from:
         - { $ref: 'events.yaml#/CustomerRegistered/properties/email' }
-        - { $ref: 'events.yaml#/CustomerInfoUpdated/properties/email' }
+        - { $ref: 'events.yaml#/CustomerEmailVerified/properties/email' }
       nullable: true
+    email_verified:
+      type: boolean
+      from: [{ $ref: 'events.yaml#/CustomerEmailVerified' }]
+      note: "True once an email magic link has been confirmed (CustomerEmailVerified)."
     locale:
       from:
         - { $ref: 'events.yaml#/CustomerRegistered/properties/locale' }
-        - { $ref: 'events.yaml#/CustomerPreferencesSet/properties/locale' }
+        - { $ref: 'events.yaml#/CustomerLanguageChanged/properties/locale' }
       nullable: true
-      note: "i18n culture (language + date/time/number display)."
+      note: "i18n culture; set at registration or via ChangeLanguage. Localizes authenticated SMS/email sends."
     timezone:
       from:
         - { $ref: 'events.yaml#/CustomerRegistered/properties/timezone' }
@@ -218,6 +227,24 @@ View_Customer:
         - { $ref: 'events.yaml#/CustomerRegistered' }
         - { $ref: 'events.yaml#/CustomerInfoUpdated' }
       note: "Row write time, stamped on each event."
+
+# Static REFERENCE read model (not event-fed): seeded at deploy time. `source: reference` exempts it from
+# the event-lineage checks and lets it back a query's `reads`. Serves the `phoneCountries` picker query.
+View_PhoneCountry:
+  source: reference
+  slice: V0
+  note: "Phone-country reference for the dialing-code picker. The picker emits the `dialing_code` ('+33')."
+  columns:
+    country:
+      type: { $ref: 'scalars.yaml#/CountryCode' }
+      pk: true
+    dialing_code:
+      type: { $ref: 'scalars.yaml#/DialingCode' }
+      index: true
+    name:
+      type: text
+    default_locale:
+      type: { $ref: 'scalars.yaml#/Locale' }
 
 View_Catalog:
   aggregate: Catalog

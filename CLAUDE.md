@@ -66,7 +66,7 @@ validation. In the story map, inbound events are marked 📥.
   - No full event sourcing (no snapshots/replay) in V0.
 - **Database**: managed PostgreSQL (e.g. Supabase).
 - **Multi-tenant**: restaurant resolution via the `Host` header; pattern `{restaurantSlug}.captain.food` (wildcard `*.captain.food`).
-- **Integrations**: Stripe (payments, later Stripe Connect), HubRise (existing restaurant systems), delivery partner (e.g. Avelo37).
+- **Integrations**: Stripe (payments, later Stripe Connect), HubRise (existing restaurant systems), delivery partner (e.g. Avelo37), Supabase Auth (passwordless phone-OTP + email magic-link identity — **wrapped** behind our GraphQL, see [specs/integrations/supabase.md](specs/integrations/supabase.md) / ADR-0015).
 
 ## Important conventions
 

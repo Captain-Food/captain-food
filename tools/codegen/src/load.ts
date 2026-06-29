@@ -145,7 +145,9 @@ function parseColumn(name: string, raw: unknown, eventsDefs: Record<string, Sche
 function parseViews(defs: Record<string, SchemaNode>, eventsDefs: Record<string, SchemaNode>): View[] {
   const views: View[] = [];
   for (const [name, node] of Object.entries(defs)) {
-    if (typeof node.aggregate !== 'string') continue; // a view always names its aggregate
+    const isReference = node.source === 'reference';
+    // A view names its aggregate; a `source: reference` view is static seed data with no aggregate.
+    if (typeof node.aggregate !== 'string' && !isReference) continue;
     // `columns` is a map keyed by column name (the column name is the key); an array of
     // `{ name, ... }` entries is still accepted for backward compatibility.
     let columns: ViewColumn[];
@@ -159,8 +161,9 @@ function parseViews(defs: Record<string, SchemaNode>, eventsDefs: Record<string,
     const indexes: string[][] = (Array.isArray(node.indexes) ? node.indexes : []).map((ix) => asStringList(ix));
     views.push({
       name,
-      aggregate: node.aggregate,
+      aggregate: typeof node.aggregate === 'string' ? node.aggregate : '',
       slice: typeof node.slice === 'string' ? node.slice : 'V0',
+      ...(isReference ? { reference: true } : {}),
       ...(node.internal === true ? { internal: true } : {}),
       fedBy: toRefList(node.fedBy),
       filters: asStringList(node.filters),
@@ -257,7 +260,24 @@ function parseApi(defs: Record<string, SchemaNode>): Api {
     payload: fieldMap(m.payload),
   }));
 
-  return { types, queries, mutations };
+  // Subscriptions parse exactly like queries (args + return type); they stream, so no `@reads`.
+  const subsNode = (defs.subscriptions ?? {}) as Record<string, Record<string, unknown>>;
+  const subscriptions: ApiQuery[] = Object.entries(subsNode).map(([name, s]) => {
+    const returns = (s.returns ?? {}) as Record<string, unknown>;
+    return {
+      name,
+      ...(typeof s.description === 'string' ? { description: s.description } : {}),
+      args: fieldMap(s.args),
+      returnsType: refOrName(returns.$ref ?? returns.type),
+      returnsList: returns.array === true,
+      returnsNullable: returns.nullable === true,
+      reads: [],
+      roles: asStringList(s.roles),
+      slice: typeof s.slice === 'string' ? s.slice : 'V0',
+    };
+  });
+
+  return { types, queries, mutations, subscriptions };
 }
 
 /** Parse the story map (stories.yaml): personas → activities → steps (each step refs an api op). */

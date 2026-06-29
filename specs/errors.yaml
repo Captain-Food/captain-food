@@ -408,20 +408,43 @@ CartEmpty:
 # Customer
 # =====================================================================
 
-PhoneNotVerified:
-  description: "Phone number was not verified by the auth provider before registration."
+InvalidVerificationCode:
+  description: "The SMS OTP code does not match (rejected by Supabase Auth)."
   context:
     phone: { $ref: 'scalars.yaml#/PhoneNumber' }
   messages:
-    en: "Please verify the phone number '{phone}' first."
-    fr: "Veuillez d'abord vérifier le numéro '{phone}'."
+    en: "The verification code is incorrect. Please try again."
+    fr: "Le code de vérification est incorrect. Veuillez réessayer."
 
-CustomerNotFound:
-  description: "No Customer resolves to the given authRef/phone (e.g. identifying before registration)."
+VerificationCodeExpired:
+  description: "The SMS OTP (or email link) has expired; request a new one."
   context: {}
   messages:
-    en: "No customer account found. Please register first."
-    fr: "Aucun compte client trouvé. Veuillez d'abord vous inscrire."
+    en: "The verification code has expired. Please request a new one."
+    fr: "Le code de vérification a expiré. Veuillez en demander un nouveau."
+
+InvalidVerificationToken:
+  description: "The email magic-link token failed server-side verification with Supabase Auth."
+  context: {}
+  messages:
+    en: "This email verification link is invalid or has already been used."
+    fr: "Ce lien de vérification d'e-mail est invalide ou a déjà été utilisé."
+
+EmailAlreadyInUse:
+  description: "The email is already linked to another customer."
+  context:
+    email: { $ref: 'scalars.yaml#/EmailAddress' }
+  messages:
+    en: "The email '{email}' is already in use by another account."
+    fr: "L'e-mail '{email}' est déjà utilisé par un autre compte."
+
+PhoneAlreadyInUse:
+  description: "The phone number is already linked to another customer (on change)."
+  context:
+    phone: { $ref: 'scalars.yaml#/PhoneNumber' }
+  messages:
+    en: "The phone number '{phone}' is already in use by another account."
+    fr: "Le numéro '{phone}' est déjà utilisé par un autre compte."
 
 # =====================================================================
 # Order

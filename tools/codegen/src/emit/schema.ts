@@ -171,6 +171,14 @@ function inputTypesBlock(model: Model): string {
     queryInputs.push(`input ${pascal(q.name)}QueryInput {\n${fields.join('\n')}\n}`);
     for (const a of q.args) if (a.ref && !scalars.has(a.type)) visit(a.type, 'entities.yaml');
   }
+  // Subscriptions with args take a generated input class too (`<Subscription>SubscriptionInput`).
+  const subscriptionInputs: string[] = [];
+  for (const s of model.api.subscriptions) {
+    if (!s.args.length) continue;
+    const fields = s.args.map((a) => `${I}${a.name}: ${apiFieldType(model, a, true)}`);
+    subscriptionInputs.push(`input ${pascal(s.name)}SubscriptionInput {\n${fields.join('\n')}\n}`);
+    for (const a of s.args) if (a.ref && !scalars.has(a.type)) visit(a.type, 'entities.yaml');
+  }
 
   // De-dupe the referenced value-object inputs (a value object reached from several commands).
   const emitted = new Set<string>();
@@ -182,7 +190,7 @@ function inputTypesBlock(model: Model): string {
     if (!def) continue;
     objectInputs.push(`input ${name}Input {\n${objectFields(model, def, file, true).join('\n')}\n}`);
   }
-  return [...commandInputs, ...queryInputs, ...objectInputs].join('\n\n');
+  return [...commandInputs, ...queryInputs, ...subscriptionInputs, ...objectInputs].join('\n\n');
 }
 
 // --- Payloads (mutation results: always correlationId + minimal extras) ---------------------------
@@ -221,6 +229,17 @@ function mutationBlock(model: Model): string {
   return `type Mutation {\n${fields.join('\n')}\n}`;
 }
 
+function subscriptionBlock(model: Model): string {
+  const fields = model.api.subscriptions.map((s) => {
+    // Args take a generated input class (same rule as queries); subscriptions stream, so no @reads.
+    const argStr = s.args.length ? `(input: ${pascal(s.name)}SubscriptionInput${s.args.some((a) => a.required) ? '!' : ''})` : '';
+    const inner = s.returnsList ? `[${s.returnsType}!]` : s.returnsType;
+    const ret = `${inner}${s.returnsNullable ? '' : '!'}`;
+    return `${I}${s.name}${argStr}: ${ret} ${authDirective(s.roles)}`;
+  });
+  return `type Subscription {\n${fields.join('\n')}\n}`;
+}
+
 const H = (title: string) =>
   `# ${'='.repeat(78)}\n# ${title}\n# ${'='.repeat(78)}`;
 
@@ -253,5 +272,5 @@ ${queryBlock(model)}
 
 ${H('Mutations — write side')}
 ${mutationBlock(model)}
-`;
+${model.api.subscriptions.length ? `\n${H('Subscriptions — streams')}\n${subscriptionBlock(model)}\n` : ''}`;
 }

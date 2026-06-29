@@ -213,7 +213,7 @@ export function emitDocumentation(model: Model, derived: Derived): string {
     });
     return [
       itemHead('view', 'View', v.name),
-      `\n- **Source aggregate**: ${link('actor', v.aggregate)} · ${slice}${v.internal ? ' · 🔒 internal' : ''}`,
+      `\n- **Source**: ${v.reference ? '📦 reference (static seed)' : link('actor', v.aggregate)} · ${slice}${v.internal ? ' · 🔒 internal' : ''}`,
       v.note ? `- **Note**: ${v.note.replace(/\s+/g, ' ')}` : '',
       v.filters.length ? `- **Filters**: ${v.filters.join(' ')}` : '',
       v.rules.length ? `- **Rules**: ${v.rules.join(' ')}` : '',

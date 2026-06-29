@@ -65,3 +65,6 @@ components:
   stripe-adapter:
     description: "Creates PaymentIntents / refunds; records inbound webhook facts (PaymentCaptured/Failed/Refunded)."
     instrumented: true
+  supabase-acl:
+    description: "Anti-Corruption Layer wrapping Supabase Auth (ADR-0015): sends/verifies phone OTP (Twilio; mock in dev) and email magic links SYNCHRONOUSLY, validates tokens server-side, and translates the Supabase user (id/phone/email) into the domain (authRef). Keeps the Supabase SDK out of the aggregates."
+    instrumented: true

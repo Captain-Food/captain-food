@@ -97,7 +97,7 @@ types:
       estimatedReadyAt: { type: string, format: date-time, nullable: true }
       placedAt: { type: string, format: date-time }
       statusChangedAt: { type: string, format: date-time }
-      paymentStatus: { type: string }   # folded from Stripe facts (candidate for a PaymentStatus enum)
+      paymentStatus: { $ref: 'scalars.yaml#/PaymentStatus' }   # folded from Stripe facts
       restaurantStars: { $ref: 'scalars.yaml#/StarRating', nullable: true }   # null until rated
       ratingComment: { $ref: 'scalars.yaml#/RatingComment', nullable: true }
       riderThumb: { $ref: 'scalars.yaml#/ThumbRating', nullable: true }
@@ -166,9 +166,18 @@ types:
       customerId: { $ref: 'scalars.yaml#/CustomerId' }
       displayName: { $ref: 'scalars.yaml#/CustomerDisplayName', nullable: true }
       email: { $ref: 'scalars.yaml#/EmailAddress', nullable: true }
+      emailVerified: { type: boolean }
       phone: { $ref: 'scalars.yaml#/PhoneNumber' }
       locale: { $ref: 'scalars.yaml#/Locale', nullable: true }
       timezone: { $ref: 'scalars.yaml#/TimeZone', nullable: true }
+  PhoneCountry:
+    description: "A selectable phone country for the dialing-code picker (static reference data)."
+    reads: [{ $ref: 'views.yaml#/View_PhoneCountry' }]
+    properties:
+      country: { $ref: 'scalars.yaml#/CountryCode' }
+      dialingCode: { $ref: 'scalars.yaml#/DialingCode' }
+      name: { type: string }
+      defaultLocale: { $ref: 'scalars.yaml#/Locale' }
   PaymentIntent:
     description: >
       Stripe PaymentIntent handle for the checkout step. NON-PROJECTED (transient): it is returned via
@@ -177,6 +186,16 @@ types:
       paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
       clientSecret: { type: string }
       status: { type: string }
+  Operation:
+    description: >
+      Live status of a command/operation, streamed by the `operationStatusChanged` subscription and
+      correlated by `correlationId` (every mutation payload carries one). NON-PROJECTED (transient) —
+      no backing View_*, hence no `reads`.
+    properties:
+      correlationId: { $ref: 'scalars.yaml#/CorrelationId' }
+      status: { $ref: 'scalars.yaml#/OperationStatus' }
+      message: { type: string, nullable: true }
+      occurredAt: { type: string, format: date-time }
   Rider:
     description: >
       Delivery courier. POST-V0 placeholder — delivery is not modelled as an aggregate yet, so this
@@ -195,6 +214,12 @@ types:
 # The input is non-null when any arg is required, nullable when all args are optional filters. Declare
 # args here as usual; the codegen produces the input type + value-object inputs for any entity-typed arg.
 queries:
+
+  phoneCountries:
+    description: "Selectable phone countries for the dialing-code picker (static reference data; the picker sends back the dialingCode '+33')."
+    returns: { $ref: '#/types/PhoneCountry', array: true }
+    roles: [PUBLIC]
+    slice: V0
 
   me:
     description: "The signed-in customer's own profile (resolves the session authRef → Customer via View_Customer)."
@@ -426,19 +451,44 @@ mutations:
     slice: V1
     payload: {}
 
-  registerCustomer:
-    command: { $ref: 'commands.yaml#/RegisterCustomer' }
-    roles: [PUBLIC, CUSTOMER]   # an anonymous visitor registers (first phone verification)
+  # Identity — Supabase Auth wrapped behind GraphQL (ADR-0015). The client never calls Supabase directly.
+  requestPhoneVerification:
+    command: { $ref: 'commands.yaml#/RequestPhoneVerification' }
+    roles: [PUBLIC, CUSTOMER]   # anonymous visitor starts phone sign-in
+    slice: V0
+    payload: {}
+  verifyPhone:
+    command: { $ref: 'commands.yaml#/VerifyPhone' }
+    roles: [PUBLIC, CUSTOMER]   # verify OTP → register (new) or identify (returning)
     slice: V0
     payload:
       customerId: { $ref: 'scalars.yaml#/CustomerId' }
       created: { type: boolean }
-  identifyCustomer:
-    command: { $ref: 'commands.yaml#/IdentifyCustomer' }
-    roles: [PUBLIC, CUSTOMER]   # a returning visitor signs in / identifies
+  requestEmailVerification:
+    command: { $ref: 'commands.yaml#/RequestEmailVerification' }
+    roles: [CUSTOMER]
     slice: V1
-    payload:
-      customerId: { $ref: 'scalars.yaml#/CustomerId' }
+    payload: {}
+  confirmEmailVerification:
+    command: { $ref: 'commands.yaml#/ConfirmEmailVerification' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  requestPhoneChange:
+    command: { $ref: 'commands.yaml#/RequestPhoneChange' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  confirmPhoneChange:
+    command: { $ref: 'commands.yaml#/ConfirmPhoneChange' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
+  changeLanguage:
+    command: { $ref: 'commands.yaml#/ChangeLanguage' }
+    roles: [CUSTOMER]
+    slice: V1
+    payload: {}
   markRestaurantAsFavorite:
     command: { $ref: 'commands.yaml#/MarkRestaurantAsFavorite' }
     roles: [CUSTOMER]
@@ -541,8 +591,18 @@ mutations:
 
 
 subscriptions:
+
+  operationStatusChanged:
+    description: "Operation status change events (for the owning customer or restaurant)."
+    args:
+      correlationId: { $ref: 'scalars.yaml#/CorrelationId', required: true }
+    returns: { $ref: '#/types/Operation' }
+    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]
+    slice: V0
   orderStatusChanged:
     description: "Order status change events (for the owning customer or restaurant)."
+    args:
+      correlationId: { $ref: 'scalars.yaml#/CorrelationId', required: true }
     returns: { $ref: '#/types/Order' }
     roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V0

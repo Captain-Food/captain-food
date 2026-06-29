@@ -247,7 +247,7 @@ export function emitDocumentationHtml(model: Model): string {
       const flags = [c.pk && 'PK', c.unique && 'unique', c.index && 'index', c.nullable && 'nullable'].filter(Boolean).join(', ') || '—';
       return [`<span id="${propAnchor('view', v.name, c.name)}" class="k-prop">${esc(c.name)}</span>`, typeCell, src, flags, esc((c.note ?? '').replace(/\s+/g, ' '))];
     });
-    const body = `<div class="rel"><span class="lbl">aggregate:</span> ${link('actor', v.aggregate)} · ${slice}${v.internal ? ' · 🔒 internal' : ''}</div>`
+    const body = `<div class="rel"><span class="lbl">source:</span> ${v.reference ? '📦 reference (static seed)' : link('actor', v.aggregate)} · ${slice}${v.internal ? ' · 🔒 internal' : ''}</div>`
       + (v.note ? `<div class="desc">${esc(v.note.replace(/\s+/g, ' '))}</div>` : '')
       + `<div class="rel"><span class="lbl">fed by:</span> ${fedBy}</div>`
       + table(['Column', 'Type', 'Sourced from', 'Constraints', 'Notes'], rows);

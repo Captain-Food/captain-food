@@ -185,6 +185,15 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
     for (const a of q.args) checkInline(a, `${where}.args.${a.name}`);
   }
 
+  // 4d. subscriptions: roles, return type resolves, arg types. They STREAM — no `@reads` requirement.
+  for (const s of api.subscriptions) {
+    const where = `api.yaml/subscriptions.${s.name}`;
+    checkRoles(s.roles, where);
+    if (!s.returnsType) add({ level: 'error', rule: 'subscription-no-returns', location: where, message: 'subscription has no return type.' });
+    else if (!outputTypes.has(s.returnsType)) add({ level: 'error', rule: 'subscription-unknown-type', location: where, message: `return type '${s.returnsType}' is neither an entities.yaml type nor an api projection.` });
+    for (const a of s.args) checkInline(a, `${where}.args.${a.name}`);
+  }
+
   // --- 5. Read models (views.yaml) ------------------------------------------------------------
   const SQL_PRIMITIVES = new Set(['uuid', 'text', 'integer', 'bigint', 'boolean', 'timestamptz', 'jsonb', 'numeric']);
   const scalarNames = new Set(Object.keys(model.defs['scalars.yaml']));
@@ -196,7 +205,8 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
     coverage.viewColumns += view.columns.length;
     coverage.viewFedBy += view.fedBy.length;
     if (!view.name.startsWith('View_')) add({ level: 'warning', rule: 'view-naming', location: at, message: `Read table '${view.name}' should be prefixed 'View_'.` });
-    if (!aggregateNames.has(view.aggregate)) add({ level: 'error', rule: 'view-unknown-aggregate', location: at, message: `aggregate '${view.aggregate}' is not an aggregate in actors.yaml.` });
+    // A `reference` view is static seed data: no aggregate, no event lineage.
+    if (!view.reference && !aggregateNames.has(view.aggregate)) add({ level: 'error', rule: 'view-unknown-aggregate', location: at, message: `aggregate '${view.aggregate}' is not an aggregate in actors.yaml.` });
     if (view.columns.length === 0) add({ level: 'error', rule: 'view-no-columns', location: at, message: 'view has no columns.' });
 
     const colNames = new Set(view.columns.map((c) => c.name));
@@ -212,9 +222,9 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
         add({ level: 'error', rule: 'view-column-type', location: `${at}.${col.name}`, message: `type '${col.type}' is neither a SQL primitive nor a scalars.yaml type.` });
       }
       // Lineage (`from`): each source event must be one the view is fed by; a column with no source
-      // is a design hole (nothing populates it).
+      // is a design hole (nothing populates it). Reference views are seed data — no lineage expected.
       if (!col.from || col.from.length === 0) {
-        add({ level: 'warning', rule: 'view-column-no-source', location: `${at}.${col.name}`, message: 'column has no `from` — not traced to any event (possible design hole).' });
+        if (!view.reference) add({ level: 'warning', rule: 'view-column-no-source', location: `${at}.${col.name}`, message: 'column has no `from` — not traced to any event (possible design hole).' });
       } else {
         for (const ref of col.from) {
           const ev = refName(ref);

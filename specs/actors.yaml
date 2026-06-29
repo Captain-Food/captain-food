@@ -174,16 +174,48 @@ Customer:
   type: aggregate
   description: "A customer identity, keyed by phone number and linked to the auth provider user (authRef)."
   receives:
-    - message: { $ref: 'commands.yaml#/RegisterCustomer' }
-      emits: [{ $ref: 'events.yaml#/CustomerRegistered' }]
+    # Identity via phone OTP / email magic link — WRAPPED Supabase Auth (ADR-0015). The handler calls
+    # Supabase SYNCHRONOUSLY through the supabase-acl adapter; request/* emit nothing, verify/confirm
+    # emit the verified FACT. The aggregate stays free of the Supabase SDK (the ACL boundary does the call).
+    - message: { $ref: 'commands.yaml#/RequestPhoneVerification' }
+      emits: []
+      throws: []
+      effect: "Delegate to Supabase Auth: send an SMS OTP (Twilio; mock in dev). No event."
+    - message: { $ref: 'commands.yaml#/VerifyPhone' }
+      emits:
+        - { $ref: 'events.yaml#/CustomerRegistered' }
+        - { $ref: 'events.yaml#/CustomerIdentified' }
       throws:
-        - { $ref: 'errors.yaml#/PhoneNotVerified' }
-      effect: "First verification only; a returning number resolves the existing Customer and emits nothing."
-    - message: { $ref: 'commands.yaml#/IdentifyCustomer' }
-      emits: [{ $ref: 'events.yaml#/CustomerIdentified' }]
+        - { $ref: 'errors.yaml#/InvalidVerificationCode' }
+        - { $ref: 'errors.yaml#/VerificationCodeExpired' }
+      effect: "Verify the OTP with Supabase, then register (first phone → CustomerRegistered) or identify (returning → CustomerIdentified); CartBindingProcess then binds the visitor's open carts."
+    - message: { $ref: 'commands.yaml#/RequestEmailVerification' }
+      emits: []
       throws:
-        - { $ref: 'errors.yaml#/CustomerNotFound' }
-      effect: "Resolves authRef/phone → Customer; CartBindingProcess then binds the visitor's open carts."
+        - { $ref: 'errors.yaml#/EmailAlreadyInUse' }
+      effect: "Delegate to Supabase Auth: send an email magic link (localized via the stored locale). No event."
+    - message: { $ref: 'commands.yaml#/ConfirmEmailVerification' }
+      emits: [{ $ref: 'events.yaml#/CustomerEmailVerified' }]
+      throws:
+        - { $ref: 'errors.yaml#/InvalidVerificationToken' }
+        - { $ref: 'errors.yaml#/VerificationCodeExpired' }
+      effect: "Verify the magic-link token server-side with Supabase, then link the email."
+    - message: { $ref: 'commands.yaml#/RequestPhoneChange' }
+      emits: []
+      throws:
+        - { $ref: 'errors.yaml#/PhoneAlreadyInUse' }
+      effect: "Delegate to Supabase Auth: send an SMS OTP to the new phone. No event."
+    - message: { $ref: 'commands.yaml#/ConfirmPhoneChange' }
+      emits: [{ $ref: 'events.yaml#/CustomerPhoneChanged' }]
+      throws:
+        - { $ref: 'errors.yaml#/InvalidVerificationCode' }
+        - { $ref: 'errors.yaml#/VerificationCodeExpired' }
+        - { $ref: 'errors.yaml#/PhoneAlreadyInUse' }
+      effect: "Verify the OTP on the new phone, then change the phone (canonical E.164)."
+    - message: { $ref: 'commands.yaml#/ChangeLanguage' }
+      emits: [{ $ref: 'events.yaml#/CustomerLanguageChanged' }]
+      throws: []
+      effect: "Persist the preferred locale; later authenticated SMS/email sends use it."
     - message: { $ref: 'commands.yaml#/MarkRestaurantAsFavorite' }
       emits: [{ $ref: 'events.yaml#/RestaurantFavorited' }]
       throws:

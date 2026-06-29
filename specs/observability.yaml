@@ -165,3 +165,64 @@ refund:
 
   latency_budget: { max_p95_ms: 1000, max_p99_ms: 3000 }
   error_budget: { max_error_rate_pct: 2.0 }
+
+# =====================================================================
+# customer-identification — phone-OTP sign-in wrapping Supabase Auth (ADR-0015)
+# RequestPhoneVerification (send SMS) -> VerifyPhone (verify OTP synchronously) -> CustomerRegistered
+#   (new) | CustomerIdentified (returning). The Supabase call is synchronous, through the supabase-acl.
+# =====================================================================
+customer-identification:
+  feature: customer-identification
+  criticality: high
+  workflow:
+    aggregate: { $ref: 'actors.yaml#/Customer' }
+    command: { $ref: 'commands.yaml#/VerifyPhone' }
+    emits:
+      - { $ref: 'events.yaml#/CustomerRegistered' }
+      - { $ref: 'events.yaml#/CustomerIdentified' }
+
+  run_identity:
+    - { name: correlation_id, source: "command.correlation_id", required: true }
+    - { name: trace_id, source: "otel.trace_id", required: true }
+    - { name: customer_id, source: "domain.aggregate_id", businessKey: { $ref: 'scalars.yaml#/CustomerId' }, required: true }
+
+  spans:
+    - name: "command.receive"
+      kind: SERVER
+      required: true
+      attributes:
+        - { key: "business.command_type", type: string, required: true }
+    - name: "otp.verify"
+      kind: CLIENT
+      required: true
+      attributes:
+        - { key: "messaging.system", type: string, required: true }
+        - { key: "business.result", type: string, required: true }
+    - name: "event.store.append"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.event_type", type: string, required: true }
+    - name: "event.publish"
+      kind: PRODUCER
+      required: true
+      attributes:
+        - { key: "business.event_type", type: string, required: true }
+
+  metrics:
+    - { name: "customer_identification_duration_ms", type: histogram, attributes: ["result"] }
+  business_metrics:
+    - { name: "customer_signins_total", type: counter, attributes: ["outcome"] }
+    - { name: "otp_verifications_failed_total", type: counter, attributes: ["reason"] }
+
+  status_rules:
+    success:
+      required_spans: ["command.receive", "otp.verify", "event.store.append", "event.publish"]
+      conditions: ["otp.verify.business.result == 'verified'"]
+    business_rejected:
+      conditions: ["otp.verify.business.result == 'invalid_code'"]
+    technical_error:
+      any_span_errors: true
+
+  latency_budget: { max_p95_ms: 600, max_p99_ms: 1200 }
+  error_budget: { max_error_rate_pct: 2.0 }

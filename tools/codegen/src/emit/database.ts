@@ -38,9 +38,11 @@ function mdTable(header: string[], rows: string[][]): string {
 function viewBlock(view: View, model: Model): string {
   const slice = view.slice === 'V1' ? '🔭 V1' : '🛶 V0';
   const internal = view.internal ? ' · 🔒 internal' : '';
-  const lines = [`### \`${view.name}\` · ${slice}${internal} · source aggregate \`${view.aggregate}\``, ''];
+  const origin = view.reference ? '📦 reference (static seed)' : `source aggregate \`${view.aggregate}\``;
+  const lines = [`### \`${view.name}\` · ${slice}${internal} · ${origin}`, ''];
   if (view.internal) lines.push('- **Consumed by**: command handlers / auth resolution (no GraphQL query).');
-  lines.push(`- **Fed by**: ${fedByNames(view).map((n) => `\`${n}\``).join(', ')}`);
+  if (view.reference) lines.push('- **Reference data**: seeded at deploy time (not event-fed).');
+  else lines.push(`- **Fed by**: ${fedByNames(view).map((n) => `\`${n}\``).join(', ')}`);
   if (view.filters.length) lines.push(`- **Filters**: ${view.filters.join(' ')}`);
   if (view.rules.length) lines.push(`- **Rules**: ${view.rules.join(' ')}`);
   if (view.note) lines.push(`- **Note**: ${view.note}`);

@@ -147,9 +147,9 @@ DDL for these tables is generated to `tools/codegen/out/views.generated.sql`.
 
 ### `View_Customer` · 🛶 V0 · source aggregate `Customer`
 
-- **Fed by**: `CustomerRegistered`, `RestaurantRated`, `RestaurantFavorited`, `RestaurantUnfavorited`, `CustomerInfoUpdated`, `CustomerPreferencesSet`, `CustomerAddressSet`, `CustomerAddressRemoved`, `CustomerPaymentMethodSet`
+- **Fed by**: `CustomerRegistered`, `RestaurantRated`, `RestaurantFavorited`, `RestaurantUnfavorited`, `CustomerInfoUpdated`, `CustomerEmailVerified`, `CustomerPhoneChanged`, `CustomerLanguageChanged`, `CustomerPreferencesSet`, `CustomerAddressSet`, `CustomerAddressRemoved`, `CustomerPaymentMethodSet`
 - **Rules**: `ratings` accumulates the customer's own restaurant ratings (from RestaurantRated) so they can see how they rated each restaurant. `favorite_restaurant_ids` is maintained from RestaurantFavorited/RestaurantUnfavorited; the favoriteRestaurants query joins it to View_Restaurant.
-- **Note**: Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs RegisterCustomer idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts.
+- **Note**: Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs VerifyPhone idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts. The stored `locale` localizes authenticated SMS/email sends.
 
 | Column | Type | SQL | Constraints | Notes |
 | --- | --- | --- | --- | --- |
@@ -158,7 +158,8 @@ DDL for these tables is generated to `tools/codegen/out/views.generated.sql`.
 | `auth_ref` | `ExternalReference` | `TEXT` | index, nullable | Auth provider user id (Supabase Auth) → Customer. |
 | `display_name` | `CustomerDisplayName` | `TEXT` | nullable |  |
 | `email` | `EmailAddress` | `TEXT` | nullable |  |
-| `locale` | `Locale` | `TEXT` | nullable | i18n culture (language + date/time/number display). |
+| `email_verified` | `boolean` | `BOOLEAN` | — | True once an email magic link has been confirmed (CustomerEmailVerified). |
+| `locale` | `Locale` | `TEXT` | nullable | i18n culture; set at registration or via ChangeLanguage. Localizes authenticated SMS/email sends. |
 | `timezone` | `TimeZone` | `TEXT` | nullable |  |
 | `ratings` | `jsonb` | `JSONB` | — | The customer's own submitted ratings (assembled from RestaurantRated): [{ order_id, restaurant_id, stars, comment, rated_at }]. |
 | `favorite_restaurant_ids` | `jsonb` | `JSONB` | — | [restaurant_id] the customer favorited. |
@@ -166,6 +167,18 @@ DDL for these tables is generated to `tools/codegen/out/views.generated.sql`.
 | `addresses` | `jsonb` | `JSONB` | — | Saved address book: [{ address_id, label, address }] from CustomerAddressSet/Removed. |
 | `payment_method_id` | `PaymentMethodId` | `TEXT` | nullable |  |
 | `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+
+### `View_PhoneCountry` · 🛶 V0 · 📦 reference (static seed)
+
+- **Reference data**: seeded at deploy time (not event-fed).
+- **Note**: Phone-country reference for the dialing-code picker. The picker emits the `dialing_code` ('+33').
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `country` | `CountryCode` | `TEXT` | PK |  |
+| `dialing_code` | `DialingCode` | `TEXT` | index |  |
+| `name` | `text` | `TEXT` | — |  |
+| `default_locale` | `Locale` | `TEXT` | — |  |
 
 ### `View_Catalog` · 🛶 V0 · source aggregate `Catalog`
 

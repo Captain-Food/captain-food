@@ -21,6 +21,7 @@ Significant decisions and their rationale. Conventions: `docs/adr/adr.md` (in `d
 | [0012](0012-domain-infra-observability-separation.md) | Domain / infrastructure / observability separation (no OTel in aggregates) |
 | [0013](0013-structurizr-mermaid-c4-generation.md) | Structurizr DSL + Mermaid as generated C4 targets |
 | [0014](0014-weekly-loop-budget.md) | Weekly time budget for autonomous loops (loop-state guard) |
+| [0015](0015-wrap-supabase-auth-behind-graphql.md) | Wrap Supabase Auth behind GraphQL (synchronous, effect-only auth commands) |
 
 ## Proposed (deferred until app/runtime code exists)
 

@@ -82,10 +82,16 @@ export interface ViewColumn {
 /** A read model (`View_*` projection table). */
 export interface View {
   name: string;
-  /** Primary source aggregate (an aggregate in actors.yaml). */
+  /** Primary source aggregate (an aggregate in actors.yaml). Empty for a `reference` view. */
   aggregate: string;
   /** Release slice: 'V0' | 'V1'. */
   slice: string;
+  /**
+   * Static REFERENCE/seed read model (`source: reference`): not fed by events, has no aggregate, and is
+   * seeded at deploy time (e.g. phone country/dialing codes). Exempt from event-lineage validation; may
+   * back a query's `@reads`.
+   */
+  reference?: boolean;
   /**
    * Internal read model: consumed by command handlers / auth resolution rather than a GraphQL query
    * (e.g. uniqueness & idempotency lookups). Not expected to be referenced by `@reads`.
@@ -164,6 +170,8 @@ export interface Api {
   types: ApiType[];
   queries: ApiQuery[];
   mutations: ApiMutation[];
+  /** Subscriptions: same shape as queries (args + return type), but streamed — no `@reads`. */
+  subscriptions: ApiQuery[];
 }
 
 /** One step of a story activity: references an api op (`opKind`+`op`) OR is a note-only step. */
