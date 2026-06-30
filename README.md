@@ -1,6 +1,6 @@
 # Captain.Food
 
-[![codegen-consistency](https://github.com/JohnnyMaxK/captain-food/actions/workflows/codegen-consistency.yml/badge.svg?branch=main)](https://github.com/JohnnyMaxK/captain-food/actions/workflows/codegen-consistency.yml)
+[![codegen-consistency](https://github.com/Captain-Food/captain-food/actions/workflows/codegen-consistency.yml/badge.svg?branch=main)](https://github.com/Captain-Food/captain-food/actions/workflows/codegen-consistency.yml)
 
 Local-first food ordering & delivery for independent restaurants and food trucks.
 **V0** validates product–market fit in **Tours**, with a mobile-first web UX and a backend that can
