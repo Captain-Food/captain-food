@@ -158,7 +158,33 @@ CREATE TABLE View_OrderTracking (
   rider_tip_cents BIGINT,
   restaurant_tip_cents BIGINT,
   captain_tip_cents BIGINT,
-  rated_at TIMESTAMPTZ
+  rated_at TIMESTAMPTZ,
+  delivery_status TEXT,
+  courier JSONB,
+  estimated_dropoff_at TIMESTAMPTZ
 );
 CREATE INDEX ON View_OrderTracking (customer_id);
 CREATE INDEX ON View_OrderTracking (restaurant_id, status, placed_at);
+
+CREATE TABLE View_DeliveryJob (
+  delivery_job_id UUID PRIMARY KEY,
+  order_id UUID NOT NULL,
+  restaurant_id UUID NOT NULL,
+  status TEXT NOT NULL,
+  provider TEXT,
+  rider_id UUID,
+  courier JSONB,
+  partner_ref TEXT,
+  pickup_address JSONB NOT NULL,
+  dropoff_address JSONB NOT NULL,
+  estimated_pickup_at TIMESTAMPTZ,
+  estimated_dropoff_at TIMESTAMPTZ,
+  requested_at TIMESTAMPTZ NOT NULL,
+  picked_up_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
+  last_partner_rejection TEXT,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX ON View_DeliveryJob (order_id);
+CREATE INDEX ON View_DeliveryJob (restaurant_id, status);
+CREATE INDEX ON View_DeliveryJob (rider_id, status);

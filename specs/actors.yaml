@@ -395,6 +395,36 @@ Order:
         - { $ref: 'errors.yaml#/OrderNotFound' }
         - { $ref: 'errors.yaml#/InvalidOrderStatus' }
 
+DeliveryJob:
+  type: aggregate
+  description: >
+    One delivery of an order (bounded context: delivery). Born from DeliveryRequested (emitted by
+    DeliveryDispatchProcess), then fulfilled by EITHER an independent Captain rider (these commands) OR a
+    delivery partner (inbound DeliveryAcceptedByPartner/RejectedByPartner/StatusUpdated, recorded via the
+    avelo37-acl — no command). ADR-0031.
+  receives:
+    - message: { $ref: 'commands.yaml#/AcceptDelivery' }
+      emits: [{ $ref: 'events.yaml#/DeliveryAcceptedByRider' }]
+      throws:
+        - { $ref: 'errors.yaml#/DeliveryJobNotFound' }
+        - { $ref: 'errors.yaml#/InvalidDeliveryStatus' }   # only a PENDING job can be accepted
+        - { $ref: 'errors.yaml#/DeliveryAlreadyAssigned' }
+    - message: { $ref: 'commands.yaml#/ConfirmPickup' }
+      emits: [{ $ref: 'events.yaml#/DeliveryPickedUp' }]
+      throws:
+        - { $ref: 'errors.yaml#/DeliveryJobNotFound' }
+        - { $ref: 'errors.yaml#/InvalidDeliveryStatus' }   # must be ASSIGNED to this rider
+    - message: { $ref: 'commands.yaml#/CompleteDelivery' }
+      emits: [{ $ref: 'events.yaml#/DeliveryCompleted' }]
+      throws:
+        - { $ref: 'errors.yaml#/DeliveryJobNotFound' }
+        - { $ref: 'errors.yaml#/InvalidDeliveryStatus' }   # must be PICKED_UP/OUT_FOR_DELIVERY
+    - message: { $ref: 'commands.yaml#/CancelDelivery' }
+      emits: [{ $ref: 'events.yaml#/DeliveryCancelled' }]
+      throws:
+        - { $ref: 'errors.yaml#/DeliveryJobNotFound' }
+        - { $ref: 'errors.yaml#/InvalidDeliveryStatus' }   # a DELIVERED job cannot be cancelled
+
 # --- Process managers (sagas — react to events, coordinate aggregates & externals) ---
 
 PlaceOrderProcess:
@@ -461,3 +491,27 @@ CartBindingProcess:
     - message: { $ref: 'events.yaml#/CustomerIdentified' }
       emits: []
       effect: "Bind customerId onto the visitor's OPEN carts (View_Cart projection); no new event in V0."
+
+DeliveryDispatchProcess:
+  type: process-manager
+  description: >
+    Dispatches and tracks deliveries (bounded context: delivery). When a DELIVERY order is ready, creates
+    the delivery job and offers it (dispatch to a partner via the avelo37-acl and/or make it available to
+    independent riders). Reacts to partner-reported facts and to the rider completion to close the order.
+    ADR-0031.
+  receives:
+    - message: { $ref: 'events.yaml#/OrderMarkedReady' }
+      emits: [{ $ref: 'events.yaml#/DeliveryRequested' }]
+      effect: "For a DELIVERY order, create the delivery job (PENDING) and offer it to a partner and/or independent riders. No-op for COLLECTION."
+    - message: { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+      emits: []
+      effect: "Partner accepted (reported inbound); record the assigned courier + ETAs on the job."
+    - message: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+      emits: []
+      effect: "Partner declined (reported inbound); re-offer to another partner/independent riders or flag for manual handling."
+    - message: { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+      emits: [{ $ref: 'events.yaml#/OrderDelivered' }]
+      effect: "Fold the partner-reported status onto the job; when it reaches DELIVERED, close the order (OrderDelivered)."
+    - message: { $ref: 'events.yaml#/DeliveryCompleted' }
+      emits: [{ $ref: 'events.yaml#/OrderDelivered' }]
+      effect: "Independent rider completed the delivery; close the order (OrderDelivered)."

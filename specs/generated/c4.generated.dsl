@@ -26,12 +26,16 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
           a_Customer = component "Customer" "Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favorites, profile, address book, cart & ordering use-cases; cart binding." "Aggregate"
           a_CartBindingProcess = component "CartBindingProcess" "Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favorites, profile, address book, cart & ordering use-cases; cart binding." "ProcessManager"
         }
+        group "delivery" {
+          a_DeliveryJob = component "DeliveryJob" "Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031)." "Aggregate"
+          a_DeliveryDispatchProcess = component "DeliveryDispatchProcess" "Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031)." "ProcessManager"
+        }
         group "Infrastructure" {
           c_graphql_gateway = component "graphql-gateway" "Per-role GraphQL endpoint (/{role}/graphql); applies the @auth/@public ACL; entry span (SERVER)." "Instrumented"
           c_observability_middleware = component "observability-middleware" "Attaches business.* attributes + correlation/cause ids to spans; structured JSON logging; the only place domain context meets OTel." "Instrumented"
           c_command_bus = component "command-bus" "Dispatches commands to handlers; span 'command.receive'/'command.validate'/'command.handle'." "Instrumented"
           c_command_handlers = component "command-handlers" "One handler per aggregate; validates invariants then appends events. Pure domain — NOT instrumented." "Domain"
-          c_process_managers = component "process-managers" "Sagas coordinating aggregates + externals (checkout, refund, cart binding)." "Instrumented"
+          c_process_managers = component "process-managers" "Sagas coordinating aggregates + externals (checkout, refund, cart binding, delivery dispatch)." "Instrumented"
           c_event_store_adapter = component "event-store-adapter" "Appends to domain_events; span 'event.store.append' with business.event_type/stream_id." "Instrumented"
           c_event_publisher = component "event-publisher" "Publishes appended events to the bus; span 'event.publish' (PRODUCER)." "Instrumented"
           c_message_consumers = component "message-consumers" "Consume domain + inbound integration events; span 'event.consume.*' (CONSUMER)." "Instrumented"
@@ -42,6 +46,7 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
           c_supabase_acl = component "supabase-acl" "Anti-Corruption Layer wrapping Supabase Auth (ADR-0015): sends/verifies phone OTP (Twilio; mock in dev) and email magic links SYNCHRONOUSLY, validates tokens server-side, and translates the Supabase user (id/phone/email) into the domain (authRef). Keeps the Supabase SDK out of the aggregates." "Instrumented"
           c_sirene_google_acl = component "sirene-google-acl" "Anti-Corruption Layer translating INSEE Sirene + Google Maps data into Restaurant commands (RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed) as the owner, and validating Google Business Profile ownership proofs for claim/opt-out (ADR-0019/0021). Keeps Sirene/Google SDKs out of the aggregate." "Instrumented"
           c_prospection_acl = component "prospection-acl" "B2B prospection worker (ADR-0020): reads the COMPUTED score from View_ProspectionPipeline, applies the J+0/J+7/J+21 schedule + anti-spam, fires HubSpot/Resend/Slack, then issues RecordProspectContact / MarkProspectCold to record the facts. The score is never an input it stores back." "Instrumented"
+          c_avelo37_acl = component "avelo37-acl" "Anti-Corruption Layer for the delivery partner (Avelo37; ADR-0031): on DeliveryRequested, dispatches the job to the partner API; translates the partner's webhooks into the inbound facts DeliveryAcceptedByPartner / DeliveryRejectedByPartner / DeliveryStatusUpdated (idempotent on partnerRef). Keeps the partner SDK out of the domain; mirrors stripe-adapter." "Instrumented"
         }
       }
       ct_event_store = container "event-store" "Append-only domain_events table (the write model / source of truth at runtime)." "Managed PostgreSQL (e.g. Supabase)"
@@ -52,7 +57,7 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
     }
     x_stripe = softwareSystem "stripe" "Payments (PaymentIntent capture, refunds); later Stripe Connect." "External"
     x_hubrise = softwareSystem "hubrise" "Existing restaurant catalog/orders systems; import via the Anti-Corruption Layer." "External"
-    x_delivery_partner = softwareSystem "delivery-partner" "Delivery partner (e.g. Avelo37); post-V0." "External"
+    x_delivery_partner = softwareSystem "delivery-partner" "Delivery partner (e.g. Avelo37): dispatch delivery jobs out, receive courier/status facts inbound via the avelo37-acl (ADR-0031)." "External"
     x_supabase_auth = softwareSystem "supabase-auth" "Passwordless OTP identity for customers (not a domain concern)." "External"
     x_sirene = softwareSystem "sirene" "INSEE Sirene / Recherche d'Entreprises (Etalab open data): SIRET, name, address, NAF, active/closed. Seeds listings via the ACL." "External"
     x_google_maps = softwareSystem "google-maps" "Google Maps Places / Business Profile: rating, reviews, hours, phone, website, place id, and the 'Order online' link (ADR-0021). Enrichment + ownership proof." "External"
@@ -71,7 +76,7 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
     ct_api -> x_stripe "Create PaymentIntents, request refunds; receive webhooks (inbound facts)"
     ct_api -> x_hubrise "Import catalog / sync inventory via ACL (inbound facts)"
     ct_api -> x_supabase_auth "OTP verify / session (out of domain)"
-    ct_api -> x_delivery_partner "Dispatch + status (post-V0; inbound facts)"
+    ct_api -> x_delivery_partner "Dispatch delivery jobs; receive courier acceptance/status webhooks (inbound facts) — ADR-0031"
     ct_sync_worker -> x_sirene "Poll establishments (SIRET/NAF/address/closures)"
     ct_sync_worker -> x_google_maps "Fetch Business Profile data (rating/reviews/hours/website)"
     ct_sync_worker -> ct_api "Register/enrich/close listings + record prospect contacts via the ACL (/external/graphql)"

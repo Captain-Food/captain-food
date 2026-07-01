@@ -64,11 +64,12 @@ CorrelationId:
 DeliveryJobId:
   type: string
   format: uuid
+  description: "Identifies one DeliveryJob (a single delivery of an order from restaurant to customer)."
 
 RiderId:
   type: string
   format: uuid
-  description: "Delivery courier id. POST-V0 placeholder (no delivery aggregate yet)."
+  description: "An independent Captain rider (courier). Null on a partner-fulfilled job (the partner's courier is name/phone only)."
 
 PaymentIntentId:
   type: string
@@ -377,6 +378,26 @@ OrderStatus:
     - DELIVERED
     - CANCELLED_BY_CUSTOMER
     - CANCELLED_BY_RESTAURANT
+
+# Lifecycle of a DeliveryJob, orthogonal to OrderStatus (a delivery is a separate aggregate).
+DeliveryStatus:
+  type: string
+  enum:
+    - PENDING           # job requested, awaiting a courier (partner or independent rider)
+    - ASSIGNED          # a courier/rider has accepted it
+    - PICKED_UP         # collected from the restaurant
+    - OUT_FOR_DELIVERY  # en route to the customer
+    - DELIVERED         # handed over — terminal (success)
+    - FAILED            # could not be delivered — terminal
+    - CANCELLED         # cancelled before delivery — terminal
+  description: "Status of one delivery, reported by the partner (inbound) or driven by an independent rider's commands."
+
+# Who fulfils a delivery: an external delivery PARTNER (e.g. Avelo37, with its own couriers) or an
+# INDEPENDENT Captain rider (RIDER role) accepting the job directly. Both converge on one DeliveryJob.
+DeliveryProvider:
+  type: string
+  enum: [PARTNER, INDEPENDENT]
+  description: "Fulfilment channel of a delivery: PARTNER (e.g. Avelo37) or INDEPENDENT (a Captain rider)."
 
 RestaurantStatus:
   type: string

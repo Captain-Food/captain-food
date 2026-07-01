@@ -289,6 +289,37 @@ fixtures:
     type: { $ref: 'events.yaml#/PaymentIntentCreated' }
     data: { paymentIntentId: "pi_123", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
 
+  # --- Delivery (ADR-0031) ---
+  deliveryRequested:
+    type: { $ref: 'events.yaml#/DeliveryRequested' }
+    data:
+      deliveryJobId: "deliv-1"
+      orderId: "order-1"
+      restaurantId: "resto-1"
+      pickup: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }
+      dropoff: { line1: "9 Rue Colbert", postalCode: "37000", city: "Tours", country: "FR" }
+  deliveryAcceptedByRider:
+    type: { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+    data: { deliveryJobId: "deliv-1", riderId: "rider-1" }
+  deliveryPickedUp:
+    type: { $ref: 'events.yaml#/DeliveryPickedUp' }
+    data: { deliveryJobId: "deliv-1", riderId: "rider-1" }
+  deliveryCompleted:
+    type: { $ref: 'events.yaml#/DeliveryCompleted' }
+    data: { deliveryJobId: "deliv-1" }
+  deliveryCancelled:
+    type: { $ref: 'events.yaml#/DeliveryCancelled' }
+    data: { deliveryJobId: "deliv-1", reason: "Restaurant closed", cancelledBy: "user-1" }
+  deliveryAcceptedByPartner:
+    type: { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+    data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77", courier: { displayName: "Léa", phone: "+33611223344" } }
+  deliveryRejectedByPartner:
+    type: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+    data: { deliveryJobId: "deliv-1", reason: "No courier available" }
+  deliveryStatusUpdatedDelivered:
+    type: { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+    data: { deliveryJobId: "deliv-1", status: "DELIVERED" }
+
 # =====================================================================
 # Tests (Given / When / Then) — grouped by the actor under test
 # =====================================================================
@@ -1613,3 +1644,136 @@ tests:
       type: { $ref: 'events.yaml#/CustomerIdentified' }
       data: { customerId: "cust-1", authRef: "auth-supabase-1" }
     then: []
+
+  # -------------------------- DeliveryJob (ADR-0031) -----------------
+  TestAcceptDelivery:
+    name: "An independent rider accepts a pending delivery job"
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'commands.yaml#/AcceptDelivery' }
+      data: { deliveryJobId: "deliv-1", riderId: "rider-1" }
+    then:
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+
+  TestAcceptDeliveryIsRejected:
+    name: "Rejects accepting a missing job or one already taken"
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+    when:
+      type: { $ref: 'commands.yaml#/AcceptDelivery' }
+      data: { deliveryJobId: "deliv-1", riderId: "rider-2" }
+    thrown:
+      - { $ref: 'errors.yaml#/DeliveryJobNotFound' }
+      - { $ref: 'errors.yaml#/InvalidDeliveryStatus' }
+      - { $ref: 'errors.yaml#/DeliveryAlreadyAssigned' }
+
+  TestConfirmPickup:
+    name: "The assigned rider confirms pickup from the restaurant"
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+    when:
+      type: { $ref: 'commands.yaml#/ConfirmPickup' }
+      data: { deliveryJobId: "deliv-1", riderId: "rider-1" }
+    then:
+      - { $ref: '#/fixtures/deliveryPickedUp' }
+
+  TestCompleteDelivery:
+    name: "The assigned rider records hand-over to the customer"
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+      - { $ref: '#/fixtures/deliveryPickedUp' }
+    when:
+      type: { $ref: 'commands.yaml#/CompleteDelivery' }
+      data: { deliveryJobId: "deliv-1", riderId: "rider-1" }
+    then:
+      - { $ref: '#/fixtures/deliveryCompleted' }
+
+  TestCancelDelivery:
+    name: "The restaurant cancels a pending delivery job"
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'commands.yaml#/CancelDelivery' }
+      data: { deliveryJobId: "deliv-1", reason: "Restaurant closed" }
+    then:
+      - { $ref: '#/fixtures/deliveryCancelled' }
+
+  TestCancelDeliveryIsRejected:
+    name: "Rejects cancelling a missing or already-delivered job"
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+      - { $ref: '#/fixtures/deliveryPickedUp' }
+      - { $ref: '#/fixtures/deliveryCompleted' }
+    when:
+      type: { $ref: 'commands.yaml#/CancelDelivery' }
+      data: { deliveryJobId: "deliv-1", reason: "Too late" }
+    thrown:
+      - { $ref: 'errors.yaml#/DeliveryJobNotFound' }
+      - { $ref: 'errors.yaml#/InvalidDeliveryStatus' }
+
+  # ------------------- DeliveryDispatchProcess (saga) ----------------
+  TestDispatchOnOrderReady:
+    name: "A ready DELIVERY order triggers creation of a delivery job"
+    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+    when:
+      type: { $ref: 'events.yaml#/OrderMarkedReady' }
+      data: { orderId: "order-1", restaurantId: "resto-1" }
+    then:
+      - { $ref: '#/fixtures/deliveryRequested' }
+
+  TestDispatchPartnerAccepted:
+    name: "Records the assigned courier when the partner accepts (inbound)"
+    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+      data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77", courier: { displayName: "Léa", phone: "+33611223344" } }
+    then: []
+
+  TestDispatchPartnerRejected:
+    name: "Re-offers or flags for manual handling when the partner declines (inbound)"
+    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+      data: { deliveryJobId: "deliv-1", reason: "No courier available" }
+    then: []
+
+  TestDispatchClosesOrderOnPartnerDelivered:
+    name: "Closes the order when the partner reports DELIVERED (inbound)"
+    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+      data: { deliveryJobId: "deliv-1", status: "DELIVERED" }
+    then:
+      - { $ref: '#/fixtures/orderDelivered' }
+
+  TestDispatchClosesOrderOnRiderCompleted:
+    name: "Closes the order when an independent rider completes the delivery"
+    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+      - { $ref: '#/fixtures/deliveryPickedUp' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryCompleted' }
+      data: { deliveryJobId: "deliv-1" }
+    then:
+      - { $ref: '#/fixtures/orderDelivered' }

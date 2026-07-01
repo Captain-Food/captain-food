@@ -21,7 +21,8 @@ system:
 #     facing: browsing restaurants is a `customer` activity even though it reads restaurant data),
 #     falling back to the read model's context when the roles span several contexts (e.g. `orders`).
 # The optional `roles` lists the UserType(s) that perform a context's read/discovery use-cases. Each
-# UserType maps to at most one context; ADMIN / EXTERNAL / RIDER are neutral (no home → cross-cutting).
+# UserType maps to at most one context; ADMIN / EXTERNAL are neutral (no home → cross-cutting). RIDER
+# maps to `delivery` (its read/discovery home; ADR-0031).
 boundedContexts:
   restaurant:
     description: "Restaurant provider domain: accounts, locations, lifecycle, order-acceptance mode (incl. catalog & order-fulfilment operations performed by restaurant staff)."
@@ -49,6 +50,13 @@ boundedContexts:
       - { $ref: 'actors.yaml#/Customer' }
     processManagers:
       - { $ref: 'actors.yaml#/CartBindingProcess' }
+  delivery:
+    description: "Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031)."
+    roles: [RIDER]
+    aggregates:
+      - { $ref: 'actors.yaml#/DeliveryJob' }
+    processManagers:
+      - { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
 
 # --- Containers (deployable / runtime units) ---
 containers:
@@ -84,6 +92,8 @@ containers:
       - { $ref: 'actors.yaml#/PlaceOrderProcess' }
       - { $ref: 'actors.yaml#/RefundProcess' }
       - { $ref: 'actors.yaml#/CartBindingProcess' }
+      - { $ref: 'actors.yaml#/DeliveryJob' }
+      - { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
   event-store:
     technology: "Managed PostgreSQL (e.g. Supabase)"
     description: "Append-only domain_events table (the write model / source of truth at runtime)."
@@ -104,7 +114,7 @@ containers:
 externalSystems:
   stripe: { description: "Payments (PaymentIntent capture, refunds); later Stripe Connect." }
   hubrise: { description: "Existing restaurant catalog/orders systems; import via the Anti-Corruption Layer." }
-  delivery-partner: { description: "Delivery partner (e.g. Avelo37); post-V0." }
+  delivery-partner: { description: "Delivery partner (e.g. Avelo37): dispatch delivery jobs out, receive courier/status facts inbound via the avelo37-acl (ADR-0031)." }
   supabase-auth: { description: "Passwordless OTP identity for customers (not a domain concern)." }
   sirene: { description: "INSEE Sirene / Recherche d'Entreprises (Etalab open data): SIRET, name, address, NAF, active/closed. Seeds listings via the ACL." }
   google-maps: { description: "Google Maps Places / Business Profile: rating, reviews, hours, phone, website, place id, and the 'Order online' link (ADR-0021). Enrichment + ownership proof." }
@@ -125,7 +135,7 @@ relationships:
   - { from: api, to: stripe, description: "Create PaymentIntents, request refunds; receive webhooks (inbound facts)" }
   - { from: api, to: hubrise, description: "Import catalog / sync inventory via ACL (inbound facts)" }
   - { from: api, to: supabase-auth, description: "OTP verify / session (out of domain)" }
-  - { from: api, to: delivery-partner, description: "Dispatch + status (post-V0; inbound facts)" }
+  - { from: api, to: delivery-partner, description: "Dispatch delivery jobs; receive courier acceptance/status webhooks (inbound facts) — ADR-0031" }
   - { from: sync-worker, to: sirene, description: "Poll establishments (SIRET/NAF/address/closures)" }
   - { from: sync-worker, to: google-maps, description: "Fetch Business Profile data (rating/reviews/hours/website)" }
   - { from: sync-worker, to: api, description: "Register/enrich/close listings + record prospect contacts via the ACL (/external/graphql)" }

@@ -559,6 +559,32 @@ OutsideDeliveryArea:
     en: "This address is outside the delivery area of '{restaurantName}'."
     fr: "Cette adresse est en dehors de la zone de livraison de '{restaurantName}'."
 
+DeliveryJobNotFound:
+  description: "No delivery job with this id."
+  context:
+    deliveryJobId: { $ref: 'scalars.yaml#/DeliveryJobId' }
+  messages:
+    en: "Delivery job not found."
+    fr: "Livraison introuvable."
+
+InvalidDeliveryStatus:
+  description: "The delivery job is not in a status that allows this transition."
+  context:
+    deliveryJobId: { $ref: 'scalars.yaml#/DeliveryJobId' }
+    currentStatus: { $ref: 'scalars.yaml#/DeliveryStatus' }
+    expectedStatus: { $ref: 'scalars.yaml#/DeliveryStatus' }
+  messages:
+    en: "This action is not allowed while the delivery is '{currentStatus}'."
+    fr: "Cette action n'est pas autorisée tant que la livraison est '{currentStatus}'."
+
+DeliveryAlreadyAssigned:
+  description: "The delivery job has already been accepted by a courier/rider."
+  context:
+    deliveryJobId: { $ref: 'scalars.yaml#/DeliveryJobId' }
+  messages:
+    en: "This delivery has already been taken."
+    fr: "Cette livraison a déjà été prise en charge."
+
 # =====================================================================
 # Payment
 # =====================================================================

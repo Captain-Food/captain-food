@@ -622,8 +622,13 @@ View_OrderTracking:
     - { $ref: 'events.yaml#/OrderRated' }
     - { $ref: 'events.yaml#/RestaurantRated' }
     - { $ref: 'events.yaml#/OrderTipped' }
+    - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+    - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+    - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+    - { $ref: 'events.yaml#/DeliveryCompleted' }
   rules:
     - "`payment_status` is folded from the Stripe payment facts."
+    - "`delivery_status`/`courier`/`estimated_dropoff_at` mirror the order's DeliveryJob (correlated by order_id) so the customer's order view shows live delivery progress (ADR-0031); the full operational board is View_DeliveryJob."
     - "Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating."
     - "`*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals."
     - "`uber_*` columns are the estimated Uber Eats comparison for the pedagogical receipt (ADR-0025), COMPUTED by the projection from breakdown.articles + the restaurant's cuisine_category → View_UberEstimationPolicy.price_coefficient + View_UberSplitPolicy. uber_total = coefficient·articles + avg_delivery_fee + platform fee; uber_restaurant = coefficient·articles·(1−uber_commission_pct/100); uber_rider ≈ rider_base_cents (per-km omitted, distance not modelled); uber_platform = uber_total − uber_restaurant − uber_rider. All null when the restaurant has no cuisine_category. uber_basis is ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred). Contrast against the exact Captain split (restaurant_payout/rider_payout/captain_net)."
@@ -776,7 +781,141 @@ View_OrderTracking:
         - { $ref: 'events.yaml#/OrderTipped' }
       nullable: true
       note: "Occurrence time of the latest rating/tip event."
+    delivery_status:
+      type: { $ref: 'scalars.yaml#/DeliveryStatus' }
+      from:
+        - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+        - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+        - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+        - { $ref: 'events.yaml#/DeliveryCompleted' }
+      nullable: true
+      note: "Mirror of the order's DeliveryJob status (correlated by order_id); null for COLLECTION / before dispatch."
+    courier:
+      type: jsonb
+      from:
+        - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+        - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+      nullable: true
+      note: "Assigned Courier { displayName, phone?, riderId? } once accepted; null before."
+    estimated_dropoff_at:
+      type: timestamptz
+      from: [{ $ref: 'events.yaml#/DeliveryAcceptedByPartner/properties/estimatedDropoffAt' }]
+      nullable: true
+      note: "Partner-reported ETA to the customer; null when unknown."
 
 # NOTE: View_OrdersByRestaurant and View_OrdersByCustomer were folded into View_OrderTracking — the
 # single canonical Order read model is now queried by id / customer / restaurant+status via its indexes,
 # rather than maintaining per-persona projections (see api.yaml `orders` query + the Order type binding).
+
+# Delivery operational board (bounded context: delivery) — ADR-0031. One row per DeliveryJob, feeding the
+# rider's job list, the restaurant's delivery tracking and admin. status is derived from the lifecycle events.
+View_DeliveryJob:
+  aggregate: DeliveryJob
+  slice: V0
+  fedBy:
+    - { $ref: 'events.yaml#/DeliveryRequested' }
+    - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+    - { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+    - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+    - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+    - { $ref: 'events.yaml#/DeliveryPickedUp' }
+    - { $ref: 'events.yaml#/DeliveryCompleted' }
+    - { $ref: 'events.yaml#/DeliveryCancelled' }
+  rules:
+    - "`status` is derived from the lifecycle events: PENDING on DeliveryRequested → ASSIGNED on DeliveryAcceptedByRider/DeliveryAcceptedByPartner → PICKED_UP on DeliveryPickedUp → then partner DeliveryStatusUpdated (OUT_FOR_DELIVERY/DELIVERED/FAILED) or DeliveryCompleted (DELIVERED) / DeliveryCancelled (CANCELLED)."
+    - "`provider` is INDEPENDENT once a rider accepts, PARTNER once a partner accepts."
+  indexes:
+    - [restaurant_id, status]   # restaurant delivery board
+    - [rider_id, status]        # rider's assigned/available jobs
+  columns:
+    delivery_job_id:
+      from: [{ $ref: 'events.yaml#/DeliveryRequested/properties/deliveryJobId' }]
+      pk: true
+    order_id:
+      from: [{ $ref: 'events.yaml#/DeliveryRequested/properties/orderId' }]
+      index: true
+      fk: { $ref: '#/View_OrderTracking/columns/order_id' }
+    restaurant_id:
+      from: [{ $ref: 'events.yaml#/DeliveryRequested/properties/restaurantId' }]
+      fk: { $ref: '#/View_Restaurant/columns/restaurant_id' }
+    status:
+      type: { $ref: 'scalars.yaml#/DeliveryStatus' }
+      from:
+        - { $ref: 'events.yaml#/DeliveryRequested' }
+        - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+        - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+        - { $ref: 'events.yaml#/DeliveryPickedUp' }
+        - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+        - { $ref: 'events.yaml#/DeliveryCompleted' }
+        - { $ref: 'events.yaml#/DeliveryCancelled' }
+      note: "Derived from the lifecycle event type / DeliveryStatusUpdated.status."
+    provider:
+      type: { $ref: 'scalars.yaml#/DeliveryProvider' }
+      from:
+        - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+        - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+      nullable: true
+      note: "INDEPENDENT (rider accepted) or PARTNER (partner accepted); null while PENDING."
+    rider_id:
+      type: { $ref: 'scalars.yaml#/RiderId' }
+      from:
+        - { $ref: 'events.yaml#/DeliveryAcceptedByRider/properties/riderId' }
+      nullable: true
+      note: "Set for an independent-rider delivery; null for a partner delivery."
+    courier:
+      type: jsonb
+      from:
+        - { $ref: 'events.yaml#/DeliveryAcceptedByPartner/properties/courier' }
+      nullable: true
+      note: "Courier { displayName, phone?, riderId? }; from the partner on acceptance (independent rider is in rider_id)."
+    partner_ref:
+      type: { $ref: 'scalars.yaml#/ExternalReference' }
+      from: [{ $ref: 'events.yaml#/DeliveryAcceptedByPartner/properties/partnerRef' }]
+      nullable: true
+      note: "Partner-side delivery id; idempotent key for inbound updates."
+    pickup_address:
+      type: jsonb
+      from: [{ $ref: 'events.yaml#/DeliveryRequested/properties/pickup' }]
+    dropoff_address:
+      type: jsonb
+      from: [{ $ref: 'events.yaml#/DeliveryRequested/properties/dropoff' }]
+    estimated_pickup_at:
+      type: timestamptz
+      from: [{ $ref: 'events.yaml#/DeliveryAcceptedByPartner/properties/estimatedPickupAt' }]
+      nullable: true
+    estimated_dropoff_at:
+      type: timestamptz
+      from: [{ $ref: 'events.yaml#/DeliveryAcceptedByPartner/properties/estimatedDropoffAt' }]
+      nullable: true
+    requested_at:
+      type: timestamptz
+      from: [{ $ref: 'events.yaml#/DeliveryRequested' }]
+      note: "DeliveryRequested occurrence time."
+    picked_up_at:
+      type: timestamptz
+      from: [{ $ref: 'events.yaml#/DeliveryPickedUp' }]
+      nullable: true
+    delivered_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/DeliveryCompleted' }
+        - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+      nullable: true
+      note: "Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED."
+    last_partner_rejection:
+      type: text
+      from: [{ $ref: 'events.yaml#/DeliveryRejectedByPartner/properties/reason' }]
+      nullable: true
+      note: "Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected."
+    updated_at:
+      type: timestamptz
+      from:
+        - { $ref: 'events.yaml#/DeliveryRequested' }
+        - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
+        - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+        - { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+        - { $ref: 'events.yaml#/DeliveryPickedUp' }
+        - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+        - { $ref: 'events.yaml#/DeliveryCompleted' }
+        - { $ref: 'events.yaml#/DeliveryCancelled' }
+      note: "Row write time, stamped on each event."

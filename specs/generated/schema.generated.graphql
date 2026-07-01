@@ -104,6 +104,21 @@ enum OrderStatus {
   CANCELLED_BY_RESTAURANT
 }
 
+enum DeliveryStatus {
+  PENDING
+  ASSIGNED
+  PICKED_UP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum DeliveryProvider {
+  PARTNER
+  INDEPENDENT
+}
+
 enum RestaurantStatus {
   DRAFT
   ACTIVE
@@ -260,6 +275,12 @@ type Tip {
   amount: Money!
 }
 
+type Courier {
+  displayName: String!
+  phone: PhoneNumber
+  riderId: RiderId
+}
+
 type TaxRate {
   delivery: TaxRatePercent!
   collection: TaxRatePercent
@@ -374,6 +395,7 @@ type Restaurant {
   catalogs: [Catalog!]!
   carts: [Cart!]!
   orders: [Order!]!
+  deliveryJobs: [DeliveryJob!]!
 }
 
 type Catalog {
@@ -423,8 +445,12 @@ type Order {
   restaurantTip: Money
   captainTip: Money
   uberComparison: UberComparison
+  deliveryStatus: DeliveryStatus
+  courier: Courier
+  estimatedDropoffAt: DateTime
   ratedAt: DateTime
   restaurant: Restaurant!
+  deliveryJobs: [DeliveryJob!]!
 }
 
 type CatalogCategory {
@@ -506,10 +532,22 @@ type Operation {
   occurredAt: DateTime!
 }
 
-type Rider {
-  riderId: RiderId!
-  displayName: String!
-  phone: PhoneNumber
+type DeliveryJob {
+  id: DeliveryJobId!
+  orderId: OrderId!
+  restaurantId: RestaurantId!
+  status: DeliveryStatus!
+  provider: DeliveryProvider
+  courier: Courier
+  pickupAddress: Address!
+  dropoffAddress: Address!
+  estimatedPickupAt: DateTime
+  estimatedDropoffAt: DateTime
+  requestedAt: DateTime!
+  pickedUpAt: DateTime
+  deliveredAt: DateTime
+  order: Order!
+  restaurant: Restaurant!
 }
 
 type Prospect {
@@ -949,6 +987,26 @@ input RequestRefundInput {
   reason: String
 }
 
+input AcceptDeliveryInput {
+  deliveryJobId: DeliveryJobId!
+  riderId: RiderId!
+}
+
+input ConfirmPickupInput {
+  deliveryJobId: DeliveryJobId!
+  riderId: RiderId!
+}
+
+input CompleteDeliveryInput {
+  deliveryJobId: DeliveryJobId!
+  riderId: RiderId!
+}
+
+input CancelDeliveryInput {
+  deliveryJobId: DeliveryJobId!
+  reason: String
+}
+
 input OperationQueryInput {
   correlationId: CorrelationId!
 }
@@ -997,6 +1055,19 @@ input OrdersQueryInput {
 
 input OrderQueryInput {
   id: OrderId!
+}
+
+input DeliveryQueryInput {
+  orderId: OrderId!
+}
+
+input MyDeliveriesQueryInput {
+  status: DeliveryStatus
+}
+
+input RestaurantDeliveriesQueryInput {
+  restaurantId: RestaurantId!
+  status: DeliveryStatus
 }
 
 input RestaurantLocationsByAccountQueryInput {
@@ -1384,6 +1455,22 @@ type RequestRefundPayload {
   correlationId: CorrelationId!
 }
 
+type AcceptDeliveryPayload {
+  correlationId: CorrelationId!
+}
+
+type ConfirmPickupPayload {
+  correlationId: CorrelationId!
+}
+
+type CompleteDeliveryPayload {
+  correlationId: CorrelationId!
+}
+
+type CancelDeliveryPayload {
+  correlationId: CorrelationId!
+}
+
 # ==============================================================================
 # Queries — read side
 # ==============================================================================
@@ -1400,6 +1487,9 @@ type Query {
   cart(input: CartQueryInput!): Cart @public @reads(views: ["View_Cart"])
   orders(input: OrdersQueryInput): [Order!]! @auth(requires: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]) @reads(views: ["View_OrderTracking"])
   order(input: OrderQueryInput!): Order @auth(requires: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]) @reads(views: ["View_OrderTracking"])
+  delivery(input: DeliveryQueryInput!): DeliveryJob @auth(requires: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, RIDER, ADMIN]) @reads(views: ["View_DeliveryJob"])
+  myDeliveries(input: MyDeliveriesQueryInput): [DeliveryJob!]! @auth(requires: [RIDER]) @reads(views: ["View_DeliveryJob"])
+  restaurantDeliveries(input: RestaurantDeliveriesQueryInput!): [DeliveryJob!]! @auth(requires: [RESTAURANT, RESTAURANT_ACCOUNT]) @reads(views: ["View_DeliveryJob"])
   restaurantLocationsByAccount(input: RestaurantLocationsByAccountQueryInput!): [Restaurant!]! @auth(requires: [ADMIN, RESTAURANT_ACCOUNT]) @reads(views: ["View_Restaurant"])
   prospectionPipeline(input: ProspectionPipelineQueryInput): [Prospect!]! @auth(requires: [ADMIN]) @reads(views: ["View_ProspectionPipeline"])
   pricingPolicy: [PricingPolicy!]! @auth(requires: [ADMIN]) @reads(views: ["View_PricingPolicy"])
@@ -1471,6 +1561,10 @@ type Mutation {
   rateRestaurant(input: RateRestaurantInput!): RateRestaurantPayload! @auth(requires: [CUSTOMER]) @command(name: "RateRestaurant")
   tipOrder(input: TipOrderInput!): TipOrderPayload! @auth(requires: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]) @command(name: "TipOrder")
   requestRefund(input: RequestRefundInput!): RequestRefundPayload! @auth(requires: [CUSTOMER]) @command(name: "RequestRefund")
+  acceptDelivery(input: AcceptDeliveryInput!): AcceptDeliveryPayload! @auth(requires: [RIDER]) @command(name: "AcceptDelivery")
+  confirmPickup(input: ConfirmPickupInput!): ConfirmPickupPayload! @auth(requires: [RIDER]) @command(name: "ConfirmPickup")
+  completeDelivery(input: CompleteDeliveryInput!): CompleteDeliveryPayload! @auth(requires: [RIDER]) @command(name: "CompleteDelivery")
+  cancelDelivery(input: CancelDeliveryInput!): CancelDeliveryPayload! @auth(requires: [RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]) @command(name: "CancelDelivery")
 }
 
 # ==============================================================================

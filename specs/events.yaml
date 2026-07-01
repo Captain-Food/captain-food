@@ -1196,3 +1196,142 @@ PaymentRefunded:
     - orderId
     - restaurantId
     - amount
+
+# ============================================================================
+# Delivery (bounded context: delivery) — ADR-0031
+# Command-driven facts (DeliveryRequested is emitted by DeliveryDispatchProcess,
+# mirroring PlaceOrderProcess→OrderPlaced; the rest come from independent-rider commands).
+# ============================================================================
+
+DeliveryRequested:
+  description: >
+    A delivery job has been created for a ready DELIVERY order and offered for fulfilment (dispatched to a
+    partner and/or made available to independent riders). Emitted by DeliveryDispatchProcess.
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    orderId:
+      $ref: 'scalars.yaml#/OrderId'
+    restaurantId:
+      $ref: 'scalars.yaml#/RestaurantId'
+    pickup:
+      $ref: 'entities.yaml#/Address'
+      description: "Restaurant pickup address."
+    dropoff:
+      $ref: 'entities.yaml#/Address'
+      description: "Customer delivery address."
+    provider:
+      $ref: 'scalars.yaml#/DeliveryProvider'
+      nullable: true
+      description: "Intended channel when known at request time; resolved for certain on acceptance."
+  required: [deliveryJobId, orderId, restaurantId, pickup, dropoff]
+
+DeliveryAcceptedByRider:
+  description: "An independent Captain rider accepted the delivery job."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    riderId:
+      $ref: 'scalars.yaml#/RiderId'
+  required: [deliveryJobId, riderId]
+
+DeliveryPickedUp:
+  description: "The rider collected the order from the restaurant."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    riderId:
+      $ref: 'scalars.yaml#/RiderId'
+    at:
+      type: string
+      format: date-time
+  required: [deliveryJobId, riderId]
+
+DeliveryCompleted:
+  description: "The rider handed the order over to the customer (independent-rider delivery success)."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    at:
+      type: string
+      format: date-time
+  required: [deliveryJobId]
+
+DeliveryCancelled:
+  description: "A delivery job was cancelled before delivery (e.g. by the restaurant or admin)."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+    cancelledBy:
+      $ref: 'scalars.yaml#/UserId'
+  required: [deliveryJobId]
+
+# NOTE: DeliveryAcceptedByPartner / DeliveryRejectedByPartner / DeliveryStatusUpdated are INBOUND
+# integration events — reported by the delivery partner (e.g. Avelo37) through the avelo37-acl and
+# recorded as facts, NOT emitted by a command (nothing to validate/reject). Idempotent on partnerRef.
+# See CLAUDE.md "Commands vs inbound (integration) events".
+
+DeliveryAcceptedByPartner:
+  description: "The delivery partner (e.g. Avelo37) accepted the job and assigned one of its couriers (inbound)."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    partnerRef:
+      $ref: 'scalars.yaml#/ExternalReference'
+      description: "Partner-side delivery id; idempotent key for inbound updates."
+    courier:
+      $ref: 'entities.yaml#/Courier'
+    estimatedPickupAt:
+      type: string
+      format: date-time
+      nullable: true
+    estimatedDropoffAt:
+      type: string
+      format: date-time
+      nullable: true
+  required: [deliveryJobId, partnerRef, courier]
+
+DeliveryRejectedByPartner:
+  description: "The delivery partner declined the job (inbound); the dispatcher must re-offer or fall back to manual."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    partnerRef:
+      $ref: 'scalars.yaml#/ExternalReference'
+      nullable: true
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required: [deliveryJobId]
+
+DeliveryStatusUpdated:
+  description: "The delivery partner reported a status change for the job (inbound): PICKED_UP, OUT_FOR_DELIVERY, DELIVERED, FAILED…"
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    partnerRef:
+      $ref: 'scalars.yaml#/ExternalReference'
+      nullable: true
+    status:
+      $ref: 'scalars.yaml#/DeliveryStatus'
+    occurredAt:
+      type: string
+      format: date-time
+    note:
+      type: string
+      maxLength: 500
+      nullable: true
+  required: [deliveryJobId, status]

@@ -86,6 +86,24 @@ Tip:
       $ref: '#/Money'
   required: [recipient, amount]
 
+Courier:
+  type: object
+  description: >
+    The person delivering an order. For an INDEPENDENT rider, `riderId` is set (a Captain RIDER);
+    for a PARTNER courier (e.g. Avelo37) only `displayName`/`phone` are known, reported by the partner.
+  properties:
+    displayName:
+      type: string
+      maxLength: 140
+    phone:
+      $ref: 'scalars.yaml#/PhoneNumber'
+      nullable: true
+    riderId:
+      $ref: 'scalars.yaml#/RiderId'
+      nullable: true
+      description: "Set when the courier is an independent Captain rider; null for a partner courier."
+  required: [displayName]
+
 TaxRate:
   type: object
   description: "Per-service-mode VAT, mirroring HubRise product tax_rate."

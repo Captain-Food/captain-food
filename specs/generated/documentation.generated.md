@@ -11,7 +11,7 @@ that belong to no single context. Stories and Architecture span all contexts.
 **Roles**: 🌐 PUBLIC · 🙋 CUSTOMER · 🏪 RESTAURANT_ACCOUNT · 🍽️ RESTAURANT · 🛵 RIDER · 🛠️ ADMIN · 🔌 EXTERNAL
 **Markers**: ✅ required · ⬜ optional · 🛶 V0 · 🔭 V1 · 🔒 internal · ⚠️ design hole
 
-**Contents** — [🎬 Stories](#sec-stories) · [🔲 restaurant](#sec-ctx-restaurant) · [🔲 catalog](#sec-ctx-catalog) · [🔲 order](#sec-ctx-order) · [🔲 customer](#sec-ctx-customer) · [🔲 cross-cutting](#sec-ctx-cross-cutting) · [🏛️ Architecture](#sec-architecture)
+**Contents** — [🎬 Stories](#sec-stories) · [🔲 restaurant](#sec-ctx-restaurant) · [🔲 catalog](#sec-ctx-catalog) · [🔲 order](#sec-ctx-order) · [🔲 customer](#sec-ctx-customer) · [🔲 delivery](#sec-ctx-delivery) · [🔲 cross-cutting](#sec-ctx-cross-cutting) · [🏛️ Architecture](#sec-architecture)
 
 <a id="sec-stories"></a>
 ## 🎬 Stories
@@ -52,6 +52,7 @@ An authenticated person who orders food via Captain.Food.
 |  | CompareWithUberEats | [🔎 `cart`](#query-cart) |
 |  | PlaceOrder | [✏️ `placeOrder`](#mutation-placeorder) |
 |  | TrackOrderStatus | [🔎 `order`](#query-order) |
+|  | TrackDelivery | [🔎 `delivery`](#query-delivery) |
 |  | RateOrder | [✏️ `rateOrder`](#mutation-rateorder) |
 |  | RateRestaurant | [✏️ `rateRestaurant`](#mutation-raterestaurant) |
 |  | TipRiderRestaurantOrCaptain | [✏️ `tipOrder`](#mutation-tiporder) |
@@ -115,9 +116,12 @@ Runs a SINGLE location (HubRise location): handles the live order queue. Assigne
 |  | RejectOrder | [✏️ `rejectOrder`](#mutation-rejectorder) |
 |  | StartPreparation | [✏️ `startPreparation`](#mutation-startpreparation) |
 |  | MarkOrderReady | [✏️ `markOrderReady`](#mutation-markorderready) |
+|  | MarkCollected | [✏️ `markOrderDelivered`](#mutation-markorderdelivered) |
 |  | SetAcceptanceMode | [✏️ `changeOrderAcceptanceMode`](#mutation-changeorderacceptancemode) |
 |  | CancelOrder | [✏️ `cancelOrderByRestaurant`](#mutation-cancelorderbyrestaurant) |
 |  | ThankRiderOrCaptain | [✏️ `tipOrder`](#mutation-tiporder) |
+| 🧭 **TrackDeliveries** | ViewDeliveries | [🔎 `restaurantDeliveries`](#query-restaurantdeliveries) |
+|  | CancelDelivery | [✏️ `cancelDelivery`](#mutation-canceldelivery) |
 
 <a id="story-rider"></a>
 ### 🎬 `rider` · 🛵 `RIDER` · 🗣️ `fr-FR`
@@ -126,7 +130,11 @@ A courier who delivers orders from restaurants to customers.
 
 | Activity | Step | Operation |
 | --- | --- | --- |
-| 🧭 **Deliver** | MarkDelivered | [✏️ `markOrderDelivered`](#mutation-markorderdelivered) |
+| 🧭 **Deliver** | ViewMyDeliveries | [🔎 `myDeliveries`](#query-mydeliveries) |
+|  | AcceptDelivery | [✏️ `acceptDelivery`](#mutation-acceptdelivery) |
+|  | ConfirmPickup | [✏️ `confirmPickup`](#mutation-confirmpickup) |
+|  | CompleteDelivery | [✏️ `completeDelivery`](#mutation-completedelivery) |
+|  | TrackDelivery | [🔎 `delivery`](#query-delivery) |
 
 <a id="story-admin"></a>
 ### 🎬 `admin` · 🛠️ `ADMIN` · 🗣️ `fr-FR`
@@ -166,7 +174,16 @@ The Sirene/Google sync ACL (a scheduled worker) acting as an EXTERNAL caller. It
 
 _Restaurant provider domain: accounts, locations, lifecycle, order-acceptance mode (incl. catalog & order-fulfilment operations performed by restaurant staff)._
 
-### 🧰 API operations _(21)_
+### 🧰 API operations _(22)_
+
+<a id="query-restaurantdeliveries"></a>
+#### 🔎 Query: `restaurantDeliveries`
+
+A restaurant's active delivery jobs (delivery board; ownership enforced server-side).
+
+- **Input**: 🧩 `RestaurantDeliveriesQueryInput!` — `restaurantId`: [🔤 `RestaurantId`](#scalar-restaurantid), `status?`: [🔤 `DeliveryStatus`](#scalar-deliverystatus)
+- **Returns**: [🧩 `DeliveryJob`](#type-deliveryjob) (list) · **reads** [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+- **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
 
 <a id="query-restaurantlocationsbyaccount"></a>
 #### 🔎 Query: `restaurantLocationsByAccount`
@@ -2699,6 +2716,9 @@ An order with its tracking status and payment state.
 | <a id="type-order--restauranttip"></a>`restaurantTip` | [📦 `Money`](#entity-money) | ⬜ |
 | <a id="type-order--captaintip"></a>`captainTip` | [📦 `Money`](#entity-money) | ⬜ |
 | <a id="type-order--ubercomparison"></a>`uberComparison` | [📦 `UberComparison`](#entity-ubercomparison) | ⬜ |
+| <a id="type-order--deliverystatus"></a>`deliveryStatus` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | ⬜ |
+| <a id="type-order--courier"></a>`courier` | [📦 `Courier`](#entity-courier) | ⬜ |
+| <a id="type-order--estimateddropoffat"></a>`estimatedDropoffAt` | `string` _date-time_ | ⬜ |
 | <a id="type-order--ratedat"></a>`ratedAt` | `string` _date-time_ | ⬜ |
 
 ### 🎭 Actors _(4)_
@@ -2787,8 +2807,8 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 
 - **Source**: [🎭 `Order`](#actor-order) · 🛶 V0
 - **Note**: The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status (back-office queue) — via the indexes below; there is no separate per-persona order projection. 
-- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals. `uber_*` columns are the estimated Uber Eats comparison for the pedagogical receipt (ADR-0025), COMPUTED by the projection from breakdown.articles + the restaurant's cuisine_category → View_UberEstimationPolicy.price_coefficient + View_UberSplitPolicy. uber_total = coefficient·articles + avg_delivery_fee + platform fee; uber_restaurant = coefficient·articles·(1−uber_commission_pct/100); uber_rider ≈ rider_base_cents (per-km omitted, distance not modelled); uber_platform = uber_total − uber_restaurant − uber_rider. All null when the restaurant has no cuisine_category. uber_basis is ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred). Contrast against the exact Captain split (restaurant_payout/rider_payout/captain_net).
-- **Fed by**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant), [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted), [⚡ `OrderMarkedReady`](#event-ordermarkedready), [⚡ `OrderDelivered`](#event-orderdelivered), [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant), [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer), [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant), [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentRefunded`](#event-paymentrefunded), [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `OrderTipped`](#event-ordertipped)
+- **Rules**: `payment_status` is folded from the Stripe payment facts. `delivery_status`/`courier`/`estimated_dropoff_at` mirror the order's DeliveryJob (correlated by order_id) so the customer's order view shows live delivery progress (ADR-0031); the full operational board is View_DeliveryJob. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals. `uber_*` columns are the estimated Uber Eats comparison for the pedagogical receipt (ADR-0025), COMPUTED by the projection from breakdown.articles + the restaurant's cuisine_category → View_UberEstimationPolicy.price_coefficient + View_UberSplitPolicy. uber_total = coefficient·articles + avg_delivery_fee + platform fee; uber_restaurant = coefficient·articles·(1−uber_commission_pct/100); uber_rider ≈ rider_base_cents (per-km omitted, distance not modelled); uber_platform = uber_total − uber_restaurant − uber_rider. All null when the restaurant has no cuisine_category. uber_basis is ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred). Contrast against the exact Captain split (restaurant_payout/rider_payout/captain_net).
+- **Fed by**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant), [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted), [⚡ `OrderMarkedReady`](#event-ordermarkedready), [⚡ `OrderDelivered`](#event-orderdelivered), [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant), [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer), [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant), [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentRefunded`](#event-paymentrefunded), [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `OrderTipped`](#event-ordertipped), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryCompleted`](#event-deliverycompleted)
 
 | Column | Type | Sourced from | Constraints | Notes |
 | --- | --- | --- | --- | --- |
@@ -2824,6 +2844,9 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `restaurant_tip_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderTipped`.`tips`](#event-ordertipped--tips) | nullable | Σ OrderTipped.tips[recipient==RESTAURANT].amount; null if none. |
 | `captain_tip_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderTipped`.`tips`](#event-ordertipped--tips) | nullable | Σ OrderTipped.tips[recipient==CAPTAIN].amount; null if none. |
 | `rated_at` | `timestamptz` | [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `OrderTipped`](#event-ordertipped) | nullable | Occurrence time of the latest rating/tip event. |
+| `delivery_status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryCompleted`](#event-deliverycompleted) | nullable | Mirror of the order's DeliveryJob status (correlated by order_id); null for COLLECTION / before dispatch. |
+| `courier` | `jsonb` | [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider) | nullable | Assigned Courier { displayName, phone?, riderId? } once accepted; null before. |
+| `estimated_dropoff_at` | `timestamptz` | [⚡ `DeliveryAcceptedByPartner`.`estimatedDropoffAt`](#event-deliveryacceptedbypartner--estimateddropoffat) | nullable | Partner-reported ETA to the customer; null when unknown. |
 
 ### 📩 Commands _(15)_
 
@@ -3205,7 +3228,7 @@ Restaurant has rejected the order.
 Restaurant has marked the order as ready for pickup/delivery.
 
 - **Emitted by**: [🎭 `Order`](#actor-order)
-- **Consumed by**: —
+- **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
 - **Projected into**: [🗄️ `View_OrderTracking`](#view-view_ordertracking)
 
 | Field | Type | Required | Description |
@@ -3218,7 +3241,7 @@ Restaurant has marked the order as ready for pickup/delivery.
 
 The order has been delivered to the customer.
 
-- **Emitted by**: [🎭 `Order`](#actor-order)
+- **Emitted by**: [🎭 `Order`](#actor-order), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
 - **Consumed by**: —
 - **Projected into**: [🗄️ `View_OrderTracking`](#view-view_ordertracking)
 
@@ -3516,12 +3539,11 @@ An option chosen by the customer on a line item, priced at order time.
 | <a id="entity-order--status"></a>`status` | [🔤 `OrderStatus`](#scalar-orderstatus) | ✅ |  |
 | <a id="entity-order--note"></a>`note` | [🔤 `OrderNote`](#scalar-ordernote) | ⬜ |  |
 
-### 🔤 Scalars _(18)_
+### 🔤 Scalars _(17)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
 | <a id="scalar-optionid"></a>🔤 `OptionId` | string _uuid_ |  |
-| <a id="scalar-orderid"></a>🔤 `OrderId` | string _uuid_ |  |
 | <a id="scalar-cartid"></a>🔤 `CartId` | string _uuid_ |  |
 | <a id="scalar-cartlineid"></a>🔤 `CartLineId` | string _uuid_ | Identifies a line within a cart, used to edit its quantity or remove it. |
 | <a id="scalar-correlationid"></a>🔤 `CorrelationId` | string _uuid_ | Correlates a command with the events/state it produces. Returned by every mutation payload so the client can track the outcome via the read side (matches domain_events.correlation_id).  |
@@ -4840,8 +4862,450 @@ _criticality: **high**_
 - **Status rules**: success ⇐ spans [`command.receive`, `otp.verify`, `event.store.append`, `event.publish`]
 - **SLOs**: p95 ≤ 600ms · p99 ≤ 1200ms · error rate ≤ 2%
 
+<a id="sec-ctx-delivery"></a>
+## 🔲 5. delivery
+
+_Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031)._
+
+### 🧰 API operations _(6)_
+
+<a id="query-delivery"></a>
+#### 🔎 Query: `delivery`
+
+The delivery job of an order (tracking); owning customer, the restaurant/admin, or the assigned rider. Ownership enforced server-side.
+
+- **Input**: 🧩 `DeliveryQueryInput!` — `orderId`: [🔤 `OrderId`](#scalar-orderid)
+- **Returns**: [🧩 `DeliveryJob`](#type-deliveryjob) · **reads** [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+- **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, RIDER, ADMIN · **slice** V0
+
+<a id="query-mydeliveries"></a>
+#### 🔎 Query: `myDeliveries`
+
+The independent rider's assigned/available delivery jobs (rider app).
+
+- **Input**: 🧩 `MyDeliveriesQueryInput` — `status?`: [🔤 `DeliveryStatus`](#scalar-deliverystatus)
+- **Returns**: [🧩 `DeliveryJob`](#type-deliveryjob) (list) · **reads** [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+- **Roles**: RIDER · **slice** V0
+
+<a id="mutation-acceptdelivery"></a>
+#### ✏️ Mutation: `acceptDelivery`
+
+- **Command**: [📩 `AcceptDelivery`](#command-acceptdelivery) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Roles**: RIDER · **slice** V0
+- **Payload**: correlationId
+
+<a id="mutation-confirmpickup"></a>
+#### ✏️ Mutation: `confirmPickup`
+
+- **Command**: [📩 `ConfirmPickup`](#command-confirmpickup) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Roles**: RIDER · **slice** V0
+- **Payload**: correlationId
+
+<a id="mutation-completedelivery"></a>
+#### ✏️ Mutation: `completeDelivery`
+
+- **Command**: [📩 `CompleteDelivery`](#command-completedelivery) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Roles**: RIDER · **slice** V0
+- **Payload**: correlationId
+
+<a id="mutation-canceldelivery"></a>
+#### ✏️ Mutation: `cancelDelivery`
+
+- **Command**: [📩 `CancelDelivery`](#command-canceldelivery) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Roles**: RESTAURANT, RESTAURANT_ACCOUNT, ADMIN · **slice** V0
+- **Payload**: correlationId
+
+### 🧩 Output types _(1)_
+
+<a id="type-deliveryjob"></a>
+#### 🧩 Type: `DeliveryJob`
+
+One delivery of an order (ADR-0031): status, courier, addresses and ETAs. Serves the rider job list, the restaurant delivery board and admin.
+
+- **Read model**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required |
+| --- | --- | --- |
+| <a id="type-deliveryjob--id"></a>`id` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |
+| <a id="type-deliveryjob--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |
+| <a id="type-deliveryjob--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |
+| <a id="type-deliveryjob--status"></a>`status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | ✅ |
+| <a id="type-deliveryjob--provider"></a>`provider` | [🔤 `DeliveryProvider`](#scalar-deliveryprovider) | ⬜ |
+| <a id="type-deliveryjob--courier"></a>`courier` | [📦 `Courier`](#entity-courier) | ⬜ |
+| <a id="type-deliveryjob--pickupaddress"></a>`pickupAddress` | [📦 `Address`](#entity-address) | ✅ |
+| <a id="type-deliveryjob--dropoffaddress"></a>`dropoffAddress` | [📦 `Address`](#entity-address) | ✅ |
+| <a id="type-deliveryjob--estimatedpickupat"></a>`estimatedPickupAt` | `string` _date-time_ | ⬜ |
+| <a id="type-deliveryjob--estimateddropoffat"></a>`estimatedDropoffAt` | `string` _date-time_ | ⬜ |
+| <a id="type-deliveryjob--requestedat"></a>`requestedAt` | `string` _date-time_ | ✅ |
+| <a id="type-deliveryjob--pickedupat"></a>`pickedUpAt` | `string` _date-time_ | ⬜ |
+| <a id="type-deliveryjob--deliveredat"></a>`deliveredAt` | `string` _date-time_ | ⬜ |
+
+### 🎭 Actors _(2)_
+
+<a id="actor-deliveryjob"></a>
+#### 🎭 Actor: `DeliveryJob`
+
+_🧩 aggregate_ — One delivery of an order (bounded context: delivery). Born from DeliveryRequested (emitted by DeliveryDispatchProcess), then fulfilled by EITHER an independent Captain rider (these commands) OR a delivery partner (inbound DeliveryAcceptedByPartner/RejectedByPartner/StatusUpdated, recorded via the avelo37-acl — no command). ADR-0031.
+
+
+| Receives | Emits → | Throws |
+| --- | --- | --- |
+| [📩 `AcceptDelivery`](#command-acceptdelivery) | [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned) |
+| [📩 `ConfirmPickup`](#command-confirmpickup) | [⚡ `DeliveryPickedUp`](#event-deliverypickedup) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `CompleteDelivery`](#command-completedelivery) | [⚡ `DeliveryCompleted`](#event-deliverycompleted) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `CancelDelivery`](#command-canceldelivery) | [⚡ `DeliveryCancelled`](#event-deliverycancelled) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+
+<a id="actor-deliverydispatchprocess"></a>
+#### 🎭 Actor: `DeliveryDispatchProcess`
+
+_⚙️ process manager_ — Dispatches and tracks deliveries (bounded context: delivery). When a DELIVERY order is ready, creates the delivery job and offers it (dispatch to a partner via the avelo37-acl and/or make it available to independent riders). Reacts to partner-reported facts and to the rider completion to close the order. ADR-0031.
+
+
+| Receives | Emits → | Throws |
+| --- | --- | --- |
+| [⚡ `OrderMarkedReady`](#event-ordermarkedready) | [⚡ `DeliveryRequested`](#event-deliveryrequested) | — |
+| [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner) | _Partner accepted (reported inbound); record the assigned courier + ETAs on the job._ | — |
+| [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner) | _Partner declined (reported inbound); re-offer to another partner/independent riders or flag for manual handling._ | — |
+| [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | [⚡ `OrderDelivered`](#event-orderdelivered) | — |
+| [⚡ `DeliveryCompleted`](#event-deliverycompleted) | [⚡ `OrderDelivered`](#event-orderdelivered) | — |
+
+### 🗄️ Views (read models) _(1)_
+
+<a id="view-view_deliveryjob"></a>
+#### 🗄️ View: `View_DeliveryJob`
+
+- **Source**: [🎭 `DeliveryJob`](#actor-deliveryjob) · 🛶 V0
+- **Rules**: `status` is derived from the lifecycle events: PENDING on DeliveryRequested → ASSIGNED on DeliveryAcceptedByRider/DeliveryAcceptedByPartner → PICKED_UP on DeliveryPickedUp → then partner DeliveryStatusUpdated (OUT_FOR_DELIVERY/DELIVERED/FAILED) or DeliveryCompleted (DELIVERED) / DeliveryCancelled (CANCELLED). `provider` is INDEPENDENT once a rider accepts, PARTNER once a partner accepts.
+- **Fed by**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup), [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryCancelled`](#event-deliverycancelled)
+
+| Column | Type | Sourced from | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `delivery_job_id` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) _(derived)_ | [⚡ `DeliveryRequested`.`deliveryJobId`](#event-deliveryrequested--deliveryjobid) | PK |  |
+| `order_id` | [🔤 `OrderId`](#scalar-orderid) _(derived)_ → [🗄️ `View_OrderTracking`](#view-view_ordertracking) | [⚡ `DeliveryRequested`.`orderId`](#event-deliveryrequested--orderid) | index |  |
+| `restaurant_id` | [🔤 `RestaurantId`](#scalar-restaurantid) _(derived)_ → [🗄️ `View_Restaurant`](#view-view_restaurant) | [⚡ `DeliveryRequested`.`restaurantId`](#event-deliveryrequested--restaurantid) | — |  |
+| `status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryPickedUp`](#event-deliverypickedup), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryCancelled`](#event-deliverycancelled) | — | Derived from the lifecycle event type / DeliveryStatusUpdated.status. |
+| `provider` | [🔤 `DeliveryProvider`](#scalar-deliveryprovider) | [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner) | nullable | INDEPENDENT (rider accepted) or PARTNER (partner accepted); null while PENDING. |
+| `rider_id` | [🔤 `RiderId`](#scalar-riderid) | [⚡ `DeliveryAcceptedByRider`.`riderId`](#event-deliveryacceptedbyrider--riderid) | nullable | Set for an independent-rider delivery; null for a partner delivery. |
+| `courier` | `jsonb` | [⚡ `DeliveryAcceptedByPartner`.`courier`](#event-deliveryacceptedbypartner--courier) | nullable | Courier { displayName, phone?, riderId? }; from the partner on acceptance (independent rider is in rider_id). |
+| `partner_ref` | [🔤 `ExternalReference`](#scalar-externalreference) | [⚡ `DeliveryAcceptedByPartner`.`partnerRef`](#event-deliveryacceptedbypartner--partnerref) | nullable | Partner-side delivery id; idempotent key for inbound updates. |
+| `pickup_address` | `jsonb` | [⚡ `DeliveryRequested`.`pickup`](#event-deliveryrequested--pickup) | — |  |
+| `dropoff_address` | `jsonb` | [⚡ `DeliveryRequested`.`dropoff`](#event-deliveryrequested--dropoff) | — |  |
+| `estimated_pickup_at` | `timestamptz` | [⚡ `DeliveryAcceptedByPartner`.`estimatedPickupAt`](#event-deliveryacceptedbypartner--estimatedpickupat) | nullable |  |
+| `estimated_dropoff_at` | `timestamptz` | [⚡ `DeliveryAcceptedByPartner`.`estimatedDropoffAt`](#event-deliveryacceptedbypartner--estimateddropoffat) | nullable |  |
+| `requested_at` | `timestamptz` | [⚡ `DeliveryRequested`](#event-deliveryrequested) | — | DeliveryRequested occurrence time. |
+| `picked_up_at` | `timestamptz` | [⚡ `DeliveryPickedUp`](#event-deliverypickedup) | nullable |  |
+| `delivered_at` | `timestamptz` | [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED. |
+| `last_partner_rejection` | `text` | [⚡ `DeliveryRejectedByPartner`.`reason`](#event-deliveryrejectedbypartner--reason) | nullable | Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected. |
+| `updated_at` | `timestamptz` | [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner), [⚡ `DeliveryPickedUp`](#event-deliverypickedup), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryCancelled`](#event-deliverycancelled) | — | Row write time, stamped on each event. |
+
+### 📩 Commands _(4)_
+
+<a id="command-acceptdelivery"></a>
+#### 📩 Command: `AcceptDelivery`
+
+An independent Captain rider accepts a pending delivery job.
+
+- **Dispatched by**: [✏️ `acceptDelivery`](#mutation-acceptdelivery) · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-acceptdelivery--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-acceptdelivery--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+
+<a id="command-confirmpickup"></a>
+#### 📩 Command: `ConfirmPickup`
+
+The assigned rider confirms they collected the order from the restaurant.
+
+- **Dispatched by**: [✏️ `confirmPickup`](#mutation-confirmpickup) · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-confirmpickup--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-confirmpickup--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+
+<a id="command-completedelivery"></a>
+#### 📩 Command: `CompleteDelivery`
+
+The assigned rider records handing the order over to the customer.
+
+- **Dispatched by**: [✏️ `completeDelivery`](#mutation-completedelivery) · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryCompleted`](#event-deliverycompleted)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-completedelivery--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-completedelivery--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+
+<a id="command-canceldelivery"></a>
+#### 📩 Command: `CancelDelivery`
+
+Restaurant/admin cancels a delivery job before it completes.
+
+- **Dispatched by**: [✏️ `cancelDelivery`](#mutation-canceldelivery) · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryCancelled`](#event-deliverycancelled)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-canceldelivery--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-canceldelivery--reason"></a>`reason` | `string` | ⬜ |  |
+
+### ⚡ Events _(8)_
+
+<a id="event-deliveryrequested"></a>
+#### ⚡ Event: `DeliveryRequested`
+
+A delivery job has been created for a ready DELIVERY order and offered for fulfilment (dispatched to a partner and/or made available to independent riders). Emitted by DeliveryDispatchProcess.
+
+- **Emitted by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Consumed by**: —
+- **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryrequested--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryrequested--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="event-deliveryrequested--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
+| <a id="event-deliveryrequested--pickup"></a>`pickup` | [📦 `Address`](#entity-address) | ✅ | Restaurant pickup address. |
+| <a id="event-deliveryrequested--dropoff"></a>`dropoff` | [📦 `Address`](#entity-address) | ✅ | Customer delivery address. |
+| <a id="event-deliveryrequested--provider"></a>`provider` | [🔤 `DeliveryProvider`](#scalar-deliveryprovider) | ⬜ | Intended channel when known at request time; resolved for certain on acceptance. |
+
+<a id="event-deliveryacceptedbyrider"></a>
+#### ⚡ Event: `DeliveryAcceptedByRider`
+
+An independent Captain rider accepted the delivery job.
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: [🗄️ `View_OrderTracking`](#view-view_ordertracking), [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryacceptedbyrider--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryacceptedbyrider--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+
+<a id="event-deliverypickedup"></a>
+#### ⚡ Event: `DeliveryPickedUp`
+
+The rider collected the order from the restaurant.
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliverypickedup--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliverypickedup--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="event-deliverypickedup--at"></a>`at` | `string` _date-time_ | ⬜ |  |
+
+<a id="event-deliverycompleted"></a>
+#### ⚡ Event: `DeliveryCompleted`
+
+The rider handed the order over to the customer (independent-rider delivery success).
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Projected into**: [🗄️ `View_OrderTracking`](#view-view_ordertracking), [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliverycompleted--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliverycompleted--at"></a>`at` | `string` _date-time_ | ⬜ |  |
+
+<a id="event-deliverycancelled"></a>
+#### ⚡ Event: `DeliveryCancelled`
+
+A delivery job was cancelled before delivery (e.g. by the restaurant or admin).
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliverycancelled--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliverycancelled--reason"></a>`reason` | `string` | ⬜ |  |
+| <a id="event-deliverycancelled--cancelledby"></a>`cancelledBy` | [🔤 `UserId`](#scalar-userid) | ⬜ |  |
+
+<a id="event-deliveryacceptedbypartner"></a>
+#### ⚡ Event: `DeliveryAcceptedByPartner`
+
+The delivery partner (e.g. Avelo37) accepted the job and assigned one of its couriers (inbound).
+
+- **Emitted by**: _inbound / external_
+- **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Projected into**: [🗄️ `View_OrderTracking`](#view-view_ordertracking), [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryacceptedbypartner--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryacceptedbypartner--partnerref"></a>`partnerRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ✅ | Partner-side delivery id; idempotent key for inbound updates. |
+| <a id="event-deliveryacceptedbypartner--courier"></a>`courier` | [📦 `Courier`](#entity-courier) | ✅ |  |
+| <a id="event-deliveryacceptedbypartner--estimatedpickupat"></a>`estimatedPickupAt` | `string` _date-time_ | ⬜ |  |
+| <a id="event-deliveryacceptedbypartner--estimateddropoffat"></a>`estimatedDropoffAt` | `string` _date-time_ | ⬜ |  |
+
+<a id="event-deliveryrejectedbypartner"></a>
+#### ⚡ Event: `DeliveryRejectedByPartner`
+
+The delivery partner declined the job (inbound); the dispatcher must re-offer or fall back to manual.
+
+- **Emitted by**: _inbound / external_
+- **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryrejectedbypartner--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryrejectedbypartner--partnerref"></a>`partnerRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ⬜ |  |
+| <a id="event-deliveryrejectedbypartner--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="event-deliverystatusupdated"></a>
+#### ⚡ Event: `DeliveryStatusUpdated`
+
+The delivery partner reported a status change for the job (inbound): PICKED_UP, OUT_FOR_DELIVERY, DELIVERED, FAILED…
+
+- **Emitted by**: _inbound / external_
+- **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Projected into**: [🗄️ `View_OrderTracking`](#view-view_ordertracking), [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliverystatusupdated--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliverystatusupdated--partnerref"></a>`partnerRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ⬜ |  |
+| <a id="event-deliverystatusupdated--status"></a>`status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | ✅ |  |
+| <a id="event-deliverystatusupdated--occurredat"></a>`occurredAt` | `string` _date-time_ | ⬜ |  |
+| <a id="event-deliverystatusupdated--note"></a>`note` | `string` | ⬜ |  |
+
+### 🔤 Scalars _(3)_
+
+| Scalar | Type | Description |
+| --- | --- | --- |
+| <a id="scalar-deliveryjobid"></a>🔤 `DeliveryJobId` | string _uuid_ | Identifies one DeliveryJob (a single delivery of an order from restaurant to customer). |
+| <a id="scalar-riderid"></a>🔤 `RiderId` | string _uuid_ | An independent Captain rider (courier). Null on a partner-fulfilled job (the partner's courier is name/phone only). |
+| <a id="scalar-deliveryprovider"></a>🔤 `DeliveryProvider` | enum (PARTNER \| INDEPENDENT) | Fulfilment channel of a delivery: PARTNER (e.g. Avelo37) or INDEPENDENT (a Captain rider). |
+
+### ⛔ Errors _(3)_
+
+| Error | Description | Message (en) | Message (fr) | Thrown by |
+| --- | --- | --- | --- | --- |
+| <a id="error-deliveryjobnotfound"></a>⛔ `DeliveryJobNotFound` | No delivery job with this id. | 🇬🇧 Delivery job not found. | 🇫🇷 Livraison introuvable. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `ConfirmPickup`](#command-confirmpickup), [📩 `CompleteDelivery`](#command-completedelivery), [📩 `CancelDelivery`](#command-canceldelivery) |
+| <a id="error-invaliddeliverystatus"></a>⛔ `InvalidDeliveryStatus` | The delivery job is not in a status that allows this transition. | 🇬🇧 This action is not allowed while the delivery is '{currentStatus}'. | 🇫🇷 Cette action n'est pas autorisée tant que la livraison est '{currentStatus}'. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `ConfirmPickup`](#command-confirmpickup), [📩 `CompleteDelivery`](#command-completedelivery), [📩 `CancelDelivery`](#command-canceldelivery) |
+| <a id="error-deliveryalreadyassigned"></a>⛔ `DeliveryAlreadyAssigned` | The delivery job has already been accepted by a courier/rider. | 🇬🇧 This delivery has already been taken. | 🇫🇷 Cette livraison a déjà été prise en charge. | [📩 `AcceptDelivery`](#command-acceptdelivery) |
+
+### 🧪 Tests _(2)_
+
+**[🎭 `DeliveryJob`](#actor-deliveryjob)**
+
+<a id="test-testacceptdelivery"></a>
+#### 🧪 Test: `TestAcceptDelivery`
+
+_An independent rider accepts a pending delivery job_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `AcceptDelivery`](#command-acceptdelivery)
+- **Then**: [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
+
+<a id="test-testacceptdeliveryisrejected"></a>
+#### 🧪 Test: `TestAcceptDeliveryIsRejected`
+
+_Rejects accepting a missing job or one already taken_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
+- **When**: [📩 `AcceptDelivery`](#command-acceptdelivery)
+- **Thrown**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned)
+
+<a id="test-testconfirmpickup"></a>
+#### 🧪 Test: `TestConfirmPickup`
+
+_The assigned rider confirms pickup from the restaurant_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
+- **When**: [📩 `ConfirmPickup`](#command-confirmpickup)
+- **Then**: [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
+
+<a id="test-testcompletedelivery"></a>
+#### 🧪 Test: `TestCompleteDelivery`
+
+_The assigned rider records hand-over to the customer_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
+- **When**: [📩 `CompleteDelivery`](#command-completedelivery)
+- **Then**: [⚡ `DeliveryCompleted`](#event-deliverycompleted)
+
+<a id="test-testcanceldelivery"></a>
+#### 🧪 Test: `TestCancelDelivery`
+
+_The restaurant cancels a pending delivery job_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `CancelDelivery`](#command-canceldelivery)
+- **Then**: [⚡ `DeliveryCancelled`](#event-deliverycancelled)
+
+<a id="test-testcanceldeliveryisrejected"></a>
+#### 🧪 Test: `TestCancelDeliveryIsRejected`
+
+_Rejects cancelling a missing or already-delivered job_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup), [⚡ `DeliveryCompleted`](#event-deliverycompleted)
+- **When**: [📩 `CancelDelivery`](#command-canceldelivery)
+- **Thrown**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+**[🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)**
+
+<a id="test-testdispatchonorderready"></a>
+#### 🧪 Test: `TestDispatchOnOrderReady`
+
+_A ready DELIVERY order triggers creation of a delivery job_
+
+- **Given**: [⚡ `OrderPlaced`](#event-orderplaced)
+- **When**: [📩 `OrderMarkedReady`](#command-ordermarkedready)
+- **Then**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+
+<a id="test-testdispatchpartneraccepted"></a>
+#### 🧪 Test: `TestDispatchPartnerAccepted`
+
+_Records the assigned courier when the partner accepts (inbound)_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `DeliveryAcceptedByPartner`](#command-deliveryacceptedbypartner)
+- **Then**: ∅ _no event (idempotent no-op)_
+
+<a id="test-testdispatchpartnerrejected"></a>
+#### 🧪 Test: `TestDispatchPartnerRejected`
+
+_Re-offers or flags for manual handling when the partner declines (inbound)_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `DeliveryRejectedByPartner`](#command-deliveryrejectedbypartner)
+- **Then**: ∅ _no event (idempotent no-op)_
+
+<a id="test-testdispatchclosesorderonpartnerdelivered"></a>
+#### 🧪 Test: `TestDispatchClosesOrderOnPartnerDelivered`
+
+_Closes the order when the partner reports DELIVERED (inbound)_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `DeliveryStatusUpdated`](#command-deliverystatusupdated)
+- **Then**: [⚡ `OrderDelivered`](#event-orderdelivered)
+
+<a id="test-testdispatchclosesorderonridercompleted"></a>
+#### 🧪 Test: `TestDispatchClosesOrderOnRiderCompleted`
+
+_Closes the order when an independent rider completes the delivery_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
+- **When**: [📩 `DeliveryCompleted`](#command-deliverycompleted)
+- **Then**: [⚡ `OrderDelivered`](#event-orderdelivered)
+
 <a id="sec-ctx-cross-cutting"></a>
-## 🔲 5. cross-cutting
+## 🔲 6. cross-cutting
 
 _Shared vocabulary and operations that span several bounded contexts (or belong to none)._
 
@@ -4892,7 +5356,7 @@ Operation status change events (for the owning customer or restaurant).
 - **Streams**: [🧩 `Operation`](#type-operation)
 - **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
 
-### 🧩 Output types _(11)_
+### 🧩 Output types _(10)_
 
 <a id="type-product"></a>
 #### 🧩 Type: `Product`
@@ -5005,20 +5469,6 @@ Live status of a command/operation, streamed by the `operationStatusChanged` sub
 | <a id="type-operation--message"></a>`message` | `string` | ⬜ |
 | <a id="type-operation--occurredat"></a>`occurredAt` | `string` _date-time_ | ✅ |
 
-<a id="type-rider"></a>
-#### 🧩 Type: `Rider`
-
-Delivery courier. POST-V0 placeholder — delivery is not modelled as an aggregate yet, so this type carries no backing view and uses a minimal shape until the delivery domain lands.
-
-
-- **Read model**: _(resolved within a parent projection)_
-
-| Field | Type | Required |
-| --- | --- | --- |
-| <a id="type-rider--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |
-| <a id="type-rider--displayname"></a>`displayName` | `string` | ✅ |
-| <a id="type-rider--phone"></a>`phone` | [🔤 `PhoneNumber`](#scalar-phonenumber) | ⬜ |
-
 <a id="type-pricingpolicy"></a>
 #### 🧩 Type: `PricingPolicy`
 
@@ -5130,7 +5580,18 @@ Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0
 | `platform_fee_pct` | `numeric` | ⚠️ _(none)_ | — | Assumed extra platform/service fee % added to the buyer total (e.g. 10.0). |
 | `effective_from` | `timestamptz` | ⚠️ _(none)_ | — | When this policy row took effect (calibration history). |
 
-### 📦 Entities _(2)_
+### 📦 Entities _(3)_
+
+<a id="entity-courier"></a>
+#### 📦 Entity: `Courier`
+
+The person delivering an order. For an INDEPENDENT rider, `riderId` is set (a Captain RIDER); for a PARTNER courier (e.g. Avelo37) only `displayName`/`phone` are known, reported by the partner.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="entity-courier--displayname"></a>`displayName` | `string` | ✅ |  |
+| <a id="entity-courier--phone"></a>`phone` | [🔤 `PhoneNumber`](#scalar-phonenumber) | ⬜ |  |
+| <a id="entity-courier--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ⬜ | Set when the courier is an independent Captain rider; null for a partner courier. |
 
 <a id="entity-taxrate"></a>
 #### 📦 Entity: `TaxRate`
@@ -5161,9 +5622,8 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-restaurantid"></a>🔤 `RestaurantId` | string _uuid_ | A single restaurant location (HubRise: location), belonging to a RestaurantAccount. |
 | <a id="scalar-productid"></a>🔤 `ProductId` | string _uuid_ | A product groups one or more offers (HubRise: product). |
 | <a id="scalar-offerid"></a>🔤 `OfferId` | string _uuid_ | A purchasable offer with its own price (HubRise: SKU). |
+| <a id="scalar-orderid"></a>🔤 `OrderId` | string _uuid_ |  |
 | <a id="scalar-customerid"></a>🔤 `CustomerId` | string _uuid_ |  |
-| <a id="scalar-deliveryjobid"></a>🔤 `DeliveryJobId` | string _uuid_ |  |
-| <a id="scalar-riderid"></a>🔤 `RiderId` | string _uuid_ | Delivery courier id. POST-V0 placeholder (no delivery aggregate yet). |
 | <a id="scalar-userid"></a>🔤 `UserId` | string _uuid_ |  |
 | <a id="scalar-externalreference"></a>🔤 `ExternalReference` | string | External reference code (HubRise `ref`), unique within its scope. Used for idempotent import/sync and as a stable reference inside orders. Example: 'MARGHERITA', 'CAT-PIZZAS'.  |
 | <a id="scalar-slug"></a>🔤 `Slug` | string `^[a-z0-9]+(?:-[a-z0-9]+)*$` | URL-safe identifier for restaurants. Lowercase, dash-separated. Example: 'chez-marco', 'tokyo-sushi'.  |
@@ -5183,6 +5643,7 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-quantity"></a>🔤 `Quantity` | number | Stock quantity in units. Decimals allowed to match HubRise inventory. 0 means out of stock.  |
 | <a id="scalar-customerdisplayname"></a>🔤 `CustomerDisplayName` | string |  |
 | <a id="scalar-servicetype"></a>🔤 `ServiceType` | enum (DELIVERY \| COLLECTION) | Aligned with HubRise service types. COLLECTION == customer pickup. (EAT_IN is not offered by Captain.Food but is kept in TaxRate for catalog fidelity.)  |
+| <a id="scalar-deliverystatus"></a>🔤 `DeliveryStatus` | enum (PENDING \| ASSIGNED \| PICKED_UP \| OUT_FOR_DELIVERY \| DELIVERED \| FAILED \| CANCELLED) | Status of one delivery, reported by the partner (inbound) or driven by an independent rider's commands. |
 | <a id="scalar-operationstatus"></a>🔤 `OperationStatus` | enum (PENDING \| SUCCEEDED \| REJECTED \| FAILED) | Live status of a command/operation streamed by the operationStatusChanged subscription: PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."  |
 | <a id="scalar-usertype"></a>🔤 `UserType` | enum (PUBLIC \| CUSTOMER \| RESTAURANT_ACCOUNT \| RESTAURANT \| RIDER \| ADMIN \| EXTERNAL) |  |
 
@@ -5217,6 +5678,7 @@ aggregates; components bind the aggregates they handle and the read models they 
 | 🔲 `catalog` | Catalog tree, products, offers (SKUs), option lists, per-offer stock; HubRise import. | [🎭 `Catalog`](#actor-catalog) |
 | 🔲 `order` | Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe). | [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order) · [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess) |
 | 🔲 `customer` | Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favorites, profile, address book, cart & ordering use-cases; cart binding. | [🎭 `Customer`](#actor-customer) · [🎭 `CartBindingProcess`](#actor-cartbindingprocess) |
+| 🔲 `delivery` | Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031). | [🎭 `DeliveryJob`](#actor-deliveryjob) · [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
 
 ### 🧱 L2 — Containers
 
@@ -5228,7 +5690,7 @@ aggregates; components bind the aggregates they handle and the read models they 
 | 🧱 `mobile-customer` | React Native / Expo (iOS + Android) | Customer mobile app (post-V0); same GraphQL API as web-client (/customer/graphql, /public/graphql). |
 | 🧱 `mobile-restaurant` | React Native / Expo | Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql). |
 | 🧱 `mobile-rider` | React Native / Expo | Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql). |
-| 🧱 `api` | Node + TypeScript (Hono or NestJS), GraphQL | CQRS-light write+read API. Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql).<br>realizes: [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess) |
+| 🧱 `api` | Node + TypeScript (Hono or NestJS), GraphQL | CQRS-light write+read API. Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql).<br>realizes: [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess), [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
 | 🧱 `event-store` | Managed PostgreSQL (e.g. Supabase) | Append-only domain_events table (the write model / source of truth at runtime). |
 | 🧱 `read-models` | Managed PostgreSQL | Denormalized View_* projection tables fed from the event log; queries read here, never domain_events. |
 | 🧱 `sync-worker` | Scheduled worker (GitHub Actions cron + Node) | Restaurant listing sync (ADR-0020): polls INSEE Sirene + Google Maps and, via the ACL, calls the api's RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed as the owner. Prospection scoring/outreach is a later step. |
@@ -5241,7 +5703,7 @@ aggregates; components bind the aggregates they handle and the read models they 
 | --- | --- |
 | 🔌 `stripe` | Payments (PaymentIntent capture, refunds); later Stripe Connect. |
 | 🔌 `hubrise` | Existing restaurant catalog/orders systems; import via the Anti-Corruption Layer. |
-| 🔌 `delivery-partner` | Delivery partner (e.g. Avelo37); post-V0. |
+| 🔌 `delivery-partner` | Delivery partner (e.g. Avelo37): dispatch delivery jobs out, receive courier/status facts inbound via the avelo37-acl (ADR-0031). |
 | 🔌 `supabase-auth` | Passwordless OTP identity for customers (not a domain concern). |
 | 🔌 `sirene` | INSEE Sirene / Recherche d'Entreprises (Etalab open data): SIRET, name, address, NAF, active/closed. Seeds listings via the ACL. |
 | 🔌 `google-maps` | Google Maps Places / Business Profile: rating, reviews, hours, phone, website, place id, and the 'Order online' link (ADR-0021). Enrichment + ownership proof. |
@@ -5264,7 +5726,7 @@ aggregates; components bind the aggregates they handle and the read models they 
 | `api` → `stripe` | Create PaymentIntents, request refunds; receive webhooks (inbound facts) |
 | `api` → `hubrise` | Import catalog / sync inventory via ACL (inbound facts) |
 | `api` → `supabase-auth` | OTP verify / session (out of domain) |
-| `api` → `delivery-partner` | Dispatch + status (post-V0; inbound facts) |
+| `api` → `delivery-partner` | Dispatch delivery jobs; receive courier acceptance/status webhooks (inbound facts) — ADR-0031 |
 | `sync-worker` → `sirene` | Poll establishments (SIRET/NAF/address/closures) |
 | `sync-worker` → `google-maps` | Fetch Business Profile data (rating/reviews/hours/website) |
 | `sync-worker` → `api` | Register/enrich/close listings + record prospect contacts via the ACL (/external/graphql) |
@@ -5283,15 +5745,16 @@ aggregates; components bind the aggregates they handle and the read models they 
 | ⚙️ `graphql-gateway` | 📡 yes | Per-role GraphQL endpoint (/{role}/graphql); applies the @auth/@public ACL; entry span (SERVER). | — |
 | ⚙️ `observability-middleware` | 📡 yes | Attaches business.* attributes + correlation/cause ids to spans; structured JSON logging; the only place domain context meets OTel. | — |
 | ⚙️ `command-bus` | 📡 yes | Dispatches commands to handlers; span 'command.receive'/'command.validate'/'command.handle'. | — |
-| ⚙️ `command-handlers` | — no | One handler per aggregate; validates invariants then appends events. Pure domain — NOT instrumented. | handles [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer) |
-| ⚙️ `process-managers` | 📡 yes | Sagas coordinating aggregates + externals (checkout, refund, cart binding). | handles [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess) |
+| ⚙️ `command-handlers` | — no | One handler per aggregate; validates invariants then appends events. Pure domain — NOT instrumented. | handles [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [🎭 `DeliveryJob`](#actor-deliveryjob) |
+| ⚙️ `process-managers` | 📡 yes | Sagas coordinating aggregates + externals (checkout, refund, cart binding, delivery dispatch). | handles [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
 | ⚙️ `event-store-adapter` | 📡 yes | Appends to domain_events; span 'event.store.append' with business.event_type/stream_id. | — |
 | ⚙️ `event-publisher` | 📡 yes | Publishes appended events to the bus; span 'event.publish' (PRODUCER). | — |
 | ⚙️ `message-consumers` | 📡 yes | Consume domain + inbound integration events; span 'event.consume.*' (CONSUMER). | — |
-| ⚙️ `projection-updaters` | 📡 yes | Update the View_* read models from events; span 'event.consume.projection'. | updates [🗄️ `View_RestaurantAccount`](#view-view_restaurantaccount), [🗄️ `View_Restaurant`](#view-view_restaurant), [🗄️ `View_Customer`](#view-view_customer), [🗄️ `View_Catalog`](#view-view_catalog), [🗄️ `View_Cart`](#view-view_cart), [🗄️ `View_OrderTracking`](#view-view_ordertracking), [🗄️ `View_ProspectionPipeline`](#view-view_prospectionpipeline) |
+| ⚙️ `projection-updaters` | 📡 yes | Update the View_* read models from events; span 'event.consume.projection'. | updates [🗄️ `View_RestaurantAccount`](#view-view_restaurantaccount), [🗄️ `View_Restaurant`](#view-view_restaurant), [🗄️ `View_Customer`](#view-view_customer), [🗄️ `View_Catalog`](#view-view_catalog), [🗄️ `View_Cart`](#view-view_cart), [🗄️ `View_OrderTracking`](#view-view_ordertracking), [🗄️ `View_ProspectionPipeline`](#view-view_prospectionpipeline), [🗄️ `View_DeliveryJob`](#view-view_deliveryjob) |
 | ⚙️ `bam-projector` | 📡 yes | Business Activity Monitoring projection (runs in the bam container); business_metrics only. | — |
 | ⚙️ `hubrise-acl` | 📡 yes | Anti-Corruption Layer translating HubRise payloads (SKU/option_list/'9.80 EUR') into the domain. | — |
 | ⚙️ `stripe-adapter` | 📡 yes | Stripe Connect (Separate Charges & Transfers, transfer_group=ORDER_{id}; Captain = merchant of record): creates the PaymentIntent for the buyer total, then after capture transfers restaurantPayout/riderPayout to the connected accounts (3-way split, ADR-0017), keeping captainNet on the platform; refunds reverse the transfers. Records inbound webhook facts (PaymentCaptured/Failed/Refunded). | — |
 | ⚙️ `supabase-acl` | 📡 yes | Anti-Corruption Layer wrapping Supabase Auth (ADR-0015): sends/verifies phone OTP (Twilio; mock in dev) and email magic links SYNCHRONOUSLY, validates tokens server-side, and translates the Supabase user (id/phone/email) into the domain (authRef). Keeps the Supabase SDK out of the aggregates. | — |
 | ⚙️ `sirene-google-acl` | 📡 yes | Anti-Corruption Layer translating INSEE Sirene + Google Maps data into Restaurant commands (RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed) as the owner, and validating Google Business Profile ownership proofs for claim/opt-out (ADR-0019/0021). Keeps Sirene/Google SDKs out of the aggregate. | — |
 | ⚙️ `prospection-acl` | 📡 yes | B2B prospection worker (ADR-0020): reads the COMPUTED score from View_ProspectionPipeline, applies the J+0/J+7/J+21 schedule + anti-spam, fires HubSpot/Resend/Slack, then issues RecordProspectContact / MarkProspectCold to record the facts. The score is never an input it stores back. | — |
+| ⚙️ `avelo37-acl` | 📡 yes | Anti-Corruption Layer for the delivery partner (Avelo37; ADR-0031): on DeliveryRequested, dispatches the job to the partner API; translates the partner's webhooks into the inbound facts DeliveryAcceptedByPartner / DeliveryRejectedByPartner / DeliveryStatusUpdated (idempotent on partnerRef). Keeps the partner SDK out of the domain; mirrors stripe-adapter. | — |

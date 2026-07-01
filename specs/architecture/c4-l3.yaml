@@ -31,13 +31,15 @@ components:
       - { $ref: 'actors.yaml#/Cart' }
       - { $ref: 'actors.yaml#/Order' }
       - { $ref: 'actors.yaml#/Customer' }
+      - { $ref: 'actors.yaml#/DeliveryJob' }
   process-managers:
-    description: "Sagas coordinating aggregates + externals (checkout, refund, cart binding)."
+    description: "Sagas coordinating aggregates + externals (checkout, refund, cart binding, delivery dispatch)."
     instrumented: true
     handles:
       - { $ref: 'actors.yaml#/PlaceOrderProcess' }
       - { $ref: 'actors.yaml#/RefundProcess' }
       - { $ref: 'actors.yaml#/CartBindingProcess' }
+      - { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
   event-store-adapter:
     description: "Appends to domain_events; span 'event.store.append' with business.event_type/stream_id."
     instrumented: true
@@ -58,6 +60,7 @@ components:
       - { $ref: 'views.yaml#/View_Cart' }
       - { $ref: 'views.yaml#/View_OrderTracking' }
       - { $ref: 'views.yaml#/View_ProspectionPipeline' }
+      - { $ref: 'views.yaml#/View_DeliveryJob' }
   bam-projector:
     description: "Business Activity Monitoring projection (runs in the bam container); business_metrics only."
     instrumented: true
@@ -75,4 +78,7 @@ components:
     instrumented: true
   prospection-acl:
     description: "B2B prospection worker (ADR-0020): reads the COMPUTED score from View_ProspectionPipeline, applies the J+0/J+7/J+21 schedule + anti-spam, fires HubSpot/Resend/Slack, then issues RecordProspectContact / MarkProspectCold to record the facts. The score is never an input it stores back."
+    instrumented: true
+  avelo37-acl:
+    description: "Anti-Corruption Layer for the delivery partner (Avelo37; ADR-0031): on DeliveryRequested, dispatches the job to the partner API; translates the partner's webhooks into the inbound facts DeliveryAcceptedByPartner / DeliveryRejectedByPartner / DeliveryStatusUpdated (idempotent on partnerRef). Keeps the partner SDK out of the domain; mirrors stripe-adapter."
     instrumented: true

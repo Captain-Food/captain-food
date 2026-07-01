@@ -57,6 +57,7 @@ customer:
         CompareWithUberEats: { $ref: 'api.yaml#/queries/cart' }   # labelled Uber Eats price + who-gets-what comparison (ADR-0022/0025); also on catalog offers + the order receipt
         PlaceOrder: { $ref: 'api.yaml#/mutations/placeOrder' }
         TrackOrderStatus: { $ref: 'api.yaml#/queries/order' }
+        TrackDelivery: { $ref: 'api.yaml#/queries/delivery' }   # live courier/delivery progress (ADR-0031)
         RateOrder: { $ref: 'api.yaml#/mutations/rateOrder' }
         RateRestaurant: { $ref: 'api.yaml#/mutations/rateRestaurant' }
         TipRiderRestaurantOrCaptain: { $ref: 'api.yaml#/mutations/tipOrder' }
@@ -151,9 +152,15 @@ restaurant_manager:
         RejectOrder: { $ref: 'api.yaml#/mutations/rejectOrder' }
         StartPreparation: { $ref: 'api.yaml#/mutations/startPreparation' }
         MarkOrderReady: { $ref: 'api.yaml#/mutations/markOrderReady' }
+        MarkCollected: { $ref: 'api.yaml#/mutations/markOrderDelivered' }   # COLLECTION hand-over at pickup
         SetAcceptanceMode: { $ref: 'api.yaml#/mutations/changeOrderAcceptanceMode' }
         CancelOrder: { $ref: 'api.yaml#/mutations/cancelOrderByRestaurant' }
         ThankRiderOrCaptain: { $ref: 'api.yaml#/mutations/tipOrder' }   # restaurant tips the courier / Captain (ADR-012)
+    TrackDeliveries:
+      description: As a manager, I track the couriers delivering my ready orders (ADR-0031).
+      steps:
+        ViewDeliveries: { $ref: 'api.yaml#/queries/restaurantDeliveries' }
+        CancelDelivery: { $ref: 'api.yaml#/mutations/cancelDelivery' }
 
 rider:
   description: A courier who delivers orders from restaurants to customers.
@@ -167,9 +174,13 @@ rider:
     - Unclear delivery addresses.
   activities:
     Deliver:
-      description: As a rider, I record hand-over of a delivery.
+      description: As an independent rider, I pick up assigned deliveries and record hand-over (ADR-0031).
       steps:
-        MarkDelivered: { $ref: 'api.yaml#/mutations/markOrderDelivered' }
+        ViewMyDeliveries: { $ref: 'api.yaml#/queries/myDeliveries' }
+        AcceptDelivery: { $ref: 'api.yaml#/mutations/acceptDelivery' }
+        ConfirmPickup: { $ref: 'api.yaml#/mutations/confirmPickup' }
+        CompleteDelivery: { $ref: 'api.yaml#/mutations/completeDelivery' }
+        TrackDelivery: { $ref: 'api.yaml#/queries/delivery' }
 
 admin:
   description: A platform operator who onboards accounts and oversees the platform.

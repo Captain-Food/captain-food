@@ -1096,6 +1096,51 @@ RequestRefund:
       nullable: true
   required: [orderId, restaurantId]
 
+# --- Delivery (bounded context: delivery) — ADR-0031 -----------------------
+# Independent-rider commands on the DeliveryJob (the partner path is inbound events instead).
+
+AcceptDelivery:
+  description: "An independent Captain rider accepts a pending delivery job."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    riderId:
+      $ref: 'scalars.yaml#/RiderId'
+  required: [deliveryJobId, riderId]
+
+ConfirmPickup:
+  description: "The assigned rider confirms they collected the order from the restaurant."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    riderId:
+      $ref: 'scalars.yaml#/RiderId'
+  required: [deliveryJobId, riderId]
+
+CompleteDelivery:
+  description: "The assigned rider records handing the order over to the customer."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    riderId:
+      $ref: 'scalars.yaml#/RiderId'
+  required: [deliveryJobId, riderId]
+
+CancelDelivery:
+  description: "Restaurant/admin cancels a delivery job before it completes."
+  type: object
+  properties:
+    deliveryJobId:
+      $ref: 'scalars.yaml#/DeliveryJobId'
+    reason:
+      type: string
+      maxLength: 500
+      nullable: true
+  required: [deliveryJobId]
+
 # =====================================================================
 # Where the rest lives
 # =====================================================================

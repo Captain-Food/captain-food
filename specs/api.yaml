@@ -118,6 +118,9 @@ types:
       restaurantTip: { $ref: 'entities.yaml#/Money', nullable: true }   # Σ tips to the restaurant
       captainTip: { $ref: 'entities.yaml#/Money', nullable: true }      # Σ tips to Captain
       uberComparison: { $ref: 'entities.yaml#/UberComparison', nullable: true }   # Uber side of the receipt (ADR-0025); Captain side is `breakdown`. Null if no cuisine
+      deliveryStatus: { $ref: 'scalars.yaml#/DeliveryStatus', nullable: true }   # live delivery progress (ADR-0031); null for COLLECTION / before dispatch
+      courier: { $ref: 'entities.yaml#/Courier', nullable: true }                # assigned courier once accepted
+      estimatedDropoffAt: { type: string, format: date-time, nullable: true }    # partner-reported ETA
       ratedAt: { type: string, format: date-time, nullable: true }
 
   # Catalog sub-types — the read/API shape, assembled within View_Catalog.catalog. Dedicated API
@@ -214,14 +217,23 @@ types:
       status: { $ref: 'scalars.yaml#/OperationStatus' }
       message: { type: string, nullable: true }
       occurredAt: { type: string, format: date-time }
-  Rider:
-    description: >
-      Delivery courier. POST-V0 placeholder — delivery is not modelled as an aggregate yet, so this
-      type carries no backing view and uses a minimal shape until the delivery domain lands.
+  DeliveryJob:
+    description: "One delivery of an order (ADR-0031): status, courier, addresses and ETAs. Serves the rider job list, the restaurant delivery board and admin."
+    reads: [{ $ref: 'views.yaml#/View_DeliveryJob' }]
     properties:
-      riderId: { $ref: 'scalars.yaml#/RiderId' }
-      displayName: { type: string }
-      phone: { $ref: 'scalars.yaml#/PhoneNumber', nullable: true }
+      id: { $ref: 'scalars.yaml#/DeliveryJobId' }
+      orderId: { $ref: 'scalars.yaml#/OrderId' }
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId' }
+      status: { $ref: 'scalars.yaml#/DeliveryStatus' }
+      provider: { $ref: 'scalars.yaml#/DeliveryProvider', nullable: true }
+      courier: { $ref: 'entities.yaml#/Courier', nullable: true }
+      pickupAddress: { $ref: 'entities.yaml#/Address' }
+      dropoffAddress: { $ref: 'entities.yaml#/Address' }
+      estimatedPickupAt: { type: string, format: date-time, nullable: true }
+      estimatedDropoffAt: { type: string, format: date-time, nullable: true }
+      requestedAt: { type: string, format: date-time }
+      pickedUpAt: { type: string, format: date-time, nullable: true }
+      deliveredAt: { type: string, format: date-time, nullable: true }
   Prospect:
     description: "A B2B prospect (NON_PARTNER listing) with its computed score and outreach state (admin pipeline)."
     reads: [{ $ref: 'views.yaml#/View_ProspectionPipeline' }]
@@ -373,6 +385,29 @@ queries:
       id: { $ref: 'scalars.yaml#/OrderId', required: true }
     returns: { $ref: '#/types/Order', nullable: true }
     roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]
+    slice: V0
+
+  delivery:
+    description: "The delivery job of an order (tracking); owning customer, the restaurant/admin, or the assigned rider. Ownership enforced server-side."
+    args:
+      orderId: { $ref: 'scalars.yaml#/OrderId', required: true }
+    returns: { $ref: '#/types/DeliveryJob', nullable: true }
+    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, RIDER, ADMIN]
+    slice: V0
+  myDeliveries:
+    description: "The independent rider's assigned/available delivery jobs (rider app)."
+    args:
+      status: { $ref: 'scalars.yaml#/DeliveryStatus' }
+    returns: { $ref: '#/types/DeliveryJob', array: true }
+    roles: [RIDER]
+    slice: V0
+  restaurantDeliveries:
+    description: "A restaurant's active delivery jobs (delivery board; ownership enforced server-side)."
+    args:
+      restaurantId: { $ref: 'scalars.yaml#/RestaurantId', required: true }
+      status: { $ref: 'scalars.yaml#/DeliveryStatus' }
+    returns: { $ref: '#/types/DeliveryJob', array: true }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V0
 
   restaurantLocationsByAccount:
@@ -734,6 +769,26 @@ mutations:
     command: { $ref: 'commands.yaml#/RequestRefund' }
     roles: [CUSTOMER]
     slice: V1
+    payload: {}
+  acceptDelivery:
+    command: { $ref: 'commands.yaml#/AcceptDelivery' }
+    roles: [RIDER]
+    slice: V0
+    payload: {}
+  confirmPickup:
+    command: { $ref: 'commands.yaml#/ConfirmPickup' }
+    roles: [RIDER]
+    slice: V0
+    payload: {}
+  completeDelivery:
+    command: { $ref: 'commands.yaml#/CompleteDelivery' }
+    roles: [RIDER]
+    slice: V0
+    payload: {}
+  cancelDelivery:
+    command: { $ref: 'commands.yaml#/CancelDelivery' }
+    roles: [RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]
+    slice: V0
     payload: {}
 
 
