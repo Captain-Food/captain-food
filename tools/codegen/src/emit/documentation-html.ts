@@ -65,7 +65,7 @@ const THEME = `<style>
   .kw { color:var(--kw); } .muted { color:var(--muted); } .req { color:var(--const); } .opt { color:var(--muted); }
   /* collapsible sections + items */
   details.sec { border:1px solid var(--line); border-radius:6px; margin:14px 0; background:var(--bg2); }
-  details.sec > summary { cursor:pointer; padding:12px 16px; font-size:18px; color:#fff; list-style:none; position:sticky; top:0; background:var(--bg2); border-radius:6px; z-index:1; }
+  details.sec > summary { cursor:pointer; padding:12px 16px; font-size:18px; color:#fff; list-style:none; background:var(--bg2); border-radius:6px; }
   details.sec[open] > summary { border-bottom:1px solid var(--line); border-radius:6px 6px 0 0; }
   details.sec > .body { padding:8px 16px 16px; }
   details.subsec { border:1px solid var(--line); border-radius:6px; margin:10px 0; background:var(--bg); }
@@ -84,7 +84,15 @@ const THEME = `<style>
   th,td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
   th { background:var(--bg3); color:#fff; font-weight:600; }
   .badge { background:var(--bg3); border:1px solid var(--line); border-radius:4px; padding:0 6px; font-size:.85em; }
-  .toolbar { position:sticky; top:0; background:var(--bg); padding:10px 0; z-index:2; border-bottom:1px solid var(--line); }
+  .toolbar { background:var(--bg); padding:10px 0; border-bottom:1px solid var(--line); }
+  /* sticky breadcrumb: shows context › section › item wherever you are, each segment clickable */
+  .crumb { position:sticky; top:0; z-index:6; background:var(--bg3); border-bottom:1px solid var(--line); margin:0 -20px 8px; padding:7px 20px; font-size:13px; white-space:nowrap; overflow-x:auto; color:var(--muted); }
+  .crumb .seg { color:var(--fg); cursor:pointer; }
+  .crumb .seg:hover { color:var(--accent); text-decoration:underline; }
+  .crumb .sep { color:var(--muted); margin:0 7px; }
+  /* hover tooltip: an object's description, looked up (centralized) from CF_DESC by anchor id */
+  .cf-tip { position:fixed; z-index:50; max-width:440px; background:#1e1e1e; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:12.5px; line-height:1.5; box-shadow:0 4px 16px rgba(0,0,0,.45); pointer-events:none; display:none; }
+  .cf-tip.empty { color:var(--muted); font-style:italic; }
   .toolbar button { background:var(--bg3); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:4px 10px; cursor:pointer; font:inherit; }
   .toolbar button:hover { border-color:var(--accent); color:#fff; }
   .toc a { margin-right:14px; white-space:nowrap; }
@@ -166,7 +174,7 @@ export function emitDocumentationHtml(model: Model): string {
     const id = anchor(kind, name);
     const perma = `<a class="perma" href="#${id}" title="Lien vers cette section">🔗 #${id}</a>`;
     const desc = descTxt ? `<div class="desc">${esc(descTxt)}</div>` : '';
-    return `<details class="item" id="${id}" open><summary><span class="tw">▸</span><span class="muted">${label}:</span> <span class="${cls(kind)}">${emo(kind)} ${esc(name)}</span>${perma}</summary>${desc}${bodyHtml}</details>`;
+    return `<details class="item" id="${id}" data-crumb="${emo(kind)} ${esc(name)}" open><summary><span class="tw">▸</span><span class="muted">${label}:</span> <span class="${cls(kind)}">${emo(kind)} ${esc(name)}</span>${perma}</summary>${desc}${bodyHtml}</details>`;
   };
   // property rows with their own anchor (clickable target)
   const propRows = (def: SchemaNode, kind: string, owner: string): string[][] => {
@@ -180,10 +188,10 @@ export function emitDocumentationHtml(model: Model): string {
 
   // ============================== sections ==============================
   const sec = (id: string, emoji: string, title: string, body: string) =>
-    `<details class="sec" id="sec-${id}" open><summary>${emoji} ${esc(title)} <a class="perma" href="#sec-${id}">🔗</a></summary><div class="body">${body}</div></details>`;
+    `<details class="sec" id="sec-${id}" data-crumb="${emoji} ${esc(title)}" open><summary>${emoji} ${esc(title)} <a class="perma" href="#sec-${id}">🔗</a></summary><div class="body">${body}</div></details>`;
   // Each kind, inside a bounded-context section, is its own collapsible subsection.
   const subsec = (emoji: string, title: string, count: number, body: string) =>
-    `<details class="subsec" open><summary>${emoji} ${esc(title)} <span class="muted">(${count})</span></summary><div class="body">${body}</div></details>`;
+    `<details class="subsec" data-crumb="${emoji} ${esc(title)}" open><summary>${emoji} ${esc(title)} <span class="muted">(${count})</span></summary><div class="body">${body}</div></details>`;
 
   // The whole doc is grouped TOP-LEVEL by bounded context (c4-l2); each item is attributed to one.
   const cx = buildContextMap(model);
@@ -501,10 +509,54 @@ export function emitDocumentationHtml(model: Model): string {
   const ctxToc = ctxBlocks.map(({ ctx }) => `<a href="#sec-ctx-${slug(ctx)}">${emo('context')} ${esc(ctx)}</a>`).join('');
   const toc = `<a href="#sec-stories">🎬 Stories</a>${ctxToc}<a href="#sec-architecture">🏛️ Architecture</a><a href="#sec-map">🗺️ Map</a>`;
 
+  // CENTRALIZED descriptions: one id→description map (anchor id → text), emitted once and looked up by
+  // the hover-tooltip on every cross-link — no per-link duplication.
+  const descIndex: Record<string, string> = {};
+  const putDesc = (k: string, name: string, d?: string) => { descIndex[anchor(k, name)] = String(d ?? '').trim().replace(/\s+/g, ' '); };
+  for (const [n, d] of Object.entries(defs['scalars.yaml'])) putDesc('scalar', n, (d as Record<string, unknown>).description as string);
+  for (const n of Object.keys(defs['entities.yaml'])) putDesc('entity', n, dDesc('entities.yaml', n));
+  for (const n of Object.keys(defs['events.yaml'])) putDesc('event', n, dDesc('events.yaml', n));
+  for (const n of Object.keys(defs['commands.yaml'])) putDesc('command', n, dDesc('commands.yaml', n));
+  for (const [n, d] of Object.entries(defs['errors.yaml'])) putDesc('error', n, (d as Record<string, unknown>).description as string);
+  for (const a of model.actors) putDesc('actor', a.name, a.description);
+  for (const v of model.views) putDesc('view', v.name, v.note);
+  for (const t of model.api.types) putDesc('type', t.name, t.description);
+  for (const q of model.api.queries) putDesc('query', q.name, q.description);
+  for (const m of model.api.mutations) putDesc('mutation', m.name, dDesc('commands.yaml', m.command));
+  for (const s of model.api.subscriptions) putDesc('subscription', s.name, s.description);
+  for (const [f, c] of Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>)) putDesc('obs', f, `Observability contract — criticality: ${String(c.criticality ?? '—')}.`);
+  const descScript = `<script>window.CF_DESC=${JSON.stringify(descIndex).replace(/</g, '\\u003c')};</script>`;
+
+  // Sticky breadcrumb (context › section › item, scroll-spy) + centralized-description hover tooltip.
+  const NAV_JS = "<script>(function(){"
+    + "var bar=document.getElementById('cf-crumb'),tip=document.getElementById('cf-tip'),doc=document.querySelector('.doc');if(!bar||!doc)return;var TH=54,cur={};"
+    + "function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}"
+    + "function lab(el){return el?(el.getAttribute('data-crumb')||''):'';}"
+    + "function lastAbove(sel){var e=document.querySelectorAll(sel),f=null;for(var i=0;i<e.length;i++){var s=e[i];if(s.offsetParent===null)continue;if(s.getBoundingClientRect().top<=TH)f=s;}return f;}"
+    + "function upd(){var a=lastAbove('details.sec>summary'),b=lastAbove('details.subsec>summary'),c=lastAbove('details.item>summary');"
+    + "cur.ctx=a?a.parentElement:null;cur.sec=b?b.parentElement:null;cur.item=c?c.parentElement:null;"
+    + "if(cur.sec&&cur.ctx&&!cur.ctx.contains(cur.sec))cur.sec=null;"
+    + "if(cur.item&&cur.sec&&!cur.sec.contains(cur.item))cur.item=null;"
+    + "if(cur.item&&!cur.sec)cur.item=null;"
+    + "var p=[];"
+    + "if(cur.ctx)p.push('<span class=\"seg\" data-role=\"ctx\">'+esc(lab(cur.ctx))+'</span>');"
+    + "if(cur.sec)p.push('<span class=\"seg\" data-role=\"sec\">'+esc(lab(cur.sec))+'</span>');"
+    + "if(cur.item)p.push('<span class=\"seg\" data-role=\"item\">'+esc(lab(cur.item))+'</span>');"
+    + "bar.innerHTML=p.length?p.join('<span class=\"sep\">\\u203a</span>'):'<span class=\"muted\">\\ud83d\\udcd6 Captain.Food \\u2014 Product Documentation</span>';}"
+    + "bar.addEventListener('click',function(e){var s=e.target.closest('.seg');if(!s)return;var el=cur[s.getAttribute('data-role')];if(!el)return;var sm=el.querySelector(':scope>summary')||el;var y=sm.getBoundingClientRect().top+window.pageYOffset-TH-8;window.scrollTo({top:y,behavior:'smooth'});});"
+    + "var raf=0;function onScroll(){if(raf)return;raf=requestAnimationFrame(function(){raf=0;upd();});}"
+    + "window.addEventListener('scroll',onScroll,{passive:true});window.addEventListener('resize',onScroll);document.addEventListener('toggle',onScroll,true);upd();"
+    + "var D=window.CF_DESC||{};"
+    + "doc.addEventListener('mouseover',function(e){var a=e.target.closest('a[href^=\"#\"]');if(!a)return;var id=decodeURIComponent(a.getAttribute('href').slice(1));if(!(id in D)){tip.style.display='none';return;}var d=D[id];tip.textContent=d||'no description yet';tip.className='cf-tip'+(d?'':' empty');tip.style.display='block';});"
+    + "doc.addEventListener('mousemove',function(e){if(tip.style.display!=='block')return;var x=e.clientX+14,y=e.clientY+16,w=tip.offsetWidth,h=tip.offsetHeight;if(x+w>window.innerWidth-8)x=window.innerWidth-w-8;if(y+h>window.innerHeight-8)y=e.clientY-h-14;tip.style.left=x+'px';tip.style.top=y+'px';});"
+    + "doc.addEventListener('mouseout',function(e){if(e.target.closest('a[href^=\"#\"]'))tip.style.display='none';});"
+    + "})();</script>";
+
   return `${THEME}
 <div class="doc"><div class="wrap">
+  <div id="cf-crumb" class="crumb"></div>
   <h1>📖 Captain.Food — Product Documentation</h1>
-  <p class="muted">Generated from the specs, organized <strong>top-level by bounded context</strong> (🔲). Every item and property is anchored — click 🔗 to copy a deep link. Sections are collapsible.</p>
+  <p class="muted">Generated from the specs, organized <strong>top-level by bounded context</strong> (🔲). The bar above shows where you are (context › section › item — click to jump); hover any link for its description. Every item is anchored — click 🔗 to copy a deep link. Sections are collapsible.</p>
   <p><strong>Kinds:</strong> ${legend}</p>
   <p><strong>Roles:</strong> ${Object.entries(ROLE_EMOJI).map(([r, e]) => `${e} ${r}`).join(' · ')}</p>
   <div class="toolbar"><button onclick="setAll(true)">⊞ Expand all</button> <button onclick="setAll(false)">⊟ Collapse all</button> &nbsp; <span class="toc">${toc}</span></div>
@@ -512,5 +564,8 @@ export function emitDocumentationHtml(model: Model): string {
   ${ctxSections}
   ${sec('architecture', '🏛️', 'Architecture (C4)', c4Html)}
   ${sec('map', '🗺️', 'System map (interactive)', '<p class="muted">Drill in: <strong>System → container → bounded context → aggregate flow</strong>. Boxes are colored by kind (containers/aggregates teal, externals orange, contexts gold, commands yellow, events purple, views blue). Click to go deeper; leaf boxes jump to their section; use ◀ back to climb out.</p>' + mapHtml)}
-</div></div>`;
+</div></div>
+<div id="cf-tip" class="cf-tip"></div>
+${descScript}
+${NAV_JS}`;
 }
