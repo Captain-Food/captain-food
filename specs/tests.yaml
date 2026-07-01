@@ -274,9 +274,12 @@ fixtures:
   restaurantRated:
     type: { $ref: 'events.yaml#/RestaurantRated' }
     data: { orderId: "order-1", restaurantId: "resto-1", stars: 5, comment: "Excellent!" }
-  riderTipped:
-    type: { $ref: 'events.yaml#/RiderTipped' }
-    data: { orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 200, currency: "EUR" } }
+  orderTipped:
+    type: { $ref: 'events.yaml#/OrderTipped' }
+    data: { orderId: "order-1", restaurantId: "resto-1", tippedBy: "CUSTOMER", customerId: "cust-1", tips: [{ recipient: "RIDER", amount: { amountCents: 200, currency: "EUR" } }, { recipient: "RESTAURANT", amount: { amountCents: 100, currency: "EUR" } }, { recipient: "CAPTAIN", amount: { amountCents: 50, currency: "EUR" } }] }
+  orderTippedByRestaurant:
+    type: { $ref: 'events.yaml#/OrderTipped' }
+    data: { orderId: "order-1", restaurantId: "resto-1", tippedBy: "RESTAURANT", tips: [{ recipient: "RIDER", amount: { amountCents: 300, currency: "EUR" } }] }
   refundRequested:
     type: { $ref: 'events.yaml#/RefundRequested' }
     data: { orderId: "order-1", restaurantId: "resto-1", reason: "Late delivery" }
@@ -1444,29 +1447,41 @@ tests:
     thrown:
       - { $ref: 'errors.yaml#/RestaurantAlreadyRated' }
 
-  TestOrderRiderTipped:
-    name: "Customer tips the rider after delivery"
+  TestOrderTipped:
+    name: "Customer tips the rider, restaurant and Captain after delivery"
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
       - { $ref: '#/fixtures/orderDelivered' }
     when:
-      type: { $ref: 'commands.yaml#/TipRider' }
-      data: { orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 200, currency: "EUR" } }
+      type: { $ref: 'commands.yaml#/TipOrder' }
+      data: { orderId: "order-1", restaurantId: "resto-1", tips: [{ recipient: "RIDER", amount: { amountCents: 200, currency: "EUR" } }, { recipient: "RESTAURANT", amount: { amountCents: 100, currency: "EUR" } }, { recipient: "CAPTAIN", amount: { amountCents: 50, currency: "EUR" } }] }
     then:
-      - { $ref: '#/fixtures/riderTipped' }
+      - { $ref: '#/fixtures/orderTipped' }
 
-  TestOrderTipRiderIsRejected:
-    name: "Rejects tipping for a missing/not-delivered order or tipping twice"
+  TestOrderTippedByRestaurant:
+    name: "Restaurant tips the rider (thanking the courier)"
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderDelivered' }
+    when:
+      type: { $ref: 'commands.yaml#/TipOrder' }
+      data: { orderId: "order-1", restaurantId: "resto-1", tips: [{ recipient: "RIDER", amount: { amountCents: 300, currency: "EUR" } }] }
+    then:
+      - { $ref: '#/fixtures/orderTippedByRestaurant' }
+
+  TestOrderTipIsRejected:
+    name: "Rejects tipping a missing order, or a restaurant tipping itself"
     actor: { $ref: 'actors.yaml#/Order' }
     given: []
     when:
-      type: { $ref: 'commands.yaml#/TipRider' }
-      data: { orderId: "order-missing", restaurantId: "resto-1", amount: { amountCents: 200, currency: "EUR" } }
+      type: { $ref: 'commands.yaml#/TipOrder' }
+      data: { orderId: "order-missing", restaurantId: "resto-1", tips: [{ recipient: "RESTAURANT", amount: { amountCents: 100, currency: "EUR" } }] }
     thrown:
       - { $ref: 'errors.yaml#/OrderNotFound' }
       - { $ref: 'errors.yaml#/InvalidOrderStatus' }
-      - { $ref: 'errors.yaml#/RiderAlreadyTipped' }
+      - { $ref: 'errors.yaml#/InvalidTipRecipient' }
 
   TestOrderRefundRequested:
     name: "Customer requests a refund for a delivered order"

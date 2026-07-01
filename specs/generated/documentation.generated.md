@@ -53,7 +53,7 @@ An authenticated person who orders food via Captain.Food.
 |  | TrackOrderStatus | [🔎 `order`](#query-order) |
 |  | RateOrder | [✏️ `rateOrder`](#mutation-rateorder) |
 |  | RateRestaurant | [✏️ `rateRestaurant`](#mutation-raterestaurant) |
-|  | TipRider | [✏️ `tipRider`](#mutation-tiprider) |
+|  | TipRiderRestaurantOrCaptain | [✏️ `tipOrder`](#mutation-tiporder) |
 |  | RequestRefund | [✏️ `requestRefund`](#mutation-requestrefund) |
 | 🧭 **FavoriteRestaurant** | MarkAsFavorite | [✏️ `markRestaurantAsFavorite`](#mutation-markrestaurantasfavorite) |
 |  | UnmarkAsFavorite | [✏️ `unmarkRestaurantAsFavorite`](#mutation-unmarkrestaurantasfavorite) |
@@ -116,6 +116,7 @@ Runs a SINGLE location (HubRise location): handles the live order queue. Assigne
 |  | MarkOrderReady | [✏️ `markOrderReady`](#mutation-markorderready) |
 |  | SetAcceptanceMode | [✏️ `changeOrderAcceptanceMode`](#mutation-changeorderacceptancemode) |
 |  | CancelOrder | [✏️ `cancelOrderByRestaurant`](#mutation-cancelorderbyrestaurant) |
+|  | ThankRiderOrCaptain | [✏️ `tipOrder`](#mutation-tiporder) |
 
 <a id="story-rider"></a>
 ### 🎬 `rider` · 🛵 `RIDER` · 🗣️ `fr-FR`
@@ -2609,11 +2610,11 @@ Order tracking by id; owning customer or the restaurant/admin. Ownership enforce
 - **Roles**: CUSTOMER · **slice** V1
 - **Payload**: correlationId
 
-<a id="mutation-tiprider"></a>
-#### ✏️ Mutation: `tipRider`
+<a id="mutation-tiporder"></a>
+#### ✏️ Mutation: `tipOrder`
 
-- **Command**: [📩 `TipRider`](#command-tiprider) → handled by [🎭 `Order`](#actor-order)
-- **Roles**: CUSTOMER · **slice** V1
+- **Command**: [📩 `TipOrder`](#command-tiporder) → handled by [🎭 `Order`](#actor-order)
+- **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT · **slice** V1
 - **Payload**: correlationId
 
 <a id="mutation-requestrefund"></a>
@@ -2679,6 +2680,8 @@ An order with its tracking status and payment state.
 | <a id="type-order--ratingcomment"></a>`ratingComment` | [🔤 `RatingComment`](#scalar-ratingcomment) | ⬜ |
 | <a id="type-order--riderthumb"></a>`riderThumb` | [🔤 `ThumbRating`](#scalar-thumbrating) | ⬜ |
 | <a id="type-order--ridertip"></a>`riderTip` | [📦 `Money`](#entity-money) | ⬜ |
+| <a id="type-order--restauranttip"></a>`restaurantTip` | [📦 `Money`](#entity-money) | ⬜ |
+| <a id="type-order--captaintip"></a>`captainTip` | [📦 `Money`](#entity-money) | ⬜ |
 | <a id="type-order--ratedat"></a>`ratedAt` | `string` _date-time_ | ⬜ |
 
 ### 🎭 Actors _(4)_
@@ -2710,7 +2713,7 @@ _🧩 aggregate_ — A single order through its lifecycle. Born from OrderPlaced
 | [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant) | [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus) |
 | [📩 `RateOrder`](#command-rateorder) | [⚡ `OrderRated`](#event-orderrated) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `OrderAlreadyRated`](#error-orderalreadyrated) |
 | [📩 `RateRestaurant`](#command-raterestaurant) | [⚡ `RestaurantRated`](#event-restaurantrated) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `RestaurantAlreadyRated`](#error-restaurantalreadyrated) |
-| [📩 `TipRider`](#command-tiprider) | [⚡ `RiderTipped`](#event-ridertipped) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `RiderAlreadyTipped`](#error-rideralreadytipped) |
+| [📩 `TipOrder`](#command-tiporder) | [⚡ `OrderTipped`](#event-ordertipped) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `InvalidTipRecipient`](#error-invalidtiprecipient) |
 | [📩 `RequestRefund`](#command-requestrefund) | [⚡ `RefundRequested`](#event-refundrequested) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus) |
 
 <a id="actor-placeorderprocess"></a>
@@ -2766,8 +2769,8 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 
 - **Source**: [🎭 `Order`](#actor-order) · 🛶 V0
 - **Note**: The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status (back-office queue) — via the indexes below; there is no separate per-persona order projection. 
-- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment) and RiderTipped (rider_tip_cents); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating.
-- **Fed by**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant), [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted), [⚡ `OrderMarkedReady`](#event-ordermarkedready), [⚡ `OrderDelivered`](#event-orderdelivered), [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant), [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer), [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant), [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentRefunded`](#event-paymentrefunded), [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `RiderTipped`](#event-ridertipped)
+- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals.
+- **Fed by**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant), [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted), [⚡ `OrderMarkedReady`](#event-ordermarkedready), [⚡ `OrderDelivered`](#event-orderdelivered), [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant), [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer), [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant), [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentRefunded`](#event-paymentrefunded), [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `OrderTipped`](#event-ordertipped)
 
 | Column | Type | Sourced from | Constraints | Notes |
 | --- | --- | --- | --- | --- |
@@ -2794,8 +2797,10 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `restaurant_stars` | [🔤 `StarRating`](#scalar-starrating) _(derived)_ | [⚡ `RestaurantRated`.`stars`](#event-restaurantrated--stars) | nullable | Customer's 0–5 rating of the restaurant; null until rated. |
 | `rating_comment` | [🔤 `RatingComment`](#scalar-ratingcomment) _(derived)_ | [⚡ `RestaurantRated`.`comment`](#event-restaurantrated--comment) | nullable |  |
 | `rider_thumb` | [🔤 `ThumbRating`](#scalar-thumbrating) _(derived)_ | [⚡ `OrderRated`.`riderThumb`](#event-orderrated--riderthumb) | nullable |  |
-| `rider_tip_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `RiderTipped`.`amount`](#event-ridertipped--amount) | nullable | amountCents of RiderTipped.amount (Money); null if no tip. |
-| `rated_at` | `timestamptz` | [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `RiderTipped`](#event-ridertipped) | nullable | Occurrence time of the latest rating/tip event. |
+| `rider_tip_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderTipped`.`tips`](#event-ordertipped--tips) | nullable | Σ OrderTipped.tips[recipient==RIDER].amount (all tippers); null if none. |
+| `restaurant_tip_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderTipped`.`tips`](#event-ordertipped--tips) | nullable | Σ OrderTipped.tips[recipient==RESTAURANT].amount; null if none. |
+| `captain_tip_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderTipped`.`tips`](#event-ordertipped--tips) | nullable | Σ OrderTipped.tips[recipient==CAPTAIN].amount; null if none. |
+| `rated_at` | `timestamptz` | [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `OrderTipped`](#event-ordertipped) | nullable | Occurrence time of the latest rating/tip event. |
 
 ### 📩 Commands _(15)_
 
@@ -2998,20 +3003,20 @@ Customer rates the restaurant of a completed order (0–5 stars + optional comme
 | <a id="command-raterestaurant--stars"></a>`stars` | [🔤 `StarRating`](#scalar-starrating) | ✅ |  |
 | <a id="command-raterestaurant--comment"></a>`comment` | [🔤 `RatingComment`](#scalar-ratingcomment) | ⬜ |  |
 
-<a id="command-tiprider"></a>
-#### 📩 Command: `TipRider`
+<a id="command-tiporder"></a>
+#### 📩 Command: `TipOrder`
 
-Customer adds a tip for the rider of a completed order (captured via Stripe).
+Customer tips one or more of the rider / restaurant / Captain on an order (ADR-012). Optional and SEPARATE from the price — Captain keeps 0% (100% passes through). Additive: may be sent at checkout or post-delivery; multiple tips accumulate.
 
-- **Dispatched by**: [✏️ `tipRider`](#mutation-tiprider) · **handled by** [🎭 `Order`](#actor-order)
-- **Emits**: [⚡ `RiderTipped`](#event-ridertipped)
-- **Throws**: [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `RiderAlreadyTipped`](#error-rideralreadytipped)
+- **Dispatched by**: [✏️ `tipOrder`](#mutation-tiporder) · **handled by** [🎭 `Order`](#actor-order)
+- **Emits**: [⚡ `OrderTipped`](#event-ordertipped)
+- **Throws**: [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `InvalidTipRecipient`](#error-invalidtiprecipient)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| <a id="command-tiprider--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
-| <a id="command-tiprider--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
-| <a id="command-tiprider--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |  |
+| <a id="command-tiporder--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="command-tiporder--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
+| <a id="command-tiporder--tips"></a>`tips` | [[📦 `Tip`](#entity-tip)] | ✅ |  |
 
 <a id="command-requestrefund"></a>
 #### 📩 Command: `RequestRefund`
@@ -3262,10 +3267,10 @@ The customer rated the restaurant of a completed order (0–5 stars + optional c
 | <a id="event-restaurantrated--stars"></a>`stars` | [🔤 `StarRating`](#scalar-starrating) | ✅ |  |
 | <a id="event-restaurantrated--comment"></a>`comment` | [🔤 `RatingComment`](#scalar-ratingcomment) | ⬜ |  |
 
-<a id="event-ridertipped"></a>
-#### ⚡ Event: `RiderTipped`
+<a id="event-ordertipped"></a>
+#### ⚡ Event: `OrderTipped`
 
-The customer added a tip for the rider of a completed order.
+A tipper (customer or restaurant) added one or more tips (rider / restaurant / Captain) on an order (ADR-012). Separate from the price; Captain keeps 0%. Additive — multiple OrderTipped accumulate.
 
 - **Emitted by**: [🎭 `Order`](#actor-order)
 - **Consumed by**: —
@@ -3273,10 +3278,11 @@ The customer added a tip for the rider of a completed order.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| <a id="event-ridertipped--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
-| <a id="event-ridertipped--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
-| <a id="event-ridertipped--customerid"></a>`customerId` | [🔤 `CustomerId`](#scalar-customerid) | ⬜ |  |
-| <a id="event-ridertipped--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |  |
+| <a id="event-ordertipped--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="event-ordertipped--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
+| <a id="event-ordertipped--tippedby"></a>`tippedBy` | [🔤 `Tipper`](#scalar-tipper) | ✅ |  |
+| <a id="event-ordertipped--customerid"></a>`customerId` | [🔤 `CustomerId`](#scalar-customerid) | ⬜ |  |
+| <a id="event-ordertipped--tips"></a>`tips` | [[📦 `Tip`](#entity-tip)] | ✅ |  |
 
 <a id="event-refundrequested"></a>
 #### ⚡ Event: `RefundRequested`
@@ -3359,7 +3365,7 @@ A captured payment was refunded (e.g. after rejection or cancellation).
 | <a id="event-paymentrefunded--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |  |
 | <a id="event-paymentrefunded--reason"></a>`reason` | `string` | ⬜ |  |
 
-### 📦 Entities _(8)_
+### 📦 Entities _(9)_
 
 <a id="entity-money"></a>
 #### 📦 Entity: `Money`
@@ -3386,6 +3392,16 @@ The order's money breakdown, computed server-side by PlaceOrderProcess (ADR-0016
 | <a id="entity-paymentbreakdown--restaurantpayout"></a>`restaurantPayout` | [📦 `Money`](#entity-money) | ✅ | Transfer to the restaurant Connect account = articles − restaurantContribution. |
 | <a id="entity-paymentbreakdown--riderpayout"></a>`riderPayout` | [📦 `Money`](#entity-money) | ✅ | Transfer to the rider Connect account = delivery. |
 | <a id="entity-paymentbreakdown--captainnet"></a>`captainNet` | [📦 `Money`](#entity-money) | ✅ | Kept on the Captain platform account = serviceFee + restaurantContribution (gross of Stripe). |
+
+<a id="entity-tip"></a>
+#### 📦 Entity: `Tip`
+
+One customer tip to a single recipient (ADR-012). Optional, separate from the price; Captain keeps 0%.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="entity-tip--recipient"></a>`recipient` | [🔤 `TipRecipient`](#scalar-tiprecipient) | ✅ |  |
+| <a id="entity-tip--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |  |
 
 <a id="entity-customercontact"></a>
 #### 📦 Entity: `CustomerContact`
@@ -3464,7 +3480,7 @@ An option chosen by the customer on a line item, priced at order time.
 | <a id="entity-order--status"></a>`status` | [🔤 `OrderStatus`](#scalar-orderstatus) | ✅ |  |
 | <a id="entity-order--note"></a>`note` | [🔤 `OrderNote`](#scalar-ordernote) | ⬜ |  |
 
-### 🔤 Scalars _(15)_
+### 🔤 Scalars _(17)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
@@ -3481,6 +3497,8 @@ An option chosen by the customer on a line item, priced at order time.
 | <a id="scalar-thumbrating"></a>🔤 `ThumbRating` | enum (UP \| DOWN) | Rider rating: thumbs up or down. |
 | <a id="scalar-ratingcomment"></a>🔤 `RatingComment` | string | Free-text comment accompanying a restaurant rating. |
 | <a id="scalar-orderstatus"></a>🔤 `OrderStatus` | enum (PLACED \| ACCEPTED \| REJECTED \| PREPARING \| READY \| OUT_FOR_DELIVERY \| DELIVERED \| CANCELLED_BY_CUSTOMER \| CANCELLED_BY_RESTAURANT) |  |
+| <a id="scalar-tiprecipient"></a>🔤 `TipRecipient` | enum (RIDER \| RESTAURANT \| CAPTAIN) | Who a tip goes to (ADR-012). Tips are separate from the core 3-way split and Captain skims 0% (100% passes through); a tip to CAPTAIN is the tipper's explicit choice, not a cut of others' tips.  |
+| <a id="scalar-tipper"></a>🔤 `Tipper` | enum (CUSTOMER \| RESTAURANT) | Who gives a tip: the CUSTOMER (may tip rider/restaurant/Captain) or the RESTAURANT (may tip rider/ Captain — e.g. thanking the courier). Derived server-side from the caller's role, not client-supplied.  |
 | <a id="scalar-cartstatus"></a>🔤 `CartStatus` | enum (OPEN \| CHECKED_OUT) | Lifecycle of a cart. Only an OPEN cart accepts line edits or checkout. Carts are never abandoned/expired — they persist until checked out, so there is no abandonment state.  |
 | <a id="scalar-paymentstatus"></a>🔤 `PaymentStatus` | enum (PENDING \| CAPTURED \| FAILED \| REFUNDED) | Order payment state, folded from Stripe facts (PaymentIntentCreated/Captured/Failed/Refunded). |
 
@@ -3498,11 +3516,11 @@ An option chosen by the customer on a line item, priced at order time.
 | <a id="error-cartrestaurantmismatch"></a>⛔ `CartRestaurantMismatch` | Line/checkout restaurant differs from the cart's restaurant (no mixing). | 🇬🇧 Your cart already has items from another restaurant, not '{restaurantName}'. | 🇫🇷 Votre panier contient déjà des articles d'un autre restaurant que '{restaurantName}'. | [📩 `AddCartLine`](#command-addcartline), [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-cartlinenotfound"></a>⛔ `CartLineNotFound` | No line with this id in the cart. | 🇬🇧 This cart line no longer exists. | 🇫🇷 Cette ligne du panier n'existe plus. | [📩 `RemoveCartLine`](#command-removecartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity) |
 | <a id="error-cartempty"></a>⛔ `CartEmpty` | Checkout attempted on an empty cart. | 🇬🇧 Your cart is empty. | 🇫🇷 Votre panier est vide. | [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-ordernotfound"></a>⛔ `OrderNotFound` | No order with this id. | 🇬🇧 Order not found. | 🇫🇷 Commande introuvable. | [📩 `AcceptOrder`](#command-acceptorder), [📩 `StartPreparation`](#command-startpreparation), [📩 `MarkOrderReady`](#command-markorderready), [📩 `MarkOrderDelivered`](#command-markorderdelivered), [📩 `RejectOrder`](#command-rejectorder), [📩 `CancelOrderByCustomer`](#command-cancelorderbycustomer), [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant), [📩 `RateOrder`](#command-rateorder), [📩 `RateRestaurant`](#command-raterestaurant), [📩 `TipRider`](#command-tiprider), [📩 `RequestRefund`](#command-requestrefund) |
-| <a id="error-invalidorderstatus"></a>⛔ `InvalidOrderStatus` | Order is not in a status that allows this transition. | 🇬🇧 This action is not allowed while the order is '{currentStatus}'. | 🇫🇷 Cette action n'est pas autorisée tant que la commande est '{currentStatus}'. | [📩 `AcceptOrder`](#command-acceptorder), [📩 `StartPreparation`](#command-startpreparation), [📩 `MarkOrderReady`](#command-markorderready), [📩 `MarkOrderDelivered`](#command-markorderdelivered), [📩 `RejectOrder`](#command-rejectorder), [📩 `CancelOrderByCustomer`](#command-cancelorderbycustomer), [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant), [📩 `RateOrder`](#command-rateorder), [📩 `RateRestaurant`](#command-raterestaurant), [📩 `TipRider`](#command-tiprider), [📩 `RequestRefund`](#command-requestrefund) |
+| <a id="error-ordernotfound"></a>⛔ `OrderNotFound` | No order with this id. | 🇬🇧 Order not found. | 🇫🇷 Commande introuvable. | [📩 `AcceptOrder`](#command-acceptorder), [📩 `StartPreparation`](#command-startpreparation), [📩 `MarkOrderReady`](#command-markorderready), [📩 `MarkOrderDelivered`](#command-markorderdelivered), [📩 `RejectOrder`](#command-rejectorder), [📩 `CancelOrderByCustomer`](#command-cancelorderbycustomer), [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant), [📩 `RateOrder`](#command-rateorder), [📩 `RateRestaurant`](#command-raterestaurant), [📩 `TipOrder`](#command-tiporder), [📩 `RequestRefund`](#command-requestrefund) |
+| <a id="error-invalidorderstatus"></a>⛔ `InvalidOrderStatus` | Order is not in a status that allows this transition. | 🇬🇧 This action is not allowed while the order is '{currentStatus}'. | 🇫🇷 Cette action n'est pas autorisée tant que la commande est '{currentStatus}'. | [📩 `AcceptOrder`](#command-acceptorder), [📩 `StartPreparation`](#command-startpreparation), [📩 `MarkOrderReady`](#command-markorderready), [📩 `MarkOrderDelivered`](#command-markorderdelivered), [📩 `RejectOrder`](#command-rejectorder), [📩 `CancelOrderByCustomer`](#command-cancelorderbycustomer), [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant), [📩 `RateOrder`](#command-rateorder), [📩 `RateRestaurant`](#command-raterestaurant), [📩 `TipOrder`](#command-tiporder), [📩 `RequestRefund`](#command-requestrefund) |
 | <a id="error-orderalreadyrated"></a>⛔ `OrderAlreadyRated` | The delivery (rider thumb) has already been rated for this order; final. | 🇬🇧 You have already rated this delivery. | 🇫🇷 Vous avez déjà noté cette livraison. | [📩 `RateOrder`](#command-rateorder) |
 | <a id="error-restaurantalreadyrated"></a>⛔ `RestaurantAlreadyRated` | The restaurant has already been rated for this order; final (one per order). | 🇬🇧 You have already rated the restaurant for this order. | 🇫🇷 Vous avez déjà noté le restaurant pour cette commande. | [📩 `RateRestaurant`](#command-raterestaurant) |
-| <a id="error-rideralreadytipped"></a>⛔ `RiderAlreadyTipped` | The rider has already been tipped for this order. | 🇬🇧 You have already tipped the rider for this order. | 🇫🇷 Vous avez déjà laissé un pourboire au livreur pour cette commande. | [📩 `TipRider`](#command-tiprider) |
+| <a id="error-invalidtiprecipient"></a>⛔ `InvalidTipRecipient` | The tipper cannot tip this recipient (e.g. a restaurant tipping itself). | 🇬🇧 You can't send a tip to this recipient. | 🇫🇷 Vous ne pouvez pas envoyer de pourboire à ce destinataire. | [📩 `TipOrder`](#command-tiporder) |
 | <a id="error-deliveryaddressrequired"></a>⛔ `DeliveryAddressRequired` | serviceType is DELIVERY but no delivery address was provided. | 🇬🇧 A delivery address is required for delivery. | 🇫🇷 Une adresse de livraison est requise pour la livraison. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-outsidedeliveryarea"></a>⛔ `OutsideDeliveryArea` | Delivery address is outside the restaurant's delivery area. | 🇬🇧 This address is outside the delivery area of '{restaurantName}'. | 🇫🇷 Cette adresse est en dehors de la zone de livraison de '{restaurantName}'. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-paymentdeclined"></a>⛔ `PaymentDeclined` | Stripe declined the payment synchronously at checkout (no order placed). | 🇬🇧 Payment was declined. | 🇫🇷 Le paiement a été refusé. | [📩 `PlaceOrder`](#command-placeorder) |
@@ -3675,23 +3693,32 @@ _Rejects rating the restaurant a second time for the same order_
 - **When**: [📩 `RateRestaurant`](#command-raterestaurant)
 - **Thrown**: [⛔ `RestaurantAlreadyRated`](#error-restaurantalreadyrated)
 
-<a id="test-testorderridertipped"></a>
-#### 🧪 Test: `TestOrderRiderTipped`
+<a id="test-testordertipped"></a>
+#### 🧪 Test: `TestOrderTipped`
 
-_Customer tips the rider after delivery_
+_Customer tips the rider, restaurant and Captain after delivery_
 
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered)
-- **When**: [📩 `TipRider`](#command-tiprider)
-- **Then**: [⚡ `RiderTipped`](#event-ridertipped)
+- **When**: [📩 `TipOrder`](#command-tiporder)
+- **Then**: [⚡ `OrderTipped`](#event-ordertipped)
 
-<a id="test-testordertipriderisrejected"></a>
-#### 🧪 Test: `TestOrderTipRiderIsRejected`
+<a id="test-testordertippedbyrestaurant"></a>
+#### 🧪 Test: `TestOrderTippedByRestaurant`
 
-_Rejects tipping for a missing/not-delivered order or tipping twice_
+_Restaurant tips the rider (thanking the courier)_
+
+- **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered)
+- **When**: [📩 `TipOrder`](#command-tiporder)
+- **Then**: [⚡ `OrderTipped`](#event-ordertipped)
+
+<a id="test-testordertipisrejected"></a>
+#### 🧪 Test: `TestOrderTipIsRejected`
+
+_Rejects tipping a missing order, or a restaurant tipping itself_
 
 - **Given**: _(none)_
-- **When**: [📩 `TipRider`](#command-tiprider)
-- **Thrown**: [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `RiderAlreadyTipped`](#error-rideralreadytipped)
+- **When**: [📩 `TipOrder`](#command-tiporder)
+- **Thrown**: [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `InvalidTipRecipient`](#error-invalidtiprecipient)
 
 <a id="test-testorderrefundrequested"></a>
 #### 🧪 Test: `TestOrderRefundRequested`

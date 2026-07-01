@@ -383,12 +383,12 @@ Order:
         - { $ref: 'errors.yaml#/OrderNotFound' }
         - { $ref: 'errors.yaml#/InvalidOrderStatus' }
         - { $ref: 'errors.yaml#/RestaurantAlreadyRated' }
-    - message: { $ref: 'commands.yaml#/TipRider' }
-      emits: [{ $ref: 'events.yaml#/RiderTipped' }]
+    - message: { $ref: 'commands.yaml#/TipOrder' }
+      emits: [{ $ref: 'events.yaml#/OrderTipped' }]
       throws:
         - { $ref: 'errors.yaml#/OrderNotFound' }
         - { $ref: 'errors.yaml#/InvalidOrderStatus' }
-        - { $ref: 'errors.yaml#/RiderAlreadyTipped' }
+        - { $ref: 'errors.yaml#/InvalidTipRecipient' }
     - message: { $ref: 'commands.yaml#/RequestRefund' }
       emits: [{ $ref: 'events.yaml#/RefundRequested' }]
       throws:

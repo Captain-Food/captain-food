@@ -416,6 +416,20 @@ OutreachChannel:
   enum: [EMAIL, SLACK, PHONE]
   description: "Channel of a prospection contact (email via Resend, Slack alert, or phone)."
 
+TipRecipient:
+  type: string
+  enum: [RIDER, RESTAURANT, CAPTAIN]
+  description: >
+    Who a tip goes to (ADR-012). Tips are separate from the core 3-way split and Captain skims 0% (100%
+    passes through); a tip to CAPTAIN is the tipper's explicit choice, not a cut of others' tips.
+
+Tipper:
+  type: string
+  enum: [CUSTOMER, RESTAURANT]
+  description: >
+    Who gives a tip: the CUSTOMER (may tip rider/restaurant/Captain) or the RESTAURANT (may tip rider/
+    Captain — e.g. thanking the courier). Derived server-side from the caller's role, not client-supplied.
+
 CartStatus:
   type: string
   enum:

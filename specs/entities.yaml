@@ -50,6 +50,16 @@ PaymentBreakdown:
       description: "Kept on the Captain platform account = serviceFee + restaurantContribution (gross of Stripe)."
   required: [articles, delivery, serviceFee, total, restaurantContribution, restaurantPayout, riderPayout, captainNet]
 
+Tip:
+  type: object
+  description: "One customer tip to a single recipient (ADR-012). Optional, separate from the price; Captain keeps 0%."
+  properties:
+    recipient:
+      $ref: 'scalars.yaml#/TipRecipient'
+    amount:
+      $ref: '#/Money'
+  required: [recipient, amount]
+
 TaxRate:
   type: object
   description: "Per-service-mode VAT, mirroring HubRise product tax_rate."

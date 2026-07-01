@@ -1050,23 +1050,31 @@ RestaurantRated:
     - restaurantId
     - stars
 
-RiderTipped:
-  description: "The customer added a tip for the rider of a completed order."
+OrderTipped:
+  description: >
+    A tipper (customer or restaurant) added one or more tips (rider / restaurant / Captain) on an order
+    (ADR-012). Separate from the price; Captain keeps 0%. Additive — multiple OrderTipped accumulate.
   type: object
   properties:
     orderId:
       $ref: 'scalars.yaml#/OrderId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
+    tippedBy:
+      $ref: 'scalars.yaml#/Tipper'
     customerId:
       $ref: 'scalars.yaml#/CustomerId'
       nullable: true
-    amount:
-      $ref: 'entities.yaml#/Money'
+    tips:
+      type: array
+      minItems: 1
+      items:
+        $ref: 'entities.yaml#/Tip'
   required:
     - orderId
     - restaurantId
-    - amount
+    - tippedBy
+    - tips
 
 RefundRequested:
   description: "The customer requested a refund for an order; the RefundProcess will drive Stripe."

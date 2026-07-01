@@ -112,7 +112,9 @@ types:
       restaurantStars: { $ref: 'scalars.yaml#/StarRating', nullable: true }   # null until rated
       ratingComment: { $ref: 'scalars.yaml#/RatingComment', nullable: true }
       riderThumb: { $ref: 'scalars.yaml#/ThumbRating', nullable: true }
-      riderTip: { $ref: 'entities.yaml#/Money', nullable: true }
+      riderTip: { $ref: 'entities.yaml#/Money', nullable: true }        # Σ tips to the rider (any tipper)
+      restaurantTip: { $ref: 'entities.yaml#/Money', nullable: true }   # Σ tips to the restaurant
+      captainTip: { $ref: 'entities.yaml#/Money', nullable: true }      # Σ tips to Captain
       ratedAt: { type: string, format: date-time, nullable: true }
 
   # Catalog sub-types — the read/API shape, assembled within View_Catalog.catalog. Dedicated API
@@ -688,9 +690,9 @@ mutations:
     roles: [CUSTOMER]
     slice: V1
     payload: {}
-  tipRider:
-    command: { $ref: 'commands.yaml#/TipRider' }
-    roles: [CUSTOMER]
+  tipOrder:
+    command: { $ref: 'commands.yaml#/TipOrder' }
+    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]   # customer tips rider/restaurant/Captain; restaurant tips rider/Captain
     slice: V1
     payload: {}
   requestRefund:

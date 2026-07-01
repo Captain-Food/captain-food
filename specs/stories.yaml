@@ -58,7 +58,7 @@ customer:
         TrackOrderStatus: { $ref: 'api.yaml#/queries/order' }
         RateOrder: { $ref: 'api.yaml#/mutations/rateOrder' }
         RateRestaurant: { $ref: 'api.yaml#/mutations/rateRestaurant' }
-        TipRider: { $ref: 'api.yaml#/mutations/tipRider' }
+        TipRiderRestaurantOrCaptain: { $ref: 'api.yaml#/mutations/tipOrder' }
         RequestRefund: { $ref: 'api.yaml#/mutations/requestRefund' }
     FavoriteRestaurant:
       description: As a customer, I keep a list of favorite restaurants.
@@ -152,6 +152,7 @@ restaurant_manager:
         MarkOrderReady: { $ref: 'api.yaml#/mutations/markOrderReady' }
         SetAcceptanceMode: { $ref: 'api.yaml#/mutations/changeOrderAcceptanceMode' }
         CancelOrder: { $ref: 'api.yaml#/mutations/cancelOrderByRestaurant' }
+        ThankRiderOrCaptain: { $ref: 'api.yaml#/mutations/tipOrder' }   # restaurant tips the courier / Captain (ADR-012)
 
 rider:
   description: A courier who delivers orders from restaurants to customers.

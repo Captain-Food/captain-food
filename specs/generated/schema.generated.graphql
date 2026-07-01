@@ -137,6 +137,17 @@ enum OutreachChannel {
   PHONE
 }
 
+enum TipRecipient {
+  RIDER
+  RESTAURANT
+  CAPTAIN
+}
+
+enum Tipper {
+  CUSTOMER
+  RESTAURANT
+}
+
 enum CartStatus {
   OPEN
   CHECKED_OUT
@@ -221,6 +232,11 @@ type PaymentBreakdown {
   restaurantPayout: Money!
   riderPayout: Money!
   captainNet: Money!
+}
+
+type Tip {
+  recipient: TipRecipient!
+  amount: Money!
 }
 
 type TaxRate {
@@ -381,6 +397,8 @@ type Order {
   ratingComment: RatingComment
   riderThumb: ThumbRating
   riderTip: Money
+  restaurantTip: Money
+  captainTip: Money
   ratedAt: DateTime
   restaurant: Restaurant!
 }
@@ -873,10 +891,10 @@ input RateRestaurantInput {
   comment: RatingComment
 }
 
-input TipRiderInput {
+input TipOrderInput {
   orderId: OrderId!
   restaurantId: RestaurantId!
-  amount: MoneyInput!
+  tips: [TipInput!]!
 }
 
 input RequestRefundInput {
@@ -1066,6 +1084,11 @@ input CustomerContactInput {
   displayName: CustomerDisplayName!
   email: EmailAddress
   phone: PhoneNumber!
+}
+
+input TipInput {
+  recipient: TipRecipient!
+  amount: MoneyInput!
 }
 
 # ==============================================================================
@@ -1307,7 +1330,7 @@ type RateRestaurantPayload {
   correlationId: CorrelationId!
 }
 
-type TipRiderPayload {
+type TipOrderPayload {
   correlationId: CorrelationId!
 }
 
@@ -1398,7 +1421,7 @@ type Mutation {
   cancelOrderByRestaurant(input: CancelOrderByRestaurantInput!): CancelOrderByRestaurantPayload! @auth(requires: [RESTAURANT, RESTAURANT_ACCOUNT]) @command(name: "CancelOrderByRestaurant")
   rateOrder(input: RateOrderInput!): RateOrderPayload! @auth(requires: [CUSTOMER]) @command(name: "RateOrder")
   rateRestaurant(input: RateRestaurantInput!): RateRestaurantPayload! @auth(requires: [CUSTOMER]) @command(name: "RateRestaurant")
-  tipRider(input: TipRiderInput!): TipRiderPayload! @auth(requires: [CUSTOMER]) @command(name: "TipRider")
+  tipOrder(input: TipOrderInput!): TipOrderPayload! @auth(requires: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]) @command(name: "TipOrder")
   requestRefund(input: RequestRefundInput!): RequestRefundPayload! @auth(requires: [CUSTOMER]) @command(name: "RequestRefund")
 }
 

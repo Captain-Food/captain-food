@@ -1048,17 +1048,23 @@ RateRestaurant:
       nullable: true
   required: [orderId, restaurantId, stars]
 
-TipRider:
-  description: "Customer adds a tip for the rider of a completed order (captured via Stripe)."
+TipOrder:
+  description: >
+    Customer tips one or more of the rider / restaurant / Captain on an order (ADR-012). Optional and
+    SEPARATE from the price — Captain keeps 0% (100% passes through). Additive: may be sent at checkout or
+    post-delivery; multiple tips accumulate.
   type: object
   properties:
     orderId:
       $ref: 'scalars.yaml#/OrderId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
-    amount:
-      $ref: 'entities.yaml#/Money'
-  required: [orderId, restaurantId, amount]
+    tips:
+      type: array
+      minItems: 1
+      items:
+        $ref: 'entities.yaml#/Tip'
+  required: [orderId, restaurantId, tips]
 
 RequestRefund:
   description: "Customer requests a refund for an order; the RefundProcess decides and drives Stripe."

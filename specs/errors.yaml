@@ -535,13 +535,14 @@ RestaurantAlreadyRated:
     en: "You have already rated the restaurant for this order."
     fr: "Vous avez déjà noté le restaurant pour cette commande."
 
-RiderAlreadyTipped:
-  description: "The rider has already been tipped for this order."
+InvalidTipRecipient:
+  description: "The tipper cannot tip this recipient (e.g. a restaurant tipping itself)."
   context:
-    orderId: { $ref: 'scalars.yaml#/OrderId' }
+    tippedBy: { $ref: 'scalars.yaml#/Tipper' }
+    recipient: { $ref: 'scalars.yaml#/TipRecipient' }
   messages:
-    en: "You have already tipped the rider for this order."
-    fr: "Vous avez déjà laissé un pourboire au livreur pour cette commande."
+    en: "You can't send a tip to this recipient."
+    fr: "Vous ne pouvez pas envoyer de pourboire à ce destinataire."
 
 DeliveryAddressRequired:
   description: "serviceType is DELIVERY but no delivery address was provided."

@@ -132,6 +132,8 @@ CREATE TABLE View_OrderTracking (
   rating_comment TEXT,
   rider_thumb TEXT,
   rider_tip_cents BIGINT,
+  restaurant_tip_cents BIGINT,
+  captain_tip_cents BIGINT,
   rated_at TIMESTAMPTZ
 );
 CREATE INDEX ON View_OrderTracking (customer_id);

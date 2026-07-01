@@ -545,10 +545,11 @@ View_OrderTracking:
     - { $ref: 'events.yaml#/PaymentRefunded' }
     - { $ref: 'events.yaml#/OrderRated' }
     - { $ref: 'events.yaml#/RestaurantRated' }
-    - { $ref: 'events.yaml#/RiderTipped' }
+    - { $ref: 'events.yaml#/OrderTipped' }
   rules:
     - "`payment_status` is folded from the Stripe payment facts."
-    - "Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment) and RiderTipped (rider_tip_cents); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating."
+    - "Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating."
+    - "`*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals."
   indexes:
     - [restaurant_id, status, placed_at]   # back-office queue: orders(restaurantId, status)
   columns:
@@ -652,15 +653,25 @@ View_OrderTracking:
       nullable: true
     rider_tip_cents:
       type: { $ref: 'scalars.yaml#/MoneyCents' }
-      from: [{ $ref: 'events.yaml#/RiderTipped/properties/amount' }]
+      from: [{ $ref: 'events.yaml#/OrderTipped/properties/tips' }]
       nullable: true
-      note: "amountCents of RiderTipped.amount (Money); null if no tip."
+      note: "Σ OrderTipped.tips[recipient==RIDER].amount (all tippers); null if none."
+    restaurant_tip_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/OrderTipped/properties/tips' }]
+      nullable: true
+      note: "Σ OrderTipped.tips[recipient==RESTAURANT].amount; null if none."
+    captain_tip_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/OrderTipped/properties/tips' }]
+      nullable: true
+      note: "Σ OrderTipped.tips[recipient==CAPTAIN].amount; null if none."
     rated_at:
       type: timestamptz
       from:
         - { $ref: 'events.yaml#/OrderRated' }
         - { $ref: 'events.yaml#/RestaurantRated' }
-        - { $ref: 'events.yaml#/RiderTipped' }
+        - { $ref: 'events.yaml#/OrderTipped' }
       nullable: true
       note: "Occurrence time of the latest rating/tip event."
 
