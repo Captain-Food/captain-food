@@ -54,6 +54,7 @@ customer:
         RemoveFromCart: { $ref: 'api.yaml#/mutations/removeCartLine' }
         ChangeCartLineQuantity: { $ref: 'api.yaml#/mutations/changeCartLineQuantity' }
         SeeCheckoutBreakdown: { $ref: 'api.yaml#/queries/cart' }   # transparent fee breakdown before paying (ADR-0018)
+        CompareWithUberEats: { $ref: 'api.yaml#/queries/cart' }   # labelled Uber Eats price + who-gets-what comparison (ADR-0022/0025); also on catalog offers + the order receipt
         PlaceOrder: { $ref: 'api.yaml#/mutations/placeOrder' }
         TrackOrderStatus: { $ref: 'api.yaml#/queries/order' }
         RateOrder: { $ref: 'api.yaml#/mutations/rateOrder' }

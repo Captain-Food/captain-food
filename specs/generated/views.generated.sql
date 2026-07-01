@@ -21,6 +21,8 @@ CREATE TABLE View_Restaurant (
   description TEXT,
   tags JSONB,
   margin_rate TEXT,
+  cuisine_category TEXT,
+  uber_prices_opt_in BOOLEAN,
   website TEXT,
   rating TEXT,
   reviews_count INTEGER,
@@ -85,6 +87,22 @@ CREATE TABLE View_PricingPolicy (
   effective_from TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE View_UberEstimationPolicy (
+  cuisine_category TEXT PRIMARY KEY,
+  price_coefficient NUMERIC NOT NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE View_UberSplitPolicy (
+  currency TEXT PRIMARY KEY,
+  uber_commission_pct NUMERIC NOT NULL,
+  rider_base_cents INTEGER NOT NULL,
+  rider_per_km_cents INTEGER NOT NULL,
+  avg_delivery_fee_cents INTEGER NOT NULL,
+  platform_fee_pct NUMERIC NOT NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE View_Catalog (
   catalog_id UUID PRIMARY KEY,
   restaurant_id UUID NOT NULL,
@@ -104,6 +122,7 @@ CREATE TABLE View_Cart (
   total_amount_cents BIGINT NOT NULL,
   currency TEXT NOT NULL,
   estimated_breakdown JSONB,
+  uber_comparison JSONB,
   updated_at TIMESTAMPTZ NOT NULL
 );
 
@@ -123,6 +142,11 @@ CREATE TABLE View_OrderTracking (
   restaurant_payout_cents BIGINT NOT NULL,
   rider_payout_cents BIGINT NOT NULL,
   captain_net_cents BIGINT NOT NULL,
+  uber_total_cents BIGINT,
+  uber_restaurant_cents BIGINT,
+  uber_rider_cents BIGINT,
+  uber_platform_cents BIGINT,
+  uber_basis TEXT,
   delivery_address JSONB,
   estimated_ready_at TIMESTAMPTZ,
   placed_at TIMESTAMPTZ NOT NULL,

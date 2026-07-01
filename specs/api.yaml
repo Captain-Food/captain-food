@@ -53,6 +53,7 @@ types:
       displayName: { $ref: 'scalars.yaml#/RestaurantDisplayName' }
       description: { type: string, nullable: true }   # free text — no domain scalar (matches the view column)
       tags: { $ref: 'scalars.yaml#/Tag', array: true }
+      cuisineCategory: { $ref: 'scalars.yaml#/CuisineCategory', nullable: true }   # single primary cuisine (Uber estimate coefficient); multi-cuisine discovery is `tags`
       rating: { $ref: 'scalars.yaml#/GoogleRating', nullable: true }
       reviewsCount: { type: integer, nullable: true }
       website: { $ref: 'scalars.yaml#/WebUrl', nullable: true }
@@ -90,6 +91,7 @@ types:
       lines: { $ref: 'entities.yaml#/OrderLineItem', array: true }   # read lines are priced (same shape as order lines)
       totalAmount: { $ref: 'entities.yaml#/Money' }   # food sub-total (the cart's items)
       breakdown: { $ref: 'entities.yaml#/PaymentBreakdown', nullable: true }   # estimated checkout fee breakdown (ADR-0018)
+      uberComparison: { $ref: 'entities.yaml#/UberComparison', nullable: true }   # estimated Uber Eats price/split for this cart (ADR-0022/0025); null if no cuisine
       updatedAt: { type: string, format: date-time }
   Order:
     description: "An order with its tracking status and payment state."
@@ -115,6 +117,7 @@ types:
       riderTip: { $ref: 'entities.yaml#/Money', nullable: true }        # Σ tips to the rider (any tipper)
       restaurantTip: { $ref: 'entities.yaml#/Money', nullable: true }   # Σ tips to the restaurant
       captainTip: { $ref: 'entities.yaml#/Money', nullable: true }      # Σ tips to Captain
+      uberComparison: { $ref: 'entities.yaml#/UberComparison', nullable: true }   # Uber side of the receipt (ADR-0025); Captain side is `breakdown`. Null if no cuisine
       ratedAt: { type: string, format: date-time, nullable: true }
 
   # Catalog sub-types — the read/API shape, assembled within View_Catalog.catalog. Dedicated API
@@ -147,6 +150,8 @@ types:
       id: { $ref: 'scalars.yaml#/OfferId' }
       name: { $ref: 'scalars.yaml#/OfferName' }
       price: { $ref: 'entities.yaml#/Money' }
+      uberPrice: { $ref: 'entities.yaml#/Money', nullable: true }   # product-level Uber comparison (ADR-0022): estimated (coefficient×price) or real; null if no cuisine
+      uberPriceBasis: { $ref: 'scalars.yaml#/ComparisonBasis', nullable: true }   # ESTIMATED (V0) or REAL (opt-in + HubRise)
       availability: { $ref: 'scalars.yaml#/CatalogItemAvailability' }
       stockStatus: { $ref: 'scalars.yaml#/StockStatus' }   # DERIVED (quantity vs lowStockThreshold)
       optionListIds: { $ref: 'scalars.yaml#/OptionListId', array: true }
@@ -236,6 +241,24 @@ types:
       buyerShare: { type: number }
       marginLow: { type: number }
       marginHigh: { type: number }
+      effectiveFrom: { type: string, format: date-time }
+  UberEstimationPolicy:
+    description: "Calibratable per-cuisine Uber Eats mark-up coefficient (ADR-0024/0030); admin/transparency."
+    reads: [{ $ref: 'views.yaml#/View_UberEstimationPolicy' }]
+    properties:
+      cuisineCategory: { $ref: 'scalars.yaml#/CuisineCategory' }
+      priceCoefficient: { type: number }
+      effectiveFrom: { type: string, format: date-time }
+  UberSplitPolicy:
+    description: "Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025/0030); admin/transparency."
+    reads: [{ $ref: 'views.yaml#/View_UberSplitPolicy' }]
+    properties:
+      currency: { $ref: 'scalars.yaml#/CurrencyCode' }
+      uberCommissionPct: { type: number }
+      riderBaseCents: { type: integer }
+      riderPerKmCents: { type: integer }
+      avgDeliveryFeeCents: { type: integer }
+      platformFeePct: { type: number }
       effectiveFrom: { type: string, format: date-time }
 
 # --- Reads (queries) ------------------------------------------------------------------------------
@@ -372,6 +395,18 @@ queries:
   pricingPolicy:
     description: "The active Captain service-fee policy (admin; calibration/transparency)."
     returns: { $ref: '#/types/PricingPolicy', array: true }
+    roles: [ADMIN]
+    slice: V1
+
+  uberEstimationPolicy:
+    description: "The active per-cuisine Uber Eats mark-up coefficients (admin; calibration/transparency)."
+    returns: { $ref: '#/types/UberEstimationPolicy', array: true }
+    roles: [ADMIN]
+    slice: V1
+
+  uberSplitPolicy:
+    description: "The active Uber Eats split/fee assumptions for the estimated comparison (admin; calibration/transparency)."
+    returns: { $ref: '#/types/UberSplitPolicy', array: true }
     roles: [ADMIN]
     slice: V1
 

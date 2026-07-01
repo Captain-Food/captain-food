@@ -140,6 +140,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `description` | `text` | `TEXT` | nullable | ⚠️ HOLE: no event carries a restaurant description — nothing populates this column yet. |
 | `tags` | `jsonb` | `JSONB` | nullable | Cuisine/attribute tags — general restaurant info (source-agnostic), not from the GBP event. |
 | `margin_rate` | `MarginPercent` | `TEXT` | nullable | Food margin %, input to the Captain service-fee split (ADR-0017); back-office only. |
+| `cuisine_category` | `CuisineCategory` | `TEXT` | nullable | Selects the Uber Eats price-estimate coefficient in View_UberEstimationPolicy (ADR-0024). |
+| `uber_prices_opt_in` | `boolean` | `BOOLEAN` | nullable | Restaurant authorized showing its real Uber prices via HubRise (ADR-0023). Gates REAL vs ESTIMATED basis. |
 | `website` | `WebUrl` | `TEXT` | nullable |  |
 | `rating` | `GoogleRating` | `TEXT` | nullable | GBP-specific metric (Google listing), independent of the restaurant's own info. |
 | `reviews_count` | `integer` | `INTEGER` | nullable |  |
@@ -221,10 +223,38 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `margin_high` | `numeric` | `NUMERIC` | — | Upper bound of the margin band for score_margin (e.g. 70.0). |
 | `effective_from` | `timestamptz` | `TIMESTAMPTZ` | — | When this policy row took effect (audit / calibration history). |
 
+### `View_UberEstimationPolicy` · 🛶 V0 · 📦 reference (static seed)
+
+- **Reference data**: seeded at deploy time (not event-fed).
+- **Rules**: Seeded with ADR-0024 indicative coefficients: FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40, BISTRONOMIC 1.45, FOOD_TRUCK 1.35. Estimates are always labelled; calibrate before launch.
+- **Note**: Per-cuisine Uber Eats price mark-up coefficient (ADR-0024). One row per CuisineCategory.
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `cuisine_category` | `CuisineCategory` | `TEXT` | PK |  |
+| `price_coefficient` | `numeric` | `NUMERIC` | — | Multiplier applied to Captain food prices to estimate the Uber Eats food price (e.g. 1.35). |
+| `effective_from` | `timestamptz` | `TIMESTAMPTZ` | — | When this coefficient row took effect (calibration history). |
+
+### `View_UberSplitPolicy` · 🛶 V0 · 📦 reference (static seed)
+
+- **Reference data**: seeded at deploy time (not event-fed).
+- **Rules**: Seeded with ADR-0024/0025 indicative values: uber_commission_pct 30.0, rider_base_cents 285, rider_per_km_cents 80, avg_delivery_fee_cents 399, platform_fee_pct 10.0. Estimated figures are always labelled. Estimated split (per ADR-0025): uberFood = coefficient·articles; restaurantShare = uberFood·(1 − uber_commission_pct/100); riderShare ≈ rider_base_cents (per-km term omitted — distance not modelled in V0); total = uberFood + avg_delivery_fee_cents + platform fee; platformShare = total − restaurantShare − riderShare.
+- **Note**: Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025). Single active row per currency.
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `currency` | `CurrencyCode` | `TEXT` | PK |  |
+| `uber_commission_pct` | `numeric` | `NUMERIC` | — | Uber Eats restaurant commission % (e.g. 30.0); restaurantShare = uberFood·(1 − this/100). |
+| `rider_base_cents` | `integer` | `INTEGER` | — | Assumed courier base per trip in cents (e.g. 285 = €2.85). |
+| `rider_per_km_cents` | `integer` | `INTEGER` | — | Assumed courier per-km rate in cents (e.g. 80). Not applied in V0 (distance not modelled). |
+| `avg_delivery_fee_cents` | `integer` | `INTEGER` | — | Assumed buyer-facing Uber delivery fee in cents (e.g. 399 = €3.99 urban). |
+| `platform_fee_pct` | `numeric` | `NUMERIC` | — | Assumed extra platform/service fee % added to the buyer total (e.g. 10.0). |
+| `effective_from` | `timestamptz` | `TIMESTAMPTZ` | — | When this policy row took effect (calibration history). |
+
 ### `View_Catalog` · 🛶 V0 · source aggregate `Catalog`
 
 - **Fed by**: `CatalogCreated`, `CatalogCategoryAdded`, `CatalogCategoryUpdated`, `CatalogCategoryRemoved`, `ProductAdded`, `ProductUpdated`, `ProductRemoved`, `OptionListAdded`, `OptionListUpdated`, `OptionListRemoved`, `OfferStockUpdated`, `CatalogImported`
-- **Rules**: `stock_status` is derived (quantity vs lowStockThreshold); orderable = AVAILABLE and stock > 0. Could be normalized (one row per offer) if per-item querying is needed later.
+- **Rules**: `stock_status` is derived (quantity vs lowStockThreshold); orderable = AVAILABLE and stock > 0. Could be normalized (one row per offer) if per-item querying is needed later. Each offer carries a derived `uberPrice` { amountCents, currency } + `uberPriceBasis` for the product-level comparison (ADR-0022): ESTIMATED = View_UberEstimationPolicy[restaurant.cuisine_category].price_coefficient × offer price (null when the restaurant has no cuisine_category); REAL = the restaurant's own Uber price when uber_prices_opt_in and a HubRise Uber menu is present (ingestion deferred — runtime). Always labelled.
 
 | Column | Type | SQL | Constraints | Notes |
 | --- | --- | --- | --- | --- |
@@ -232,13 +262,13 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `restaurant_id` | `RestaurantId` | `UUID` | index |  |
 | `slug` | `Slug` | `TEXT` | — | ⚠️ HOLE: CatalogCreated carries no slug — nothing populates this column (drop it or add slug to the event). |
 | `name` | `CatalogName` | `TEXT` | — |  |
-| `catalog` | `jsonb` | `JSONB` | — | Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status } + option lists. |
+| `catalog` | `jsonb` | `JSONB` | — | Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status, uberPrice?, uberPriceBasis? } + option lists. See rules for how uberPrice is derived (ADR-0022/0024). |
 | `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
 
 ### `View_Cart` · 🛶 V0 · source aggregate `Cart`
 
 - **Fed by**: `CartStarted`, `CartLineAdded`, `CartLineQuantityChanged`, `CartLineRemoved`, `CartCheckedOut`, `CustomerIdentified`
-- **Rules**: Prices are computed by the projection from the current catalog, never trusted from the client. `customer_id` is NULL while the cart is owned by a guest; bound when CustomerIdentified resolves authRef → customerId, or at checkout. `estimated_breakdown` applies View_PricingPolicy (fee_rate/buyer_share/margin band) + the restaurant's margin_rate to the food total: serviceFee_buyer = buyer_share·fee_rate·articles; restaurantContribution = (1−buyer_share)·clamp((margin−margin_low)/(margin_high−margin_low),0,1)·fee_rate·articles; total = articles + delivery + serviceFee_buyer. Recomputed authoritatively on OrderPlaced.breakdown.
+- **Rules**: Prices are computed by the projection from the current catalog, never trusted from the client. `customer_id` is NULL while the cart is owned by a guest; bound when CustomerIdentified resolves authRef → customerId, or at checkout. `estimated_breakdown` applies View_PricingPolicy (fee_rate/buyer_share/margin band) + the restaurant's margin_rate to the food total: serviceFee_buyer = buyer_share·fee_rate·articles; restaurantContribution = (1−buyer_share)·clamp((margin−margin_low)/(margin_high−margin_low),0,1)·fee_rate·articles; total = articles + delivery + serviceFee_buyer. Recomputed authoritatively on OrderPlaced.breakdown. `uber_comparison` is the UberComparison (ADR-0022/0025), COMPUTED by the projection from the cart food total + View_UberEstimationPolicy[restaurant.cuisine_category] + View_UberSplitPolicy. Null when the restaurant has no cuisine_category. Basis ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred).
 - **Note**: Joined with the catalog for pricing (secondary source).
 
 | Column | Type | SQL | Constraints | Notes |
@@ -251,12 +281,13 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `total_amount_cents` | `MoneyCents` | `BIGINT` | — | COMPUTED by the projection from the live catalog (never trusted from the client). |
 | `currency` | `CurrencyCode` | `TEXT` | — | From the catalog currency at pricing time (the restaurant's default_currency). |
 | `estimated_breakdown` | `jsonb` | `JSONB` | nullable | ESTIMATED PaymentBreakdown for the checkout display (ADR-0018), COMPUTED by the projection from the cart food total + View_PricingPolicy + the restaurant margin_rate. Same shape as OrderPlaced.breakdown; recomputed on the final order. |
+| `uber_comparison` | `jsonb` | `JSONB` | nullable | UberComparison for the cart-level comparison (ADR-0022/0025), COMPUTED by the projection (see rules). Null when the restaurant has no cuisine_category. |
 | `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
 
 ### `View_OrderTracking` · 🛶 V0 · source aggregate `Order`
 
 - **Fed by**: `OrderPlaced`, `OrderAcceptedByRestaurant`, `OrderPreparationStarted`, `OrderMarkedReady`, `OrderDelivered`, `OrderRejectedByRestaurant`, `OrderCancelledByCustomer`, `OrderCancelledByRestaurant`, `PaymentCaptured`, `PaymentRefunded`, `OrderRated`, `RestaurantRated`, `OrderTipped`
-- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals.
+- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals. `uber_*` columns are the estimated Uber Eats comparison for the pedagogical receipt (ADR-0025), COMPUTED by the projection from breakdown.articles + the restaurant's cuisine_category → View_UberEstimationPolicy.price_coefficient + View_UberSplitPolicy. uber_total = coefficient·articles + avg_delivery_fee + platform fee; uber_restaurant = coefficient·articles·(1−uber_commission_pct/100); uber_rider ≈ rider_base_cents (per-km omitted, distance not modelled); uber_platform = uber_total − uber_restaurant − uber_rider. All null when the restaurant has no cuisine_category. uber_basis is ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred). Contrast against the exact Captain split (restaurant_payout/rider_payout/captain_net).
 - **Note**: The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status (back-office queue) — via the indexes below; there is no separate per-persona order projection.
 
 - **Indexes**: `(restaurant_id, status, placed_at)`
@@ -278,6 +309,11 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `restaurant_payout_cents` | `MoneyCents` | `BIGINT` | — | breakdown.restaurantPayout.amountCents (3-way split → restaurant). |
 | `rider_payout_cents` | `MoneyCents` | `BIGINT` | — | breakdown.riderPayout.amountCents (3-way split → rider). |
 | `captain_net_cents` | `MoneyCents` | `BIGINT` | — | breakdown.captainNet.amountCents (kept by Captain; feeds Open-Collective totals). |
+| `uber_total_cents` | `MoneyCents` | `BIGINT` | nullable | DERIVED estimated Uber Eats all-in total for the same order (ADR-0025; see rules). Null if no cuisine_category. |
+| `uber_restaurant_cents` | `MoneyCents` | `BIGINT` | nullable | DERIVED estimated Uber restaurant net (after ~30% commission; see rules). |
+| `uber_rider_cents` | `MoneyCents` | `BIGINT` | nullable | DERIVED estimated Uber courier earning (base; per-km not modelled in V0; see rules). |
+| `uber_platform_cents` | `MoneyCents` | `BIGINT` | nullable | DERIVED estimated Uber platform take = uber_total − uber_restaurant − uber_rider. |
+| `uber_basis` | `ComparisonBasis` | `TEXT` | nullable | ESTIMATED (V0) or REAL (opted-in + HubRise Uber prices; deferred). Null if no comparison. |
 | `delivery_address` | `jsonb` | `JSONB` | nullable |  |
 | `estimated_ready_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
 | `placed_at` | `timestamptz` | `TIMESTAMPTZ` | — | OrderPlaced occurrence time. |

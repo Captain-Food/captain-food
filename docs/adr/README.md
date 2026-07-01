@@ -60,6 +60,7 @@ Concrete architecture/domain-model decisions taken while building the specs (Acc
 | [0027](0027-restaurant-pre-registration-prospection-model.md) | Restaurant pre-registration & prospection domain model (extend `Restaurant`, generic `externalIdentifiers`, dual-source ACLs, score in read model; rejects a separate `RestaurantDirectory` BC — dark kitchens) |
 | [0028](0028-pricing-3way-split-model.md) | Pricing & 3-way split model (`PaymentBreakdown` VO, reference `View_PricingPolicy`, restaurant `marginRate`, breakdown on OrderPlaced/Cart/Order; realizes 0016/0017/0018) |
 | [0029](0029-multi-recipient-tips-model.md) | Multi-recipient tips (`Tip`/`TipOrder`/`OrderTipped`, rider/restaurant/Captain, customer- or restaurant-tipper, additive, separate from the split; realizes kDrive ADR-012) |
+| [0030](0030-uber-eats-comparison-model.md) | Uber Eats price-comparison model (single primary `cuisineCategory` + two reference policies, estimate-default with opt-in `basis` for real HubRise prices, `UberComparison` on Offer/Cart/Order computed in projections, no scraping, no new commands/events; realizes 0022/0023/0024/0025) |
 
 ## Proposed (deferred until app/runtime code exists)
 

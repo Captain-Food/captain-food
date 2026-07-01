@@ -190,6 +190,19 @@ enum PriceRange {
   PREMIUM
 }
 
+enum CuisineCategory {
+  FAST_FOOD
+  PIZZA
+  TRADITIONAL
+  BISTRONOMIC
+  FOOD_TRUCK
+}
+
+enum ComparisonBasis {
+  ESTIMATED
+  REAL
+}
+
 enum RestaurantListKey {
   ORDER_AGAIN
   RECOMMENDED
@@ -232,6 +245,14 @@ type PaymentBreakdown {
   restaurantPayout: Money!
   riderPayout: Money!
   captainNet: Money!
+}
+
+type UberComparison {
+  total: Money!
+  restaurantShare: Money!
+  riderShare: Money!
+  platformShare: Money!
+  basis: ComparisonBasis!
 }
 
 type Tip {
@@ -334,6 +355,7 @@ type Restaurant {
   displayName: RestaurantDisplayName!
   description: String
   tags: [Tag!]!
+  cuisineCategory: CuisineCategory
   rating: GoogleRating
   reviewsCount: Int
   website: WebUrl
@@ -374,6 +396,7 @@ type Cart {
   lines: [OrderLineItem!]!
   totalAmount: Money!
   breakdown: PaymentBreakdown
+  uberComparison: UberComparison
   updatedAt: DateTime!
   restaurant: Restaurant!
 }
@@ -399,6 +422,7 @@ type Order {
   riderTip: Money
   restaurantTip: Money
   captainTip: Money
+  uberComparison: UberComparison
   ratedAt: DateTime
   restaurant: Restaurant!
 }
@@ -427,6 +451,8 @@ type Offer {
   id: OfferId!
   name: OfferName!
   price: Money!
+  uberPrice: Money
+  uberPriceBasis: ComparisonBasis
   availability: CatalogItemAvailability!
   stockStatus: StockStatus!
   optionListIds: [OptionListId!]!
@@ -505,6 +531,22 @@ type PricingPolicy {
   effectiveFrom: DateTime!
 }
 
+type UberEstimationPolicy {
+  cuisineCategory: CuisineCategory!
+  priceCoefficient: String!
+  effectiveFrom: DateTime!
+}
+
+type UberSplitPolicy {
+  currency: CurrencyCode!
+  uberCommissionPct: String!
+  riderBaseCents: Int!
+  riderPerKmCents: Int!
+  avgDeliveryFeeCents: Int!
+  platformFeePct: String!
+  effectiveFrom: DateTime!
+}
+
 # ==============================================================================
 # Input types (mutation command payloads + query args)
 # ==============================================================================
@@ -558,6 +600,8 @@ input RegisterRestaurantInput {
   website: WebUrl
   tags: [Tag!]
   marginRate: MarginPercent
+  cuisineCategory: CuisineCategory
+  uberPricesOptIn: Boolean
   address: AddressInput!
   location: GeoPointInput
   timezone: TimeZone
@@ -579,6 +623,8 @@ input UpdateRestaurantInput {
   website: WebUrl
   tags: [Tag!]
   marginRate: MarginPercent
+  cuisineCategory: CuisineCategory
+  uberPricesOptIn: Boolean
   address: AddressInput
   location: GeoPointInput
   timezone: TimeZone
@@ -1357,6 +1403,8 @@ type Query {
   restaurantLocationsByAccount(input: RestaurantLocationsByAccountQueryInput!): [Restaurant!]! @auth(requires: [ADMIN, RESTAURANT_ACCOUNT]) @reads(views: ["View_Restaurant"])
   prospectionPipeline(input: ProspectionPipelineQueryInput): [Prospect!]! @auth(requires: [ADMIN]) @reads(views: ["View_ProspectionPipeline"])
   pricingPolicy: [PricingPolicy!]! @auth(requires: [ADMIN]) @reads(views: ["View_PricingPolicy"])
+  uberEstimationPolicy: [UberEstimationPolicy!]! @auth(requires: [ADMIN]) @reads(views: ["View_UberEstimationPolicy"])
+  uberSplitPolicy: [UberSplitPolicy!]! @auth(requires: [ADMIN]) @reads(views: ["View_UberSplitPolicy"])
 }
 
 # ==============================================================================

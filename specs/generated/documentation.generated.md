@@ -49,6 +49,7 @@ An authenticated person who orders food via Captain.Food.
 |  | RemoveFromCart | [✏️ `removeCartLine`](#mutation-removecartline) |
 |  | ChangeCartLineQuantity | [✏️ `changeCartLineQuantity`](#mutation-changecartlinequantity) |
 |  | SeeCheckoutBreakdown | [🔎 `cart`](#query-cart) |
+|  | CompareWithUberEats | [🔎 `cart`](#query-cart) |
 |  | PlaceOrder | [✏️ `placeOrder`](#mutation-placeorder) |
 |  | TrackOrderStatus | [🔎 `order`](#query-order) |
 |  | RateOrder | [✏️ `rateOrder`](#mutation-rateorder) |
@@ -338,6 +339,7 @@ A restaurant (public discovery + single-restaurant header). Navigates to its cat
 | <a id="type-restaurant--displayname"></a>`displayName` | [🔤 `RestaurantDisplayName`](#scalar-restaurantdisplayname) | ✅ |
 | <a id="type-restaurant--description"></a>`description` | `string` | ⬜ |
 | <a id="type-restaurant--tags"></a>`tags` | [[🔤 `Tag`](#scalar-tag)] | ✅ |
+| <a id="type-restaurant--cuisinecategory"></a>`cuisineCategory` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ⬜ |
 | <a id="type-restaurant--rating"></a>`rating` | [🔤 `GoogleRating`](#scalar-googlerating) | ⬜ |
 | <a id="type-restaurant--reviewscount"></a>`reviewsCount` | `integer` | ⬜ |
 | <a id="type-restaurant--website"></a>`website` | [🔤 `WebUrl`](#scalar-weburl) | ⬜ |
@@ -452,6 +454,8 @@ _🧩 aggregate_ — Sales/CRM state of a NON_PARTNER restaurant listing worked 
 | `description` | `text` | ⚠️ _(none)_ | nullable | ⚠️ HOLE: no event carries a restaurant description — nothing populates this column yet. |
 | `tags` | `jsonb` | [⚡ `RestaurantRegistered`.`tags`](#event-restaurantregistered--tags), [⚡ `RestaurantUpdated`.`tags`](#event-restaurantupdated--tags) | nullable | Cuisine/attribute tags — general restaurant info (source-agnostic), not from the GBP event. |
 | `margin_rate` | [🔤 `MarginPercent`](#scalar-marginpercent) | [⚡ `RestaurantRegistered`.`marginRate`](#event-restaurantregistered--marginrate), [⚡ `RestaurantUpdated`.`marginRate`](#event-restaurantupdated--marginrate) | nullable | Food margin %, input to the Captain service-fee split (ADR-0017); back-office only. |
+| `cuisine_category` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | [⚡ `RestaurantRegistered`.`cuisineCategory`](#event-restaurantregistered--cuisinecategory), [⚡ `RestaurantUpdated`.`cuisineCategory`](#event-restaurantupdated--cuisinecategory) | nullable | Selects the Uber Eats price-estimate coefficient in View_UberEstimationPolicy (ADR-0024). |
+| `uber_prices_opt_in` | `boolean` | [⚡ `RestaurantRegistered`.`uberPricesOptIn`](#event-restaurantregistered--uberpricesoptin), [⚡ `RestaurantUpdated`.`uberPricesOptIn`](#event-restaurantupdated--uberpricesoptin) | nullable | Restaurant authorized showing its real Uber prices via HubRise (ADR-0023). Gates REAL vs ESTIMATED basis. |
 | `website` | [🔤 `WebUrl`](#scalar-weburl) | [⚡ `RestaurantRegistered`.`website`](#event-restaurantregistered--website), [⚡ `RestaurantUpdated`.`website`](#event-restaurantupdated--website) | nullable |  |
 | `rating` | [🔤 `GoogleRating`](#scalar-googlerating) | [⚡ `RestaurantGoogleBusinessProfileUpdated`.`rating`](#event-restaurantgooglebusinessprofileupdated--rating) | nullable | GBP-specific metric (Google listing), independent of the restaurant's own info. |
 | `reviews_count` | `integer` | [⚡ `RestaurantGoogleBusinessProfileUpdated`.`reviewsCount`](#event-restaurantgooglebusinessprofileupdated--reviewscount) | nullable |  |
@@ -557,6 +561,8 @@ The single, generic way to register a restaurant LOCATION. Used by an owner/admi
 | <a id="command-registerrestaurant--website"></a>`website` | [🔤 `WebUrl`](#scalar-weburl) | ⬜ |  |
 | <a id="command-registerrestaurant--tags"></a>`tags` | [[🔤 `Tag`](#scalar-tag)] | ⬜ |  |
 | <a id="command-registerrestaurant--marginrate"></a>`marginRate` | [🔤 `MarginPercent`](#scalar-marginpercent) | ⬜ | Food margin %, input to the service-fee split (ADR-0017). |
+| <a id="command-registerrestaurant--cuisinecategory"></a>`cuisineCategory` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ⬜ | Cuisine bucket; selects the Uber Eats price-estimate coefficient (ADR-0024). |
+| <a id="command-registerrestaurant--uberpricesoptin"></a>`uberPricesOptIn` | `boolean` | ⬜ | Authorize showing real Uber Eats prices for comparison (ADR-0023 opt-in). |
 | <a id="command-registerrestaurant--address"></a>`address` | [📦 `Address`](#entity-address) | ✅ |  |
 | <a id="command-registerrestaurant--location"></a>`location` | [📦 `GeoPoint`](#entity-geopoint) | ⬜ | Geo coordinates (typically from the Google Maps sync). |
 | <a id="command-registerrestaurant--timezone"></a>`timezone` | [🔤 `TimeZone`](#scalar-timezone) | ⬜ | Location timezone; falls back to the account timezone when absent. |
@@ -596,6 +602,8 @@ Admin edits one or more mutable LOCATION fields (full replace of provided fields
 | <a id="command-updaterestaurant--website"></a>`website` | [🔤 `WebUrl`](#scalar-weburl) | ⬜ |  |
 | <a id="command-updaterestaurant--tags"></a>`tags` | [[🔤 `Tag`](#scalar-tag)] | ⬜ |  |
 | <a id="command-updaterestaurant--marginrate"></a>`marginRate` | [🔤 `MarginPercent`](#scalar-marginpercent) | ⬜ |  |
+| <a id="command-updaterestaurant--cuisinecategory"></a>`cuisineCategory` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ⬜ | Cuisine bucket; selects the Uber Eats price-estimate coefficient (ADR-0024). |
+| <a id="command-updaterestaurant--uberpricesoptin"></a>`uberPricesOptIn` | `boolean` | ⬜ | Authorize showing real Uber Eats prices for comparison (ADR-0023 opt-in). |
 | <a id="command-updaterestaurant--address"></a>`address` | [📦 `Address`](#entity-address) | ⬜ |  |
 | <a id="command-updaterestaurant--location"></a>`location` | [📦 `GeoPoint`](#entity-geopoint) | ⬜ |  |
 | <a id="command-updaterestaurant--timezone"></a>`timezone` | [🔤 `TimeZone`](#scalar-timezone) | ⬜ |  |
@@ -866,6 +874,8 @@ A restaurant location has been registered. Covers every path: an owner/admin onb
 | <a id="event-restaurantregistered--website"></a>`website` | [🔤 `WebUrl`](#scalar-weburl) | ⬜ |  |
 | <a id="event-restaurantregistered--tags"></a>`tags` | [[🔤 `Tag`](#scalar-tag)] | ⬜ |  |
 | <a id="event-restaurantregistered--marginrate"></a>`marginRate` | [🔤 `MarginPercent`](#scalar-marginpercent) | ⬜ |  |
+| <a id="event-restaurantregistered--cuisinecategory"></a>`cuisineCategory` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ⬜ |  |
+| <a id="event-restaurantregistered--uberpricesoptin"></a>`uberPricesOptIn` | `boolean` | ⬜ |  |
 | <a id="event-restaurantregistered--address"></a>`address` | [📦 `Address`](#entity-address) | ✅ |  |
 | <a id="event-restaurantregistered--location"></a>`location` | [📦 `GeoPoint`](#entity-geopoint) | ⬜ |  |
 | <a id="event-restaurantregistered--timezone"></a>`timezone` | [🔤 `TimeZone`](#scalar-timezone) | ⬜ |  |
@@ -890,6 +900,8 @@ One or more editable LOCATION fields of a restaurant have changed.
 | <a id="event-restaurantupdated--website"></a>`website` | [🔤 `WebUrl`](#scalar-weburl) | ⬜ |  |
 | <a id="event-restaurantupdated--tags"></a>`tags` | [[🔤 `Tag`](#scalar-tag)] | ⬜ |  |
 | <a id="event-restaurantupdated--marginrate"></a>`marginRate` | [🔤 `MarginPercent`](#scalar-marginpercent) | ⬜ |  |
+| <a id="event-restaurantupdated--cuisinecategory"></a>`cuisineCategory` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ⬜ |  |
+| <a id="event-restaurantupdated--uberpricesoptin"></a>`uberPricesOptIn` | `boolean` | ⬜ |  |
 | <a id="event-restaurantupdated--address"></a>`address` | [📦 `Address`](#entity-address) | ⬜ |  |
 | <a id="event-restaurantupdated--location"></a>`location` | [📦 `GeoPoint`](#entity-geopoint) | ⬜ |  |
 | <a id="event-restaurantupdated--timezone"></a>`timezone` | [🔤 `TimeZone`](#scalar-timezone) | ⬜ |  |
@@ -1191,6 +1203,8 @@ A single restaurant location (HubRise: location); belongs to a RestaurantAccount
 | <a id="entity-restaurant--website"></a>`website` | [🔤 `WebUrl`](#scalar-weburl) | ⬜ | Restaurant website (general restaurant info; any source may provide it). |
 | <a id="entity-restaurant--tags"></a>`tags` | [[🔤 `Tag`](#scalar-tag)] | ⬜ | Cuisine/attribute tags (general restaurant info; source-agnostic). |
 | <a id="entity-restaurant--marginrate"></a>`marginRate` | [🔤 `MarginPercent`](#scalar-marginpercent) | ⬜ | Food margin %, input to the Captain service-fee split (ADR-0017); null → 0 restaurant contribution. |
+| <a id="entity-restaurant--cuisinecategory"></a>`cuisineCategory` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ⬜ | SINGLE primary cuisine, selects the Uber Eats estimate coefficient (ADR-0024); null → no estimate. Multi-cuisine discovery lives in `tags`. |
+| <a id="entity-restaurant--uberpricesoptin"></a>`uberPricesOptIn` | `boolean` | ⬜ | The restaurant authorized showing its real Uber Eats prices for comparison (ADR-0023 opt-in). Null/false → estimate only. |
 | <a id="entity-restaurant--address"></a>`address` | [📦 `Address`](#entity-address) | ✅ |  |
 | <a id="entity-restaurant--location"></a>`location` | [📦 `GeoPoint`](#entity-geopoint) | ⬜ | Geo coordinates (general restaurant info; typically from the Google Maps sync). |
 | <a id="entity-restaurant--status"></a>`status` | [🔤 `RestaurantStatus`](#scalar-restaurantstatus) | ✅ |  |
@@ -1201,7 +1215,7 @@ A single restaurant location (HubRise: location); belongs to a RestaurantAccount
 | <a id="entity-restaurant--createdby"></a>`createdBy` | [🔤 `UserId`](#scalar-userid) | ✅ |  |
 | <a id="entity-restaurant--createdat"></a>`createdAt` | `string` _date-time_ | ✅ |  |
 
-### 🔤 Scalars _(21)_
+### 🔤 Scalars _(22)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
@@ -1225,6 +1239,7 @@ A single restaurant location (HubRise: location); belongs to a RestaurantAccount
 | <a id="scalar-outreachchannel"></a>🔤 `OutreachChannel` | enum (EMAIL \| SLACK \| PHONE) | Channel of a prospection contact (email via Resend, Slack alert, or phone). |
 | <a id="scalar-orderacceptancemode"></a>🔤 `OrderAcceptanceMode` | enum (NORMAL \| BUSY \| PAUSED) | Current order acceptance mode of a restaurant (HubRise: order_acceptance). |
 | <a id="scalar-pricerange"></a>🔤 `PriceRange` | enum (BUDGET \| MODERATE \| PREMIUM) | Coarse price tier of a restaurant, used as a discovery filter (UI: $ / $$ / $$$). |
+| <a id="scalar-cuisinecategory"></a>🔤 `CuisineCategory` | enum (FAST_FOOD \| PIZZA \| TRADITIONAL \| BISTRONOMIC \| FOOD_TRUCK) | A restaurant's SINGLE primary/representative cuisine bucket, used only to select ONE Uber Eats mark-up coefficient in View_UberEstimationPolicy (ADR-0024): FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40, BISTRONOMIC 1.45, FOOD_TRUCK 1.35. NOT for discovery — a restaurant may belong to several cuisines for browsing/filtering; that is the multi-valued `Restaurant.tags`. This is deliberately one value because the estimate needs a single coefficient.  |
 | <a id="scalar-restaurantlistkey"></a>🔤 `RestaurantListKey` | enum (ORDER_AGAIN \| RECOMMENDED \| TOP_DEALS \| GREEN_PACKAGING) | Named, read-side-curated/personalized discovery shelf for the restaurants query. The read model resolves the actual member restaurants (editorial rules / customer history); the client just asks for a list by key.  |
 
 ### ⛔ Errors _(12)_
@@ -1737,7 +1752,7 @@ _🧩 aggregate_ — A restaurant catalog: catalog, category tree, products, off
 #### 🗄️ View: `View_Catalog`
 
 - **Source**: [🎭 `Catalog`](#actor-catalog) · 🛶 V0
-- **Rules**: `stock_status` is derived (quantity vs lowStockThreshold); orderable = AVAILABLE and stock > 0. Could be normalized (one row per offer) if per-item querying is needed later.
+- **Rules**: `stock_status` is derived (quantity vs lowStockThreshold); orderable = AVAILABLE and stock > 0. Could be normalized (one row per offer) if per-item querying is needed later. Each offer carries a derived `uberPrice` { amountCents, currency } + `uberPriceBasis` for the product-level comparison (ADR-0022): ESTIMATED = View_UberEstimationPolicy[restaurant.cuisine_category].price_coefficient × offer price (null when the restaurant has no cuisine_category); REAL = the restaurant's own Uber price when uber_prices_opt_in and a HubRise Uber menu is present (ingestion deferred — runtime). Always labelled.
 - **Fed by**: [⚡ `CatalogCreated`](#event-catalogcreated), [⚡ `CatalogCategoryAdded`](#event-catalogcategoryadded), [⚡ `CatalogCategoryUpdated`](#event-catalogcategoryupdated), [⚡ `CatalogCategoryRemoved`](#event-catalogcategoryremoved), [⚡ `ProductAdded`](#event-productadded), [⚡ `ProductUpdated`](#event-productupdated), [⚡ `ProductRemoved`](#event-productremoved), [⚡ `OptionListAdded`](#event-optionlistadded), [⚡ `OptionListUpdated`](#event-optionlistupdated), [⚡ `OptionListRemoved`](#event-optionlistremoved), [⚡ `OfferStockUpdated`](#event-offerstockupdated), [⚡ `CatalogImported`](#event-catalogimported)
 
 | Column | Type | Sourced from | Constraints | Notes |
@@ -1746,7 +1761,7 @@ _🧩 aggregate_ — A restaurant catalog: catalog, category tree, products, off
 | `restaurant_id` | [🔤 `RestaurantId`](#scalar-restaurantid) _(derived)_ → [🗄️ `View_Restaurant`](#view-view_restaurant) | [⚡ `CatalogCreated`.`restaurantId`](#event-catalogcreated--restaurantid) | index |  |
 | `slug` | [🔤 `Slug`](#scalar-slug) | ⚠️ _(none)_ | — | ⚠️ HOLE: CatalogCreated carries no slug — nothing populates this column (drop it or add slug to the event). |
 | `name` | [🔤 `CatalogName`](#scalar-catalogname) _(derived)_ | [⚡ `CatalogCreated`.`name`](#event-catalogcreated--name) | — |  |
-| `catalog` | `jsonb` | [⚡ `CatalogCategoryAdded`](#event-catalogcategoryadded), [⚡ `CatalogCategoryUpdated`](#event-catalogcategoryupdated), [⚡ `CatalogCategoryRemoved`](#event-catalogcategoryremoved), [⚡ `ProductAdded`](#event-productadded), [⚡ `ProductUpdated`](#event-productupdated), [⚡ `ProductRemoved`](#event-productremoved), [⚡ `OptionListAdded`](#event-optionlistadded), [⚡ `OptionListUpdated`](#event-optionlistupdated), [⚡ `OptionListRemoved`](#event-optionlistremoved), [⚡ `OfferStockUpdated`](#event-offerstockupdated), [⚡ `CatalogImported`](#event-catalogimported) | — | Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status } + option lists. |
+| `catalog` | `jsonb` | [⚡ `CatalogCategoryAdded`](#event-catalogcategoryadded), [⚡ `CatalogCategoryUpdated`](#event-catalogcategoryupdated), [⚡ `CatalogCategoryRemoved`](#event-catalogcategoryremoved), [⚡ `ProductAdded`](#event-productadded), [⚡ `ProductUpdated`](#event-productupdated), [⚡ `ProductRemoved`](#event-productremoved), [⚡ `OptionListAdded`](#event-optionlistadded), [⚡ `OptionListUpdated`](#event-optionlistupdated), [⚡ `OptionListRemoved`](#event-optionlistremoved), [⚡ `OfferStockUpdated`](#event-offerstockupdated), [⚡ `CatalogImported`](#event-catalogimported) | — | Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status, uberPrice?, uberPriceBasis? } + option lists. See rules for how uberPrice is derived (ADR-0022/0024). |
 | `updated_at` | `timestamptz` | [⚡ `CatalogCreated`](#event-catalogcreated), [⚡ `CatalogImported`](#event-catalogimported) | — | Row write time, stamped on each event. |
 
 ### 📩 Commands _(12)_
@@ -2651,6 +2666,7 @@ A customer's in-progress selection for a single restaurant (priced by the projec
 | <a id="type-cart--lines"></a>`lines` | [[📦 `OrderLineItem`](#entity-orderlineitem)] | ✅ |
 | <a id="type-cart--totalamount"></a>`totalAmount` | [📦 `Money`](#entity-money) | ✅ |
 | <a id="type-cart--breakdown"></a>`breakdown` | [📦 `PaymentBreakdown`](#entity-paymentbreakdown) | ⬜ |
+| <a id="type-cart--ubercomparison"></a>`uberComparison` | [📦 `UberComparison`](#entity-ubercomparison) | ⬜ |
 | <a id="type-cart--updatedat"></a>`updatedAt` | `string` _date-time_ | ✅ |
 
 <a id="type-order"></a>
@@ -2682,6 +2698,7 @@ An order with its tracking status and payment state.
 | <a id="type-order--ridertip"></a>`riderTip` | [📦 `Money`](#entity-money) | ⬜ |
 | <a id="type-order--restauranttip"></a>`restaurantTip` | [📦 `Money`](#entity-money) | ⬜ |
 | <a id="type-order--captaintip"></a>`captainTip` | [📦 `Money`](#entity-money) | ⬜ |
+| <a id="type-order--ubercomparison"></a>`uberComparison` | [📦 `UberComparison`](#entity-ubercomparison) | ⬜ |
 | <a id="type-order--ratedat"></a>`ratedAt` | `string` _date-time_ | ⬜ |
 
 ### 🎭 Actors _(4)_
@@ -2749,7 +2766,7 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 
 - **Source**: [🎭 `Cart`](#actor-cart) · 🛶 V0
 - **Note**: Joined with the catalog for pricing (secondary source).
-- **Rules**: Prices are computed by the projection from the current catalog, never trusted from the client. `customer_id` is NULL while the cart is owned by a guest; bound when CustomerIdentified resolves authRef → customerId, or at checkout. `estimated_breakdown` applies View_PricingPolicy (fee_rate/buyer_share/margin band) + the restaurant's margin_rate to the food total: serviceFee_buyer = buyer_share·fee_rate·articles; restaurantContribution = (1−buyer_share)·clamp((margin−margin_low)/(margin_high−margin_low),0,1)·fee_rate·articles; total = articles + delivery + serviceFee_buyer. Recomputed authoritatively on OrderPlaced.breakdown.
+- **Rules**: Prices are computed by the projection from the current catalog, never trusted from the client. `customer_id` is NULL while the cart is owned by a guest; bound when CustomerIdentified resolves authRef → customerId, or at checkout. `estimated_breakdown` applies View_PricingPolicy (fee_rate/buyer_share/margin band) + the restaurant's margin_rate to the food total: serviceFee_buyer = buyer_share·fee_rate·articles; restaurantContribution = (1−buyer_share)·clamp((margin−margin_low)/(margin_high−margin_low),0,1)·fee_rate·articles; total = articles + delivery + serviceFee_buyer. Recomputed authoritatively on OrderPlaced.breakdown. `uber_comparison` is the UberComparison (ADR-0022/0025), COMPUTED by the projection from the cart food total + View_UberEstimationPolicy[restaurant.cuisine_category] + View_UberSplitPolicy. Null when the restaurant has no cuisine_category. Basis ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred).
 - **Fed by**: [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved), [⚡ `CartCheckedOut`](#event-cartcheckedout), [⚡ `CustomerIdentified`](#event-customeridentified)
 
 | Column | Type | Sourced from | Constraints | Notes |
@@ -2762,6 +2779,7 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `total_amount_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved) | — | COMPUTED by the projection from the live catalog (never trusted from the client). |
 | `currency` | [🔤 `CurrencyCode`](#scalar-currencycode) | [⚡ `CartLineAdded`](#event-cartlineadded) | — | From the catalog currency at pricing time (the restaurant's default_currency). |
 | `estimated_breakdown` | `jsonb` | [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved) | nullable | ESTIMATED PaymentBreakdown for the checkout display (ADR-0018), COMPUTED by the projection from the cart food total + View_PricingPolicy + the restaurant margin_rate. Same shape as OrderPlaced.breakdown; recomputed on the final order. |
+| `uber_comparison` | `jsonb` | [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved) | nullable | UberComparison for the cart-level comparison (ADR-0022/0025), COMPUTED by the projection (see rules). Null when the restaurant has no cuisine_category. |
 | `updated_at` | `timestamptz` | [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved), [⚡ `CartCheckedOut`](#event-cartcheckedout) | — | Row write time, stamped on each event. |
 
 <a id="view-view_ordertracking"></a>
@@ -2769,7 +2787,7 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 
 - **Source**: [🎭 `Order`](#actor-order) · 🛶 V0
 - **Note**: The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status (back-office queue) — via the indexes below; there is no separate per-persona order projection. 
-- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals.
+- **Rules**: `payment_status` is folded from the Stripe payment facts. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals. `uber_*` columns are the estimated Uber Eats comparison for the pedagogical receipt (ADR-0025), COMPUTED by the projection from breakdown.articles + the restaurant's cuisine_category → View_UberEstimationPolicy.price_coefficient + View_UberSplitPolicy. uber_total = coefficient·articles + avg_delivery_fee + platform fee; uber_restaurant = coefficient·articles·(1−uber_commission_pct/100); uber_rider ≈ rider_base_cents (per-km omitted, distance not modelled); uber_platform = uber_total − uber_restaurant − uber_rider. All null when the restaurant has no cuisine_category. uber_basis is ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred). Contrast against the exact Captain split (restaurant_payout/rider_payout/captain_net).
 - **Fed by**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant), [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted), [⚡ `OrderMarkedReady`](#event-ordermarkedready), [⚡ `OrderDelivered`](#event-orderdelivered), [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant), [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer), [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant), [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentRefunded`](#event-paymentrefunded), [⚡ `OrderRated`](#event-orderrated), [⚡ `RestaurantRated`](#event-restaurantrated), [⚡ `OrderTipped`](#event-ordertipped)
 
 | Column | Type | Sourced from | Constraints | Notes |
@@ -2789,6 +2807,11 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `restaurant_payout_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | — | breakdown.restaurantPayout.amountCents (3-way split → restaurant). |
 | `rider_payout_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | — | breakdown.riderPayout.amountCents (3-way split → rider). |
 | `captain_net_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | — | breakdown.captainNet.amountCents (kept by Captain; feeds Open-Collective totals). |
+| `uber_total_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | nullable | DERIVED estimated Uber Eats all-in total for the same order (ADR-0025; see rules). Null if no cuisine_category. |
+| `uber_restaurant_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | nullable | DERIVED estimated Uber restaurant net (after ~30% commission; see rules). |
+| `uber_rider_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | nullable | DERIVED estimated Uber courier earning (base; per-km not modelled in V0; see rules). |
+| `uber_platform_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | nullable | DERIVED estimated Uber platform take = uber_total − uber_restaurant − uber_rider. |
+| `uber_basis` | [🔤 `ComparisonBasis`](#scalar-comparisonbasis) | [⚡ `OrderPlaced`.`breakdown`](#event-orderplaced--breakdown) | nullable | ESTIMATED (V0) or REAL (opted-in + HubRise Uber prices; deferred). Null if no comparison. |
 | `delivery_address` | `jsonb` _(derived)_ | [⚡ `OrderPlaced`.`deliveryAddress`](#event-orderplaced--deliveryaddress) | nullable |  |
 | `estimated_ready_at` | `timestamptz` _(derived)_ | [⚡ `OrderAcceptedByRestaurant`.`estimatedReadyAt`](#event-orderacceptedbyrestaurant--estimatedreadyat) | nullable |  |
 | `placed_at` | `timestamptz` | [⚡ `OrderPlaced`](#event-orderplaced) | — | OrderPlaced occurrence time. |
@@ -3365,7 +3388,7 @@ A captured payment was refunded (e.g. after rejection or cancellation).
 | <a id="event-paymentrefunded--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |  |
 | <a id="event-paymentrefunded--reason"></a>`reason` | `string` | ⬜ |  |
 
-### 📦 Entities _(9)_
+### 📦 Entities _(10)_
 
 <a id="entity-money"></a>
 #### 📦 Entity: `Money`
@@ -3392,6 +3415,19 @@ The order's money breakdown, computed server-side by PlaceOrderProcess (ADR-0016
 | <a id="entity-paymentbreakdown--restaurantpayout"></a>`restaurantPayout` | [📦 `Money`](#entity-money) | ✅ | Transfer to the restaurant Connect account = articles − restaurantContribution. |
 | <a id="entity-paymentbreakdown--riderpayout"></a>`riderPayout` | [📦 `Money`](#entity-money) | ✅ | Transfer to the rider Connect account = delivery. |
 | <a id="entity-paymentbreakdown--captainnet"></a>`captainNet` | [📦 `Money`](#entity-money) | ✅ | Kept on the Captain platform account = serviceFee + restaurantContribution (gross of Stripe). |
+
+<a id="entity-ubercomparison"></a>
+#### 📦 Entity: `UberComparison`
+
+What the same order would cost — and how it would be split — on Uber Eats, for the pedagogical comparison (ADR-0022/0025). `basis` says whether these are the restaurant's REAL Uber prices (shared via HubRise opt-in, ADR-0023) or a labelled ESTIMATE (coefficient-based, ADR-0024). Estimated split: restaurantShare = uberFood × (1 − uber_commission); riderShare ≈ rider_base (+/km, not modelled in V0); platformShare = total − restaurantShare − riderShare. The client derives "you save" = captainTotal − total.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="entity-ubercomparison--total"></a>`total` | [📦 `Money`](#entity-money) | ✅ | Estimated (or real) all-in Uber Eats price for the same order. |
+| <a id="entity-ubercomparison--restaurantshare"></a>`restaurantShare` | [📦 `Money`](#entity-money) | ✅ | What the restaurant would net on Uber (after its ~30% commission). |
+| <a id="entity-ubercomparison--ridershare"></a>`riderShare` | [📦 `Money`](#entity-money) | ✅ | What the courier would earn on Uber (base + per-km; per-km not modelled in V0). |
+| <a id="entity-ubercomparison--platformshare"></a>`platformShare` | [📦 `Money`](#entity-money) | ✅ | What Uber Eats would keep = total − restaurantShare − riderShare. |
+| <a id="entity-ubercomparison--basis"></a>`basis` | [🔤 `ComparisonBasis`](#scalar-comparisonbasis) | ✅ | REAL (HubRise opt-in) or ESTIMATED (labelled). V0 shows ESTIMATED. |
 
 <a id="entity-tip"></a>
 #### 📦 Entity: `Tip`
@@ -3480,7 +3516,7 @@ An option chosen by the customer on a line item, priced at order time.
 | <a id="entity-order--status"></a>`status` | [🔤 `OrderStatus`](#scalar-orderstatus) | ✅ |  |
 | <a id="entity-order--note"></a>`note` | [🔤 `OrderNote`](#scalar-ordernote) | ⬜ |  |
 
-### 🔤 Scalars _(17)_
+### 🔤 Scalars _(18)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
@@ -3501,6 +3537,7 @@ An option chosen by the customer on a line item, priced at order time.
 | <a id="scalar-tipper"></a>🔤 `Tipper` | enum (CUSTOMER \| RESTAURANT) | Who gives a tip: the CUSTOMER (may tip rider/restaurant/Captain) or the RESTAURANT (may tip rider/ Captain — e.g. thanking the courier). Derived server-side from the caller's role, not client-supplied.  |
 | <a id="scalar-cartstatus"></a>🔤 `CartStatus` | enum (OPEN \| CHECKED_OUT) | Lifecycle of a cart. Only an OPEN cart accepts line edits or checkout. Carts are never abandoned/expired — they persist until checked out, so there is no abandonment state.  |
 | <a id="scalar-paymentstatus"></a>🔤 `PaymentStatus` | enum (PENDING \| CAPTURED \| FAILED \| REFUNDED) | Order payment state, folded from Stripe facts (PaymentIntentCreated/Captured/Failed/Refunded). |
+| <a id="scalar-comparisonbasis"></a>🔤 `ComparisonBasis` | enum (ESTIMATED \| REAL) | Provenance of an Uber Eats comparison amount: REAL (the restaurant's own Uber prices, shared via HubRise after explicit opt-in — ADR-0023) or ESTIMATED (coefficient-based, always labelled — ADR-0024).  |
 
 ### ⛔ Errors _(18)_
 
@@ -4808,7 +4845,7 @@ _criticality: **high**_
 
 _Shared vocabulary and operations that span several bounded contexts (or belong to none)._
 
-### 🧰 API operations _(3)_
+### 🧰 API operations _(5)_
 
 <a id="query-operation"></a>
 #### 🔎 Query: `operation`
@@ -4828,6 +4865,24 @@ The active Captain service-fee policy (admin; calibration/transparency).
 - **Returns**: [🧩 `PricingPolicy`](#type-pricingpolicy) (list) · **reads** [🗄️ `View_PricingPolicy`](#view-view_pricingpolicy)
 - **Roles**: ADMIN · **slice** V1
 
+<a id="query-uberestimationpolicy"></a>
+#### 🔎 Query: `uberEstimationPolicy`
+
+The active per-cuisine Uber Eats mark-up coefficients (admin; calibration/transparency).
+
+- **Input**: _(none)_
+- **Returns**: [🧩 `UberEstimationPolicy`](#type-uberestimationpolicy) (list) · **reads** [🗄️ `View_UberEstimationPolicy`](#view-view_uberestimationpolicy)
+- **Roles**: ADMIN · **slice** V1
+
+<a id="query-ubersplitpolicy"></a>
+#### 🔎 Query: `uberSplitPolicy`
+
+The active Uber Eats split/fee assumptions for the estimated comparison (admin; calibration/transparency).
+
+- **Input**: _(none)_
+- **Returns**: [🧩 `UberSplitPolicy`](#type-ubersplitpolicy) (list) · **reads** [🗄️ `View_UberSplitPolicy`](#view-view_ubersplitpolicy)
+- **Roles**: ADMIN · **slice** V1
+
 <a id="subscription-operationstatuschanged"></a>
 #### 🔔 Subscription: [`operationStatusChanged`](#subscription-operationstatuschanged)
 
@@ -4837,7 +4892,7 @@ Operation status change events (for the owning customer or restaurant).
 - **Streams**: [🧩 `Operation`](#type-operation)
 - **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
 
-### 🧩 Output types _(9)_
+### 🧩 Output types _(11)_
 
 <a id="type-product"></a>
 #### 🧩 Type: `Product`
@@ -4869,6 +4924,8 @@ A purchasable offer (SKU) of a product, with its price and derived availability.
 | <a id="type-offer--id"></a>`id` | [🔤 `OfferId`](#scalar-offerid) | ✅ |
 | <a id="type-offer--name"></a>`name` | [🔤 `OfferName`](#scalar-offername) | ✅ |
 | <a id="type-offer--price"></a>`price` | [📦 `Money`](#entity-money) | ✅ |
+| <a id="type-offer--uberprice"></a>`uberPrice` | [📦 `Money`](#entity-money) | ⬜ |
+| <a id="type-offer--uberpricebasis"></a>`uberPriceBasis` | [🔤 `ComparisonBasis`](#scalar-comparisonbasis) | ⬜ |
 | <a id="type-offer--availability"></a>`availability` | [🔤 `CatalogItemAvailability`](#scalar-catalogitemavailability) | ✅ |
 | <a id="type-offer--stockstatus"></a>`stockStatus` | [🔤 `StockStatus`](#scalar-stockstatus) | ✅ |
 | <a id="type-offer--optionlistids"></a>`optionListIds` | [[🔤 `OptionListId`](#scalar-optionlistid)] | ✅ |
@@ -4978,7 +5035,37 @@ The calibratable Captain service-fee policy (ADR-0016/0017); admin/transparency.
 | <a id="type-pricingpolicy--marginhigh"></a>`marginHigh` | `number` | ✅ |
 | <a id="type-pricingpolicy--effectivefrom"></a>`effectiveFrom` | `string` _date-time_ | ✅ |
 
-### 🗄️ Views (read models) _(2)_
+<a id="type-uberestimationpolicy"></a>
+#### 🧩 Type: `UberEstimationPolicy`
+
+Calibratable per-cuisine Uber Eats mark-up coefficient (ADR-0024/0030); admin/transparency.
+
+- **Read model**: [🗄️ `View_UberEstimationPolicy`](#view-view_uberestimationpolicy)
+
+| Field | Type | Required |
+| --- | --- | --- |
+| <a id="type-uberestimationpolicy--cuisinecategory"></a>`cuisineCategory` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ✅ |
+| <a id="type-uberestimationpolicy--pricecoefficient"></a>`priceCoefficient` | `number` | ✅ |
+| <a id="type-uberestimationpolicy--effectivefrom"></a>`effectiveFrom` | `string` _date-time_ | ✅ |
+
+<a id="type-ubersplitpolicy"></a>
+#### 🧩 Type: `UberSplitPolicy`
+
+Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025/0030); admin/transparency.
+
+- **Read model**: [🗄️ `View_UberSplitPolicy`](#view-view_ubersplitpolicy)
+
+| Field | Type | Required |
+| --- | --- | --- |
+| <a id="type-ubersplitpolicy--currency"></a>`currency` | [🔤 `CurrencyCode`](#scalar-currencycode) | ✅ |
+| <a id="type-ubersplitpolicy--ubercommissionpct"></a>`uberCommissionPct` | `number` | ✅ |
+| <a id="type-ubersplitpolicy--riderbasecents"></a>`riderBaseCents` | `integer` | ✅ |
+| <a id="type-ubersplitpolicy--riderperkmcents"></a>`riderPerKmCents` | `integer` | ✅ |
+| <a id="type-ubersplitpolicy--avgdeliveryfeecents"></a>`avgDeliveryFeeCents` | `integer` | ✅ |
+| <a id="type-ubersplitpolicy--platformfeepct"></a>`platformFeePct` | `number` | ✅ |
+| <a id="type-ubersplitpolicy--effectivefrom"></a>`effectiveFrom` | `string` _date-time_ | ✅ |
+
+### 🗄️ Views (read models) _(4)_
 
 <a id="view-view_phonecountry"></a>
 #### 🗄️ View: `View_PhoneCountry`
@@ -5010,6 +5097,38 @@ The calibratable Captain service-fee policy (ADR-0016/0017); admin/transparency.
 | `margin_low` | `numeric` | ⚠️ _(none)_ | — | Lower bound of the margin band for score_margin (e.g. 55.0). |
 | `margin_high` | `numeric` | ⚠️ _(none)_ | — | Upper bound of the margin band for score_margin (e.g. 70.0). |
 | `effective_from` | `timestamptz` | ⚠️ _(none)_ | — | When this policy row took effect (audit / calibration history). |
+
+<a id="view-view_uberestimationpolicy"></a>
+#### 🗄️ View: `View_UberEstimationPolicy`
+
+- **Source**: 📦 reference (static seed) · 🛶 V0
+- **Note**: Per-cuisine Uber Eats price mark-up coefficient (ADR-0024). One row per CuisineCategory.
+- **Rules**: Seeded with ADR-0024 indicative coefficients: FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40, BISTRONOMIC 1.45, FOOD_TRUCK 1.35. Estimates are always labelled; calibrate before launch.
+- **Fed by**: —
+
+| Column | Type | Sourced from | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `cuisine_category` | [🔤 `CuisineCategory`](#scalar-cuisinecategory) | ⚠️ _(none)_ | PK |  |
+| `price_coefficient` | `numeric` | ⚠️ _(none)_ | — | Multiplier applied to Captain food prices to estimate the Uber Eats food price (e.g. 1.35). |
+| `effective_from` | `timestamptz` | ⚠️ _(none)_ | — | When this coefficient row took effect (calibration history). |
+
+<a id="view-view_ubersplitpolicy"></a>
+#### 🗄️ View: `View_UberSplitPolicy`
+
+- **Source**: 📦 reference (static seed) · 🛶 V0
+- **Note**: Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025). Single active row per currency.
+- **Rules**: Seeded with ADR-0024/0025 indicative values: uber_commission_pct 30.0, rider_base_cents 285, rider_per_km_cents 80, avg_delivery_fee_cents 399, platform_fee_pct 10.0. Estimated figures are always labelled. Estimated split (per ADR-0025): uberFood = coefficient·articles; restaurantShare = uberFood·(1 − uber_commission_pct/100); riderShare ≈ rider_base_cents (per-km term omitted — distance not modelled in V0); total = uberFood + avg_delivery_fee_cents + platform fee; platformShare = total − restaurantShare − riderShare.
+- **Fed by**: —
+
+| Column | Type | Sourced from | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `currency` | [🔤 `CurrencyCode`](#scalar-currencycode) | ⚠️ _(none)_ | PK |  |
+| `uber_commission_pct` | `numeric` | ⚠️ _(none)_ | — | Uber Eats restaurant commission % (e.g. 30.0); restaurantShare = uberFood·(1 − this/100). |
+| `rider_base_cents` | `integer` | ⚠️ _(none)_ | — | Assumed courier base per trip in cents (e.g. 285 = €2.85). |
+| `rider_per_km_cents` | `integer` | ⚠️ _(none)_ | — | Assumed courier per-km rate in cents (e.g. 80). Not applied in V0 (distance not modelled). |
+| `avg_delivery_fee_cents` | `integer` | ⚠️ _(none)_ | — | Assumed buyer-facing Uber delivery fee in cents (e.g. 399 = €3.99 urban). |
+| `platform_fee_pct` | `numeric` | ⚠️ _(none)_ | — | Assumed extra platform/service fee % added to the buyer total (e.g. 10.0). |
+| `effective_from` | `timestamptz` | ⚠️ _(none)_ | — | When this policy row took effect (calibration history). |
 
 ### 📦 Entities _(2)_
 

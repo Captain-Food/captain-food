@@ -129,6 +129,20 @@ View_Restaurant:
         - { $ref: 'events.yaml#/RestaurantUpdated/properties/marginRate' }
       nullable: true
       note: "Food margin %, input to the Captain service-fee split (ADR-0017); back-office only."
+    cuisine_category:
+      type: { $ref: 'scalars.yaml#/CuisineCategory' }
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered/properties/cuisineCategory' }
+        - { $ref: 'events.yaml#/RestaurantUpdated/properties/cuisineCategory' }
+      nullable: true
+      note: "Selects the Uber Eats price-estimate coefficient in View_UberEstimationPolicy (ADR-0024)."
+    uber_prices_opt_in:
+      type: boolean
+      from:
+        - { $ref: 'events.yaml#/RestaurantRegistered/properties/uberPricesOptIn' }
+        - { $ref: 'events.yaml#/RestaurantUpdated/properties/uberPricesOptIn' }
+      nullable: true
+      note: "Restaurant authorized showing its real Uber prices via HubRise (ADR-0023). Gates REAL vs ESTIMATED basis."
     website:
       type: { $ref: 'scalars.yaml#/WebUrl' }
       from:
@@ -400,6 +414,58 @@ View_PricingPolicy:
       type: timestamptz
       note: "When this policy row took effect (audit / calibration history)."
 
+# Calibratable Uber Eats mark-up coefficients (ADR-0024), keyed by cuisine. The catalog/cart/order
+# projections read this (plus the restaurant's cuisine_category) to compute the ESTIMATED comparison
+# when no real HubRise price is available. Reference data — tunable without code.
+View_UberEstimationPolicy:
+  source: reference
+  slice: V0
+  note: "Per-cuisine Uber Eats price mark-up coefficient (ADR-0024). One row per CuisineCategory."
+  rules:
+    - "Seeded with ADR-0024 indicative coefficients: FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40, BISTRONOMIC 1.45, FOOD_TRUCK 1.35. Estimates are always labelled; calibrate before launch."
+  columns:
+    cuisine_category:
+      type: { $ref: 'scalars.yaml#/CuisineCategory' }
+      pk: true
+    price_coefficient:
+      type: numeric
+      note: "Multiplier applied to Captain food prices to estimate the Uber Eats food price (e.g. 1.35)."
+    effective_from:
+      type: timestamptz
+      note: "When this coefficient row took effect (calibration history)."
+
+# Global (per-currency) Uber Eats split + fee params (ADR-0024/0025) for the estimated who-gets-what and
+# the estimated all-in total. Reference data — tunable without code.
+View_UberSplitPolicy:
+  source: reference
+  slice: V0
+  note: "Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025). Single active row per currency."
+  rules:
+    - "Seeded with ADR-0024/0025 indicative values: uber_commission_pct 30.0, rider_base_cents 285, rider_per_km_cents 80, avg_delivery_fee_cents 399, platform_fee_pct 10.0. Estimated figures are always labelled."
+    - "Estimated split (per ADR-0025): uberFood = coefficient·articles; restaurantShare = uberFood·(1 − uber_commission_pct/100); riderShare ≈ rider_base_cents (per-km term omitted — distance not modelled in V0); total = uberFood + avg_delivery_fee_cents + platform fee; platformShare = total − restaurantShare − riderShare."
+  columns:
+    currency:
+      type: { $ref: 'scalars.yaml#/CurrencyCode' }
+      pk: true
+    uber_commission_pct:
+      type: numeric
+      note: "Uber Eats restaurant commission % (e.g. 30.0); restaurantShare = uberFood·(1 − this/100)."
+    rider_base_cents:
+      type: integer
+      note: "Assumed courier base per trip in cents (e.g. 285 = €2.85)."
+    rider_per_km_cents:
+      type: integer
+      note: "Assumed courier per-km rate in cents (e.g. 80). Not applied in V0 (distance not modelled)."
+    avg_delivery_fee_cents:
+      type: integer
+      note: "Assumed buyer-facing Uber delivery fee in cents (e.g. 399 = €3.99 urban)."
+    platform_fee_pct:
+      type: numeric
+      note: "Assumed extra platform/service fee % added to the buyer total (e.g. 10.0)."
+    effective_from:
+      type: timestamptz
+      note: "When this policy row took effect (calibration history)."
+
 View_Catalog:
   aggregate: Catalog
   slice: V0
@@ -419,6 +485,7 @@ View_Catalog:
   rules:
     - "`stock_status` is derived (quantity vs lowStockThreshold); orderable = AVAILABLE and stock > 0."
     - "Could be normalized (one row per offer) if per-item querying is needed later."
+    - "Each offer carries a derived `uberPrice` { amountCents, currency } + `uberPriceBasis` for the product-level comparison (ADR-0022): ESTIMATED = View_UberEstimationPolicy[restaurant.cuisine_category].price_coefficient × offer price (null when the restaurant has no cuisine_category); REAL = the restaurant's own Uber price when uber_prices_opt_in and a HubRise Uber menu is present (ingestion deferred — runtime). Always labelled."
   columns:
     catalog_id:
       from: [{ $ref: 'events.yaml#/CatalogCreated/properties/catalogId' }]
@@ -446,7 +513,7 @@ View_Catalog:
         - { $ref: 'events.yaml#/OptionListRemoved' }
         - { $ref: 'events.yaml#/OfferStockUpdated' }
         - { $ref: 'events.yaml#/CatalogImported' }
-      note: "Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status } + option lists."
+      note: "Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status, uberPrice?, uberPriceBasis? } + option lists. See rules for how uberPrice is derived (ADR-0022/0024)."
     updated_at:
       type: timestamptz
       from:
@@ -469,6 +536,7 @@ View_Cart:
     - "Prices are computed by the projection from the current catalog, never trusted from the client."
     - "`customer_id` is NULL while the cart is owned by a guest; bound when CustomerIdentified resolves authRef → customerId, or at checkout."
     - "`estimated_breakdown` applies View_PricingPolicy (fee_rate/buyer_share/margin band) + the restaurant's margin_rate to the food total: serviceFee_buyer = buyer_share·fee_rate·articles; restaurantContribution = (1−buyer_share)·clamp((margin−margin_low)/(margin_high−margin_low),0,1)·fee_rate·articles; total = articles + delivery + serviceFee_buyer. Recomputed authoritatively on OrderPlaced.breakdown."
+    - "`uber_comparison` is the UberComparison (ADR-0022/0025), COMPUTED by the projection from the cart food total + View_UberEstimationPolicy[restaurant.cuisine_category] + View_UberSplitPolicy. Null when the restaurant has no cuisine_category. Basis ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred)."
   columns:
     cart_id:
       from: [{ $ref: 'events.yaml#/CartStarted/properties/cartId' }]
@@ -515,6 +583,14 @@ View_Cart:
         - { $ref: 'events.yaml#/CartLineRemoved' }
       nullable: true
       note: "ESTIMATED PaymentBreakdown for the checkout display (ADR-0018), COMPUTED by the projection from the cart food total + View_PricingPolicy + the restaurant margin_rate. Same shape as OrderPlaced.breakdown; recomputed on the final order."
+    uber_comparison:
+      type: jsonb
+      from:
+        - { $ref: 'events.yaml#/CartLineAdded' }
+        - { $ref: 'events.yaml#/CartLineQuantityChanged' }
+        - { $ref: 'events.yaml#/CartLineRemoved' }
+      nullable: true
+      note: "UberComparison for the cart-level comparison (ADR-0022/0025), COMPUTED by the projection (see rules). Null when the restaurant has no cuisine_category."
     updated_at:
       type: timestamptz
       from:
@@ -550,6 +626,7 @@ View_OrderTracking:
     - "`payment_status` is folded from the Stripe payment facts."
     - "Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating."
     - "`*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals."
+    - "`uber_*` columns are the estimated Uber Eats comparison for the pedagogical receipt (ADR-0025), COMPUTED by the projection from breakdown.articles + the restaurant's cuisine_category → View_UberEstimationPolicy.price_coefficient + View_UberSplitPolicy. uber_total = coefficient·articles + avg_delivery_fee + platform fee; uber_restaurant = coefficient·articles·(1−uber_commission_pct/100); uber_rider ≈ rider_base_cents (per-km omitted, distance not modelled); uber_platform = uber_total − uber_restaurant − uber_rider. All null when the restaurant has no cuisine_category. uber_basis is ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred). Contrast against the exact Captain split (restaurant_payout/rider_payout/captain_net)."
   indexes:
     - [restaurant_id, status, placed_at]   # back-office queue: orders(restaurantId, status)
   columns:
@@ -614,6 +691,31 @@ View_OrderTracking:
       type: { $ref: 'scalars.yaml#/MoneyCents' }
       from: [{ $ref: 'events.yaml#/OrderPlaced/properties/breakdown' }]
       note: "breakdown.captainNet.amountCents (kept by Captain; feeds Open-Collective totals)."
+    uber_total_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/breakdown' }]
+      nullable: true
+      note: "DERIVED estimated Uber Eats all-in total for the same order (ADR-0025; see rules). Null if no cuisine_category."
+    uber_restaurant_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/breakdown' }]
+      nullable: true
+      note: "DERIVED estimated Uber restaurant net (after ~30% commission; see rules)."
+    uber_rider_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/breakdown' }]
+      nullable: true
+      note: "DERIVED estimated Uber courier earning (base; per-km not modelled in V0; see rules)."
+    uber_platform_cents:
+      type: { $ref: 'scalars.yaml#/MoneyCents' }
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/breakdown' }]
+      nullable: true
+      note: "DERIVED estimated Uber platform take = uber_total − uber_restaurant − uber_rider."
+    uber_basis:
+      type: { $ref: 'scalars.yaml#/ComparisonBasis' }
+      from: [{ $ref: 'events.yaml#/OrderPlaced/properties/breakdown' }]
+      nullable: true
+      note: "ESTIMATED (V0) or REAL (opted-in + HubRise Uber prices; deferred). Null if no comparison."
     delivery_address:
       from: [{ $ref: 'events.yaml#/OrderPlaced/properties/deliveryAddress' }]
       nullable: true

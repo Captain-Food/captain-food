@@ -148,6 +148,14 @@ RegisterRestaurant:
       $ref: 'scalars.yaml#/MarginPercent'
       nullable: true
       description: "Food margin %, input to the service-fee split (ADR-0017)."
+    cuisineCategory:
+      $ref: 'scalars.yaml#/CuisineCategory'
+      nullable: true
+      description: "Cuisine bucket; selects the Uber Eats price-estimate coefficient (ADR-0024)."
+    uberPricesOptIn:
+      type: boolean
+      nullable: true
+      description: "Authorize showing real Uber Eats prices for comparison (ADR-0023 opt-in)."
     address:
       $ref: 'entities.yaml#/Address'
     location:
@@ -215,6 +223,14 @@ UpdateRestaurant:
     marginRate:
       $ref: 'scalars.yaml#/MarginPercent'
       nullable: true
+    cuisineCategory:
+      $ref: 'scalars.yaml#/CuisineCategory'
+      nullable: true
+      description: "Cuisine bucket; selects the Uber Eats price-estimate coefficient (ADR-0024)."
+    uberPricesOptIn:
+      type: boolean
+      nullable: true
+      description: "Authorize showing real Uber Eats prices for comparison (ADR-0023 opt-in)."
     address:
       $ref: 'entities.yaml#/Address'
       nullable: true

@@ -119,6 +119,12 @@ RestaurantRegistered:
     marginRate:
       $ref: 'scalars.yaml#/MarginPercent'
       nullable: true
+    cuisineCategory:
+      $ref: 'scalars.yaml#/CuisineCategory'
+      nullable: true
+    uberPricesOptIn:
+      type: boolean
+      nullable: true
     address:
       $ref: 'entities.yaml#/Address'
     location:
@@ -167,6 +173,12 @@ RestaurantUpdated:
       nullable: true
     marginRate:
       $ref: 'scalars.yaml#/MarginPercent'
+      nullable: true
+    cuisineCategory:
+      $ref: 'scalars.yaml#/CuisineCategory'
+      nullable: true
+    uberPricesOptIn:
+      type: boolean
       nullable: true
     address:
       $ref: 'entities.yaml#/Address'

@@ -479,6 +479,25 @@ PriceRange:
   enum: [BUDGET, MODERATE, PREMIUM]
   description: "Coarse price tier of a restaurant, used as a discovery filter (UI: $ / $$ / $$$)."
 
+CuisineCategory:
+  type: string
+  enum: [FAST_FOOD, PIZZA, TRADITIONAL, BISTRONOMIC, FOOD_TRUCK]
+  description: >
+    A restaurant's SINGLE primary/representative cuisine bucket, used only to select ONE Uber Eats mark-up
+    coefficient in View_UberEstimationPolicy (ADR-0024): FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40,
+    BISTRONOMIC 1.45, FOOD_TRUCK 1.35. NOT for discovery — a restaurant may belong to several cuisines for
+    browsing/filtering; that is the multi-valued `Restaurant.tags`. This is deliberately one value because
+    the estimate needs a single coefficient.
+
+# Whether an Uber Eats comparison figure is the restaurant's real HubRise price (ADR-0023, opt-in)
+# or a labelled estimate derived from mark-up coefficients (ADR-0024). V0 shows ESTIMATED.
+ComparisonBasis:
+  type: string
+  enum: [ESTIMATED, REAL]
+  description: >
+    Provenance of an Uber Eats comparison amount: REAL (the restaurant's own Uber prices, shared via
+    HubRise after explicit opt-in — ADR-0023) or ESTIMATED (coefficient-based, always labelled — ADR-0024).
+
 RestaurantListKey:
   type: string
   enum:

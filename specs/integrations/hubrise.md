@@ -83,6 +83,10 @@ Where Captain.Food is more precise than HubRise, we **keep our model**:
    (`collection` = pickup); `eat_in` not offered but kept in `TaxRate` for catalog fidelity.
 3. **Deals** and advanced **price_overrides**/**restrictions**: not modelled in V0.
 4. **Offers**: we adopt the `Product → Offer[]` structure (a simple product = 1 offer).
+5. **Uber Eats real-price comparison** (ADR-0023/0030): when a restaurant is on HubRise, HubRise carries its
+   Uber Eats menu prices, and it has **explicitly opted in** (`Restaurant.uberPricesOptIn`), the ACL may feed
+   those prices so the comparison shows `basis: REAL` instead of the coefficient estimate. The per-offer
+   real-price ingestion is **deferred to runtime**; V0 shows the labelled ESTIMATED comparison only.
 
 ---
 

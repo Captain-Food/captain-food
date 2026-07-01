@@ -50,6 +50,32 @@ PaymentBreakdown:
       description: "Kept on the Captain platform account = serviceFee + restaurantContribution (gross of Stripe)."
   required: [articles, delivery, serviceFee, total, restaurantContribution, restaurantPayout, riderPayout, captainNet]
 
+UberComparison:
+  type: object
+  description: >
+    What the same order would cost — and how it would be split — on Uber Eats, for the pedagogical
+    comparison (ADR-0022/0025). `basis` says whether these are the restaurant's REAL Uber prices (shared
+    via HubRise opt-in, ADR-0023) or a labelled ESTIMATE (coefficient-based, ADR-0024). Estimated split:
+    restaurantShare = uberFood × (1 − uber_commission); riderShare ≈ rider_base (+/km, not modelled in V0);
+    platformShare = total − restaurantShare − riderShare. The client derives "you save" = captainTotal − total.
+  properties:
+    total:
+      $ref: '#/Money'
+      description: "Estimated (or real) all-in Uber Eats price for the same order."
+    restaurantShare:
+      $ref: '#/Money'
+      description: "What the restaurant would net on Uber (after its ~30% commission)."
+    riderShare:
+      $ref: '#/Money'
+      description: "What the courier would earn on Uber (base + per-km; per-km not modelled in V0)."
+    platformShare:
+      $ref: '#/Money'
+      description: "What Uber Eats would keep = total − restaurantShare − riderShare."
+    basis:
+      $ref: 'scalars.yaml#/ComparisonBasis'
+      description: "REAL (HubRise opt-in) or ESTIMATED (labelled). V0 shows ESTIMATED."
+  required: [total, restaurantShare, riderShare, platformShare, basis]
+
 Tip:
   type: object
   description: "One customer tip to a single recipient (ADR-012). Optional, separate from the price; Captain keeps 0%."
@@ -280,6 +306,14 @@ Restaurant:
       $ref: 'scalars.yaml#/MarginPercent'
       nullable: true
       description: "Food margin %, input to the Captain service-fee split (ADR-0017); null → 0 restaurant contribution."
+    cuisineCategory:
+      $ref: 'scalars.yaml#/CuisineCategory'
+      nullable: true
+      description: "SINGLE primary cuisine, selects the Uber Eats estimate coefficient (ADR-0024); null → no estimate. Multi-cuisine discovery lives in `tags`."
+    uberPricesOptIn:
+      type: boolean
+      nullable: true
+      description: "The restaurant authorized showing its real Uber Eats prices for comparison (ADR-0023 opt-in). Null/false → estimate only."
     address:
       $ref: '#/Address'
     location:
