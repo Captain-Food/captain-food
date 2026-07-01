@@ -55,9 +55,13 @@ customer:
         ChangeCartLineQuantity: { $ref: 'api.yaml#/mutations/changeCartLineQuantity' }
         SeeCheckoutBreakdown: { $ref: 'api.yaml#/queries/cart' }   # transparent fee breakdown before paying (ADR-0018)
         CompareWithUberEats: { $ref: 'api.yaml#/queries/cart' }   # labelled Uber Eats price + who-gets-what comparison (ADR-0022/0025); also on catalog offers + the order receipt
+        ViewMyCarts: { $ref: 'api.yaml#/queries/carts' }   # one OPEN cart per restaurant
+        BrowseCategories: { $ref: 'api.yaml#/queries/categories' }   # category tree for filtering/discovery
         PlaceOrder: { $ref: 'api.yaml#/mutations/placeOrder' }
+        PollOperationStatus: { $ref: 'api.yaml#/queries/operation' }   # pull counterpart of the operationStatusChanged subscription
         TrackOrderStatus: { $ref: 'api.yaml#/queries/order' }
         TrackDelivery: { $ref: 'api.yaml#/queries/delivery' }   # live courier/delivery progress (ADR-0031)
+        CancelOrder: { $ref: 'api.yaml#/mutations/cancelOrderByCustomer' }
         RateOrder: { $ref: 'api.yaml#/mutations/rateOrder' }
         RateRestaurant: { $ref: 'api.yaml#/mutations/rateRestaurant' }
         TipRiderRestaurantOrCaptain: { $ref: 'api.yaml#/mutations/tipOrder' }
@@ -77,6 +81,7 @@ customer:
         VerifyEmail: { $ref: 'api.yaml#/mutations/requestEmailVerification' }
         ConfirmEmail: { $ref: 'api.yaml#/mutations/confirmEmailVerification' }
         ChangePhone: { $ref: 'api.yaml#/mutations/requestPhoneChange' }
+        ConfirmPhoneChange: { $ref: 'api.yaml#/mutations/confirmPhoneChange' }
         SetPreferences: { $ref: 'api.yaml#/mutations/setCustomerPreferences' }
         SetAddress: { $ref: 'api.yaml#/mutations/setCustomerAddress' }
         RemoveAddress: { $ref: 'api.yaml#/mutations/removeCustomerAddress' }
@@ -127,7 +132,11 @@ restaurant_owner:
         UpdateProduct: { $ref: 'api.yaml#/mutations/updateProduct' }
         RemoveProduct: { $ref: 'api.yaml#/mutations/removeProduct' }
         AddCategory: { $ref: 'api.yaml#/mutations/addCatalogCategory' }
+        UpdateCategory: { $ref: 'api.yaml#/mutations/updateCatalogCategory' }
+        RemoveCategory: { $ref: 'api.yaml#/mutations/removeCatalogCategory' }
         AddOptionList: { $ref: 'api.yaml#/mutations/addOptionList' }
+        UpdateOptionList: { $ref: 'api.yaml#/mutations/updateOptionList' }
+        RemoveOptionList: { $ref: 'api.yaml#/mutations/removeOptionList' }
         UpdateStock: { $ref: 'api.yaml#/mutations/updateOfferStock' }
         ImportCatalog: { $ref: 'api.yaml#/mutations/importCatalog' }
 
@@ -215,6 +224,8 @@ admin:
       steps:
         ReviewPolicy: { $ref: 'api.yaml#/queries/pricingPolicy' }
         SetRestaurantMargin: { $ref: 'api.yaml#/mutations/updateRestaurant' }
+        ReviewUberEstimationPolicy: { $ref: 'api.yaml#/queries/uberEstimationPolicy' }   # Uber comparison calibration (ADR-0024/0030)
+        ReviewUberSplitPolicy: { $ref: 'api.yaml#/queries/uberSplitPolicy' }
 
 restaurant_sync:
   description: >

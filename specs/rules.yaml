@@ -1,0 +1,135 @@
+version: 1
+description: >
+  Business rules / invariants the system must uphold (ADR-0032). Each behaviour test in tests.yaml links
+  to at least one rule via `rules: [{ $ref: 'rules.yaml#/RuleName' }]`, and the validator enforces the link
+  BOTH ways: every rule is exercised by ≥1 test, and every test asserts ≥1 rule. Rules say WHAT we
+  guarantee (readable intent); tests say HOW it's verified (Given/When/Then). A rule may span several tests
+  (typically a happy path + its rejection). Keyed by PascalCase name; description is the guarantee.
+
+# --- RestaurantAccount ---
+AccountRegistrationValidCurrencyUniqueRef:
+  description: "A restaurant account is registered only with a valid ISO currency and a not-already-used external ref."
+AccountUpdateRequiresExistingAccountAndField:
+  description: "Account-level fields update only for an existing account and when at least one editable field is provided."
+AccountDeletion:
+  description: "A restaurant account can be deleted."
+
+# --- Restaurant ---
+LocationRegistrationUnderAccountUniqueSlug:
+  description: "A location is registered under an existing account with a unique slug and a not-already-used external ref."
+RestaurantActivationVisibility:
+  description: "Activating a restaurant makes it visible/orderable; activation is rejected from an invalid state."
+RestaurantActivationIdempotent:
+  description: "Re-activating an already-active restaurant is a no-op (idempotent)."
+RestaurantLocationFieldsUpdate:
+  description: "Editable location fields can be updated; an update to a missing location or with no field is rejected."
+RestaurantDeactivation:
+  description: "A restaurant can be deactivated (hidden from customers)."
+OrderAcceptanceModeManagement:
+  description: "The order-acceptance mode reflects kitchen capacity and is rejected from an invalid state."
+RestaurantRemoval:
+  description: "A restaurant location can be removed."
+ListingSeededFromOpenData:
+  description: "A public NON_PARTNER listing can be seeded from open data (Sirene/Google) with no account, preserving source identifiers."
+GoogleBusinessProfileEnrichment:
+  description: "Google Business Profile data (rating/reviews/hours…) is stored separately from the restaurant's own info."
+ClosedListingSyncedFromSource:
+  description: "A listing reported closed by the source is marked closed."
+ListingClaimRequiresVerifiedOwnership:
+  description: "A listing can be claimed only with verified ownership, and only once."
+ListingOptOut:
+  description: "A restaurant can opt a listing out."
+ListingFunnelProgression:
+  description: "A listing progresses through the partnership funnel (NON_PARTNER → PASSIVE_PARTNER → ACTIVE_PARTNER)."
+GbpOrderLinkSetupAndVerification:
+  description: "The Google 'Order online' link can be configured and verified; verification is rejected when it fails."
+
+# --- Prospect ---
+ProspectContactScheduleAndLimit:
+  description: "A prospect contact is recorded only within the outreach schedule and under the contact limit."
+ProspectOutreachStateTransitions:
+  description: "A prospect can be marked cold or replied; acting on a missing prospect is rejected."
+
+# --- Catalog ---
+CatalogCreationForRestaurant:
+  description: "A catalog is created for a restaurant; creation is rejected when invalid/duplicate."
+CatalogProductManagement:
+  description: "Products can be added, updated and removed in a catalog, with rejection on invalid operations."
+CatalogCategoryTreeManagement:
+  description: "Catalog categories (the tree) can be added, updated and removed, with rejection on invalid operations."
+CatalogOptionListManagement:
+  description: "Option lists can be added, updated and removed, with rejection on invalid operations."
+OfferStockManualOrSynced:
+  description: "Offer stock can be updated manually or synced from HubRise; an invalid update is rejected."
+CatalogImportReplacesContent:
+  description: "A HubRise catalog import replaces the catalog content (idempotent on ref); an invalid import is rejected."
+
+# --- Customer ---
+PhoneVerificationRegistersOrIdentifies:
+  description: "Phone-OTP verification registers a new customer or identifies a returning one; an invalid code is rejected."
+EmailVerificationUniqueTokenValid:
+  description: "Email verification requires a unique email and a valid token; duplicates/invalid tokens are rejected."
+PhoneChangeVerifiedAndUnique:
+  description: "A phone change is verified and must be unique; a duplicate is rejected."
+CustomerProfileUpdate:
+  description: "A customer can change language and profile info; an update with no field is rejected."
+CustomerPreferences:
+  description: "A customer's preferences can be set."
+FavoritesManagement:
+  description: "A customer can favorite/unfavorite restaurants; favoriting an unknown one is rejected and unfavoriting a non-favorite is a no-op."
+AddressBookManagement:
+  description: "A customer can add/update and remove saved delivery addresses."
+PaymentMethodStorage:
+  description: "A customer's payment method can be stored."
+
+# --- Cart ---
+CartPricedFromLiveCatalog:
+  description: "Cart lines are added/changed/removed and priced by the projection from the live catalog, never trusted from the client."
+CartRejectsUnorderableOrInvalidLine:
+  description: "Adding an unorderable offer or operating on an invalid/absent line is rejected."
+
+# --- Order ---
+OrderLifecycleStatusMachine:
+  description: "An order advances accept → prepare → ready → delivered (or reject/cancel), each transition allowed only from the correct status."
+OrderRatedOnceWhenDelivered:
+  description: "A delivered order can be rated (rider thumb) exactly once."
+RestaurantRatedOncePerOrder:
+  description: "The restaurant can be rated exactly once per order."
+TipsAdditiveMultiRecipientSeparate:
+  description: "Tips (rider/restaurant/Captain, by customer or restaurant) are additive and separate from the split; an invalid recipient is rejected (ADR-0029)."
+RefundRequestByCustomer:
+  description: "A customer can request a refund for an order."
+
+# --- PlaceOrderProcess (checkout saga) ---
+CheckoutPricesCartCreatesPaymentIntent:
+  description: "Checkout reads and prices the open cart and creates a Stripe PaymentIntent; it is rejected on paused restaurant / empty cart / missing or out-of-area address / declined payment."
+OrderMaterializedOnPaymentCapture:
+  description: "On payment capture the order is materialized and the cart is closed."
+CheckoutAbortsOnPaymentFailure:
+  description: "On payment failure the saga aborts, no order is placed and the cart stays open."
+
+# --- RefundProcess ---
+RefundOnRejectionOrCancellation:
+  description: "A Stripe refund is requested when an order is rejected, cancelled, or a refund is requested."
+RefundSettledFactRecorded:
+  description: "The settled refund fact reported back by Stripe is recorded."
+
+# --- CartBindingProcess ---
+GuestCartsBoundOnIdentification:
+  description: "A returning visitor's open guest carts are bound to their Customer on identification."
+
+# --- Delivery (ADR-0031) ---
+DeliveryAcceptedOnlyWhenPending:
+  description: "A pending delivery job can be accepted by an independent rider only once."
+DeliveryPickupAndCompletionByRider:
+  description: "The assigned rider confirms pickup then records hand-over, in the correct order."
+DeliveryCancellableBeforeCompletion:
+  description: "A delivery job can be cancelled before completion but not after it is delivered."
+ReadyDeliveryOrderTriggersDispatch:
+  description: "A ready DELIVERY order triggers creation of a delivery job (dispatch)."
+PartnerAcceptanceRecordsCourier:
+  description: "When the partner accepts (inbound), the assigned courier is recorded on the job."
+PartnerRejectionReoffers:
+  description: "When the partner declines (inbound), the job is re-offered or flagged for manual handling."
+OrderClosedOnDeliveryCompletion:
+  description: "The order is closed (OrderDelivered) when the partner reports DELIVERED or an independent rider completes the delivery."

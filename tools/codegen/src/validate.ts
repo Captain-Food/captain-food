@@ -25,6 +25,7 @@ export interface Coverage {
   readsLinks: number;
   storyLinks: number;
   testCases: number;
+  rules: number;
   obsContracts: number;
 }
 
@@ -51,7 +52,7 @@ function targetsFile(ref: string, file: SourceFile, contextFile: SourceFile): bo
 export function validate(model: Model): { report: ValidationReport; derived: Derived; coverage: Coverage } {
   const issues: Issue[] = [];
   const add = (i: Issue) => issues.push(i);
-  const coverage: Coverage = { refs: 0, views: 0, viewColumns: 0, viewFedBy: 0, mutationLinks: 0, readsLinks: 0, storyLinks: 0, testCases: 0, obsContracts: 0 };
+  const coverage: Coverage = { refs: 0, views: 0, viewColumns: 0, viewFedBy: 0, mutationLinks: 0, readsLinks: 0, storyLinks: 0, testCases: 0, rules: 0, obsContracts: 0 };
 
   // --- 1. Referential integrity: every `$ref` anywhere must resolve -----------------------------
   for (const file of Object.keys(model.defs) as SourceFile[]) {
@@ -314,6 +315,14 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
         }
       }
     }
+
+    // COMPLETENESS (the reverse): every mutation & query must be reached by ≥1 story step, so the API
+    // surface stays anchored to a persona use case (subscriptions are a transport variant of a query —
+    // the story step model only carries query/mutation — and are exempt).
+    const storyOps = new Set<string>();
+    for (const p of model.personas) for (const act of p.activities) for (const step of act.steps) if (step.op) storyOps.add(step.op);
+    for (const m of api.mutations) if (!storyOps.has(m.name)) add({ level: 'error', rule: 'op-uncovered-by-story', location: `api.yaml/mutations/${m.name}`, message: `mutation '${m.name}' is referenced by no story step (stories.yaml) — every write must anchor to a persona use case.` });
+    for (const q of api.queries) if (!storyOps.has(q.name)) add({ level: 'error', rule: 'op-uncovered-by-story', location: `api.yaml/queries/${q.name}`, message: `query '${q.name}' is referenced by no story step (stories.yaml) — every read must anchor to a persona use case.` });
   }
 
   // --- 7. Behaviour tests (tests.yaml): centralized fixtures + Given/When/Then consistency -----
@@ -394,6 +403,9 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
     const usedMessages = new Set<string>(); // `${actor}::${message}`
     const usedEvents = new Set<string>();   // events appearing in a given/then, or as an event `when`
     const usedErrors = new Set<string>();   // errors appearing in a `thrown`
+    const usedRules = new Set<string>();    // rules.yaml rules asserted by ≥1 test (via `rules`)
+    const allRules = Object.keys((model.defs['rules.yaml'] ?? {}) as Record<string, SchemaNode>);
+    coverage.rules = allRules.length;
 
     // 7a. fixtures: data shape.
     for (const [name, fx] of Object.entries(fixtures)) {
@@ -426,6 +438,14 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
         const ev = fixtureEvent(g?.$ref); if (ev) usedEvents.add(ev);
       });
 
+      // Every test must assert ≥1 business rule (rules.yaml) — the readable intent it verifies (ADR-0032).
+      const testRules = Array.isArray(t?.rules) ? (t.rules as Array<{ $ref?: string }>) : [];
+      if (testRules.length === 0) add({ level: 'error', rule: 'test-no-rule', location: where, message: 'test asserts no business rule — add `rules: [{ $ref: \'rules.yaml#/<Rule>\' }]` (ADR-0032).' });
+      testRules.forEach((r, i) => {
+        if (refTargetFile(r?.$ref ?? '', 'tests.yaml') !== 'rules.yaml') { add({ level: 'error', rule: 'test-rule-wrong-file', location: `${where}.rules[${i}]`, message: `rule ref '${r?.$ref}' must target rules.yaml.` }); return; }
+        const rn = refName(r.$ref ?? ''); if (rn) usedRules.add(rn); // resolution itself is checked in §1
+      });
+
       // A test must assert SOMETHING: `then` (events emitted — possibly [] for an idempotent no-op)
       // and/or `thrown` (the message is rejected with one of these errors).
       const hasThen = Object.prototype.hasOwnProperty.call(t, 'then');
@@ -451,16 +471,21 @@ export function validate(model: Model): { report: ValidationReport; derived: Der
       });
     }
 
-    // 7c. COVERAGE: every model item reachable from the actor model must be EXERCISED by a test.
-    // (These are warnings, surfaced so the suite can be grown until nothing is left uncovered.)
+    // 7c. COVERAGE (BLOCKING — the spec is not complete until every reachable item is exercised):
+    // every actor message, emitted event and throwable error must appear in a test, AND every business
+    // rule must be asserted by a test (the reverse of §7b's test→rule check). Both directions are errors
+    // so tests/rules can't silently drift from the model (ADR-0032).
     for (const e of inboxEntries) {
-      if (!usedMessages.has(`${e.actor}::${e.message}`)) add({ level: 'warning', rule: 'test-uncovered-message', location: `actors.yaml/${e.actor}`, message: `no test exercises ${e.isCommand ? 'command' : 'event'} '${e.message}' on '${e.actor}'.` });
+      if (!usedMessages.has(`${e.actor}::${e.message}`)) add({ level: 'error', rule: 'test-uncovered-message', location: `actors.yaml/${e.actor}`, message: `no test exercises ${e.isCommand ? 'command' : 'event'} '${e.message}' on '${e.actor}'.` });
     }
     for (const ev of emittedEvents) {
-      if (!usedEvents.has(ev)) add({ level: 'warning', rule: 'test-uncovered-event', location: `events.yaml/${ev}`, message: `emitted event '${ev}' is asserted by no test (in a \`then\`/\`given\`).` });
+      if (!usedEvents.has(ev)) add({ level: 'error', rule: 'test-uncovered-event', location: `events.yaml/${ev}`, message: `emitted event '${ev}' is asserted by no test (in a \`then\`/\`given\`).` });
     }
     for (const er of throwableErrors) {
-      if (!usedErrors.has(er)) add({ level: 'warning', rule: 'test-uncovered-error', location: `errors.yaml/${er}`, message: `throwable error '${er}' is asserted by no test (in a \`thrown\`).` });
+      if (!usedErrors.has(er)) add({ level: 'error', rule: 'test-uncovered-error', location: `errors.yaml/${er}`, message: `throwable error '${er}' is asserted by no test (in a \`thrown\`).` });
+    }
+    for (const rn of allRules) {
+      if (!usedRules.has(rn)) add({ level: 'error', rule: 'rule-uncovered', location: `rules.yaml/${rn}`, message: `business rule '${rn}' is asserted by no test — add a test with \`rules: [{ $ref: 'rules.yaml#/${rn}' }]\` or remove the rule (ADR-0032).` });
     }
   }
 

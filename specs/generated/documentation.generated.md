@@ -50,9 +50,13 @@ An authenticated person who orders food via Captain.Food.
 |  | ChangeCartLineQuantity | [✏️ `changeCartLineQuantity`](#mutation-changecartlinequantity) |
 |  | SeeCheckoutBreakdown | [🔎 `cart`](#query-cart) |
 |  | CompareWithUberEats | [🔎 `cart`](#query-cart) |
+|  | ViewMyCarts | [🔎 `carts`](#query-carts) |
+|  | BrowseCategories | [🔎 `categories`](#query-categories) |
 |  | PlaceOrder | [✏️ `placeOrder`](#mutation-placeorder) |
+|  | PollOperationStatus | [🔎 `operation`](#query-operation) |
 |  | TrackOrderStatus | [🔎 `order`](#query-order) |
 |  | TrackDelivery | [🔎 `delivery`](#query-delivery) |
+|  | CancelOrder | [✏️ `cancelOrderByCustomer`](#mutation-cancelorderbycustomer) |
 |  | RateOrder | [✏️ `rateOrder`](#mutation-rateorder) |
 |  | RateRestaurant | [✏️ `rateRestaurant`](#mutation-raterestaurant) |
 |  | TipRiderRestaurantOrCaptain | [✏️ `tipOrder`](#mutation-tiporder) |
@@ -66,6 +70,7 @@ An authenticated person who orders food via Captain.Food.
 |  | VerifyEmail | [✏️ `requestEmailVerification`](#mutation-requestemailverification) |
 |  | ConfirmEmail | [✏️ `confirmEmailVerification`](#mutation-confirmemailverification) |
 |  | ChangePhone | [✏️ `requestPhoneChange`](#mutation-requestphonechange) |
+|  | ConfirmPhoneChange | [✏️ `confirmPhoneChange`](#mutation-confirmphonechange) |
 |  | SetPreferences | [✏️ `setCustomerPreferences`](#mutation-setcustomerpreferences) |
 |  | SetAddress | [✏️ `setCustomerAddress`](#mutation-setcustomeraddress) |
 |  | RemoveAddress | [✏️ `removeCustomerAddress`](#mutation-removecustomeraddress) |
@@ -99,7 +104,11 @@ Owns a restaurant ACCOUNT (HubRise restaurant). Manages the account, its locatio
 |  | UpdateProduct | [✏️ `updateProduct`](#mutation-updateproduct) |
 |  | RemoveProduct | [✏️ `removeProduct`](#mutation-removeproduct) |
 |  | AddCategory | [✏️ `addCatalogCategory`](#mutation-addcatalogcategory) |
+|  | UpdateCategory | [✏️ `updateCatalogCategory`](#mutation-updatecatalogcategory) |
+|  | RemoveCategory | [✏️ `removeCatalogCategory`](#mutation-removecatalogcategory) |
 |  | AddOptionList | [✏️ `addOptionList`](#mutation-addoptionlist) |
+|  | UpdateOptionList | [✏️ `updateOptionList`](#mutation-updateoptionlist) |
+|  | RemoveOptionList | [✏️ `removeOptionList`](#mutation-removeoptionlist) |
 |  | UpdateStock | [✏️ `updateOfferStock`](#mutation-updateofferstock) |
 |  | ImportCatalog | [✏️ `importCatalog`](#mutation-importcatalog) |
 
@@ -154,6 +163,8 @@ A platform operator who onboards accounts and oversees the platform.
 |  | LogReply | [✏️ `recordProspectReply`](#mutation-recordprospectreply) |
 | 🧭 **Pricing** | ReviewPolicy | [🔎 `pricingPolicy`](#query-pricingpolicy) |
 |  | SetRestaurantMargin | [✏️ `updateRestaurant`](#mutation-updaterestaurant) |
+|  | ReviewUberEstimationPolicy | [🔎 `uberEstimationPolicy`](#query-uberestimationpolicy) |
+|  | ReviewUberSplitPolicy | [🔎 `uberSplitPolicy`](#query-ubersplitpolicy) |
 
 <a id="story-restaurant_sync"></a>
 ### 🎬 `restaurant_sync` · 🔌 `EXTERNAL` · 🗣️ `fr-FR`

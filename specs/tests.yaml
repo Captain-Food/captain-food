@@ -327,6 +327,7 @@ tests:
   # ----------------------- RestaurantAccount -------------------------
   TestRestaurantAccountRegistered:
     name: "Registers a restaurant account"
+    rules: [{ $ref: 'rules.yaml#/AccountRegistrationValidCurrencyUniqueRef' }]
     actor: { $ref: 'actors.yaml#/RestaurantAccount' }
     given: []
     when:
@@ -337,6 +338,7 @@ tests:
 
   TestRestaurantAccountRegisterIsRejected:
     name: "Rejects registering an account with an invalid currency or an already-used external ref"
+    rules: [{ $ref: 'rules.yaml#/AccountRegistrationValidCurrencyUniqueRef' }]
     actor: { $ref: 'actors.yaml#/RestaurantAccount' }
     given: []
     when:
@@ -348,6 +350,7 @@ tests:
 
   TestRestaurantAccountUpdated:
     name: "Updates account-level fields (legal name)"
+    rules: [{ $ref: 'rules.yaml#/AccountUpdateRequiresExistingAccountAndField' }]
     actor: { $ref: 'actors.yaml#/RestaurantAccount' }
     given:
       - { $ref: '#/fixtures/restaurantAccountRegistered' }
@@ -359,6 +362,7 @@ tests:
 
   TestRestaurantAccountUpdateIsRejected:
     name: "Rejects updating a missing account or an update with no editable field"
+    rules: [{ $ref: 'rules.yaml#/AccountUpdateRequiresExistingAccountAndField' }]
     actor: { $ref: 'actors.yaml#/RestaurantAccount' }
     given: []
     when:
@@ -370,6 +374,7 @@ tests:
 
   TestRestaurantAccountDeleted:
     name: "Deletes a restaurant account"
+    rules: [{ $ref: 'rules.yaml#/AccountDeletion' }]
     actor: { $ref: 'actors.yaml#/RestaurantAccount' }
     given:
       - { $ref: '#/fixtures/restaurantAccountRegistered' }
@@ -382,6 +387,7 @@ tests:
   # -------------------------- Restaurant -----------------------------
   TestRestaurantLocationRegistered:
     name: "Registers a location under an existing account"
+    rules: [{ $ref: 'rules.yaml#/LocationRegistrationUnderAccountUniqueSlug' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantAccountRegistered' }
@@ -393,6 +399,7 @@ tests:
 
   TestRestaurantRegisterIsRejected:
     name: "Rejects registering a location when the account is missing, the slug is taken, or the external ref is already used"
+    rules: [{ $ref: 'rules.yaml#/LocationRegistrationUnderAccountUniqueSlug' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given: []
     when:
@@ -405,6 +412,7 @@ tests:
 
   TestRestaurantActivated:
     name: "Activates a registered restaurant"
+    rules: [{ $ref: 'rules.yaml#/RestaurantActivationVisibility' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -416,6 +424,7 @@ tests:
 
   TestRestaurantActivateAgainIsNoOp:
     name: "Re-activating an already-active restaurant is a no-op (idempotent)"
+    rules: [{ $ref: 'rules.yaml#/RestaurantActivationIdempotent' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -427,6 +436,7 @@ tests:
 
   TestRestaurantActivateIsRejected:
     name: "Rejects activating a missing restaurant or one with no orderable offer"
+    rules: [{ $ref: 'rules.yaml#/RestaurantActivationVisibility' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given: []
     when:
@@ -438,6 +448,7 @@ tests:
 
   TestRestaurantUpdated:
     name: "Updates editable location fields (display name)"
+    rules: [{ $ref: 'rules.yaml#/RestaurantLocationFieldsUpdate' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -449,6 +460,7 @@ tests:
 
   TestRestaurantUpdateIsRejected:
     name: "Rejects updating a missing restaurant or an update with no editable field"
+    rules: [{ $ref: 'rules.yaml#/RestaurantLocationFieldsUpdate' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given: []
     when:
@@ -460,6 +472,7 @@ tests:
 
   TestRestaurantDeactivated:
     name: "Deactivates an active restaurant"
+    rules: [{ $ref: 'rules.yaml#/RestaurantDeactivation' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -472,6 +485,7 @@ tests:
 
   TestRestaurantAcceptanceModeChanged:
     name: "Switches an active restaurant to BUSY"
+    rules: [{ $ref: 'rules.yaml#/OrderAcceptanceModeManagement' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -484,6 +498,7 @@ tests:
 
   TestRestaurantAcceptanceModeIsRejected:
     name: "Rejects changing acceptance mode when the restaurant is inactive or already in that mode"
+    rules: [{ $ref: 'rules.yaml#/OrderAcceptanceModeManagement' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -496,6 +511,7 @@ tests:
 
   TestRestaurantRemoved:
     name: "Removes (delists) a location from its account"
+    rules: [{ $ref: 'rules.yaml#/RestaurantRemoval' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -508,6 +524,7 @@ tests:
   # ------------------- Listing & pre-registration --------------------
   TestRestaurantSeededFromSync:
     name: "Sync ACL seeds a public NON_PARTNER listing (no account)"
+    rules: [{ $ref: 'rules.yaml#/ListingSeededFromOpenData' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given: []
     when:
@@ -517,6 +534,7 @@ tests:
       - { $ref: '#/fixtures/restaurantSeeded' }
   TestRestaurantGoogleBusinessProfileUpdated:
     name: "Records Google Business Profile enrichment"
+    rules: [{ $ref: 'rules.yaml#/GoogleBusinessProfileEnrichment' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantSeeded' }
@@ -527,6 +545,7 @@ tests:
       - { $ref: '#/fixtures/restaurantGoogleBusinessProfileUpdated' }
   TestRestaurantMarkedClosed:
     name: "Marks a listing closed (Sirene closure)"
+    rules: [{ $ref: 'rules.yaml#/ClosedListingSyncedFromSource' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantSeeded' }
@@ -537,6 +556,7 @@ tests:
       - { $ref: '#/fixtures/restaurantMarkedClosed' }
   TestRestaurantListingClaimed:
     name: "Owner claims a listing with a valid Google ownership proof"
+    rules: [{ $ref: 'rules.yaml#/ListingClaimRequiresVerifiedOwnership' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantSeeded' }
@@ -547,6 +567,7 @@ tests:
       - { $ref: '#/fixtures/restaurantListingClaimed' }
   TestRestaurantListingClaimUnverifiedIsRejected:
     name: "Rejects a claim whose Google ownership proof fails"
+    rules: [{ $ref: 'rules.yaml#/ListingClaimRequiresVerifiedOwnership' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantSeeded' }
@@ -557,6 +578,7 @@ tests:
       - { $ref: 'errors.yaml#/ListingOwnershipNotVerified' }
   TestRestaurantListingClaimAgainIsRejected:
     name: "Rejects claiming an already-claimed listing"
+    rules: [{ $ref: 'rules.yaml#/ListingClaimRequiresVerifiedOwnership' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantSeeded' }
@@ -568,6 +590,7 @@ tests:
       - { $ref: 'errors.yaml#/ListingAlreadyClaimed' }
   TestRestaurantListingOptedOut:
     name: "Owner opts a listing out (proven via GBP)"
+    rules: [{ $ref: 'rules.yaml#/ListingOptOut' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantSeeded' }
@@ -578,6 +601,7 @@ tests:
       - { $ref: '#/fixtures/restaurantListingOptedOut' }
   TestRestaurantListingStatusChanged:
     name: "Admin moves a listing along the partnership funnel"
+    rules: [{ $ref: 'rules.yaml#/ListingFunnelProgression' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantSeeded' }
@@ -588,6 +612,7 @@ tests:
       - { $ref: '#/fixtures/restaurantListingStatusChanged' }
   TestRestaurantGbpOrderLinkConfigured:
     name: "Configures the Google 'Order online' link"
+    rules: [{ $ref: 'rules.yaml#/GbpOrderLinkSetupAndVerification' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -598,6 +623,7 @@ tests:
       - { $ref: '#/fixtures/restaurantGbpOrderLinkConfigured' }
   TestRestaurantGbpOrderLinkVerified:
     name: "Verifies the configured Google 'Order online' link"
+    rules: [{ $ref: 'rules.yaml#/GbpOrderLinkSetupAndVerification' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -609,6 +635,7 @@ tests:
       - { $ref: '#/fixtures/restaurantGbpOrderLinkVerified' }
   TestRestaurantGbpOrderLinkVerifyIsRejected:
     name: "Rejects verifying when no order link is configured"
+    rules: [{ $ref: 'rules.yaml#/GbpOrderLinkSetupAndVerification' }]
     actor: { $ref: 'actors.yaml#/Restaurant' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -621,6 +648,7 @@ tests:
   # ------------------------- Prospection -----------------------------
   TestProspectContacted:
     name: "Records the first prospection contact (prospect is born)"
+    rules: [{ $ref: 'rules.yaml#/ProspectContactScheduleAndLimit' }]
     actor: { $ref: 'actors.yaml#/Prospect' }
     given: []
     when:
@@ -630,6 +658,7 @@ tests:
       - { $ref: '#/fixtures/prospectContacted' }
   TestProspectContactedTooRecently:
     name: "Rejects a new contact too soon after the previous one (≥7 days apart)"
+    rules: [{ $ref: 'rules.yaml#/ProspectContactScheduleAndLimit' }]
     actor: { $ref: 'actors.yaml#/Prospect' }
     given:
       - { $ref: '#/fixtures/prospectContacted' }
@@ -640,6 +669,7 @@ tests:
       - { $ref: 'errors.yaml#/ProspectContactedTooRecently' }
   TestProspectContactLimitReached:
     name: "Rejects a 4th contact (anti-spam: ≤ 3)"
+    rules: [{ $ref: 'rules.yaml#/ProspectContactScheduleAndLimit' }]
     actor: { $ref: 'actors.yaml#/Prospect' }
     given:
       - { $ref: '#/fixtures/prospectContacted' }
@@ -652,6 +682,7 @@ tests:
       - { $ref: 'errors.yaml#/ProspectContactLimitReached' }
   TestProspectMarkedCold:
     name: "Marks a contacted prospect cold"
+    rules: [{ $ref: 'rules.yaml#/ProspectOutreachStateTransitions' }]
     actor: { $ref: 'actors.yaml#/Prospect' }
     given:
       - { $ref: '#/fixtures/prospectContacted' }
@@ -662,6 +693,7 @@ tests:
       - { $ref: '#/fixtures/prospectMarkedCold' }
   TestProspectReplied:
     name: "Records a prospect reply"
+    rules: [{ $ref: 'rules.yaml#/ProspectOutreachStateTransitions' }]
     actor: { $ref: 'actors.yaml#/Prospect' }
     given:
       - { $ref: '#/fixtures/prospectContacted' }
@@ -672,6 +704,7 @@ tests:
       - { $ref: '#/fixtures/prospectReplied' }
   TestProspectMarkColdNotFound:
     name: "Rejects marking cold a prospect that was never contacted"
+    rules: [{ $ref: 'rules.yaml#/ProspectOutreachStateTransitions' }]
     actor: { $ref: 'actors.yaml#/Prospect' }
     given: []
     when:
@@ -683,6 +716,7 @@ tests:
   # --------------------------- Catalog -------------------------------
   TestCatalogCreated:
     name: "Creates a catalog for a registered restaurant"
+    rules: [{ $ref: 'rules.yaml#/CatalogCreationForRestaurant' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/restaurantRegistered' }
@@ -694,6 +728,7 @@ tests:
 
   TestCatalogCreateIsRejected:
     name: "Rejects creating a catalog for a missing restaurant or with a duplicate ref"
+    rules: [{ $ref: 'rules.yaml#/CatalogCreationForRestaurant' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -705,6 +740,7 @@ tests:
 
   TestCatalogProductAdded:
     name: "Adds a product with one offer to a catalog"
+    rules: [{ $ref: 'rules.yaml#/CatalogProductManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/catalogCreated' }
@@ -723,6 +759,7 @@ tests:
 
   TestCatalogAddProductIsRejected:
     name: "Rejects adding a product when the catalog/category is missing, a price currency mismatches, or a ref is duplicated"
+    rules: [{ $ref: 'rules.yaml#/CatalogProductManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -743,6 +780,7 @@ tests:
 
   TestCatalogProductUpdated:
     name: "Updates an existing product (full replace)"
+    rules: [{ $ref: 'rules.yaml#/CatalogProductManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/productAdded' }
@@ -764,6 +802,7 @@ tests:
 
   TestCatalogUpdateProductIsRejected:
     name: "Rejects updating a missing product, removing its last offer, or mismatching the currency"
+    rules: [{ $ref: 'rules.yaml#/CatalogProductManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -786,6 +825,7 @@ tests:
 
   TestCatalogProductRemoved:
     name: "Removes a product from a catalog"
+    rules: [{ $ref: 'rules.yaml#/CatalogProductManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/productAdded' }
@@ -797,6 +837,7 @@ tests:
 
   TestCatalogCategoryAdded:
     name: "Adds a category to a catalog"
+    rules: [{ $ref: 'rules.yaml#/CatalogCategoryTreeManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/catalogCreated' }
@@ -808,6 +849,7 @@ tests:
 
   TestCatalogAddCategoryIsRejected:
     name: "Rejects adding a category when the catalog/parent is missing or the ref is duplicated"
+    rules: [{ $ref: 'rules.yaml#/CatalogCategoryTreeManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -820,6 +862,7 @@ tests:
 
   TestCatalogCategoryUpdated:
     name: "Updates a catalog category (full replace)"
+    rules: [{ $ref: 'rules.yaml#/CatalogCategoryTreeManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/catalogCategoryAdded' }
@@ -831,6 +874,7 @@ tests:
 
   TestCatalogUpdateCategoryIsRejected:
     name: "Rejects updating a missing category or one that would create a cycle"
+    rules: [{ $ref: 'rules.yaml#/CatalogCategoryTreeManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -842,6 +886,7 @@ tests:
 
   TestCatalogCategoryRemoved:
     name: "Removes a category from a catalog"
+    rules: [{ $ref: 'rules.yaml#/CatalogCategoryTreeManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/catalogCategoryAdded' }
@@ -853,6 +898,7 @@ tests:
 
   TestCatalogRemoveCategoryIsRejected:
     name: "Rejects removing a missing category or one that still has children/products"
+    rules: [{ $ref: 'rules.yaml#/CatalogCategoryTreeManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -864,6 +910,7 @@ tests:
 
   TestCatalogOptionListAdded:
     name: "Adds an option list (modifier group) to a catalog"
+    rules: [{ $ref: 'rules.yaml#/CatalogOptionListManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/catalogCreated' }
@@ -884,6 +931,7 @@ tests:
 
   TestCatalogAddOptionListIsRejected:
     name: "Rejects adding an option list with no option or invalid selection bounds"
+    rules: [{ $ref: 'rules.yaml#/CatalogOptionListManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -905,6 +953,7 @@ tests:
 
   TestCatalogOptionListUpdated:
     name: "Updates an option list (full replace)"
+    rules: [{ $ref: 'rules.yaml#/CatalogOptionListManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/optionListAdded' }
@@ -925,6 +974,7 @@ tests:
 
   TestCatalogUpdateOptionListIsRejected:
     name: "Rejects updating a missing option list or leaving it with no option"
+    rules: [{ $ref: 'rules.yaml#/CatalogOptionListManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -945,6 +995,7 @@ tests:
 
   TestCatalogOptionListRemoved:
     name: "Removes an option list from a catalog"
+    rules: [{ $ref: 'rules.yaml#/CatalogOptionListManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/optionListAdded' }
@@ -956,6 +1007,7 @@ tests:
 
   TestCatalogRemoveOptionListIsRejected:
     name: "Rejects removing a missing option list or one still used by an offer"
+    rules: [{ $ref: 'rules.yaml#/CatalogOptionListManagement' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -967,6 +1019,7 @@ tests:
 
   TestCatalogOfferStockUpdated:
     name: "Sets the stock level of an offer"
+    rules: [{ $ref: 'rules.yaml#/OfferStockManualOrSynced' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/productAdded' }
@@ -978,6 +1031,7 @@ tests:
 
   TestCatalogUpdateOfferStockIsRejected:
     name: "Rejects setting stock for a missing or non-stock-tracked offer"
+    rules: [{ $ref: 'rules.yaml#/OfferStockManualOrSynced' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -989,6 +1043,7 @@ tests:
 
   TestCatalogOfferStockSyncedFromHubRise:
     name: "Records an inbound HubRise inventory sync (event reaction, no command)"
+    rules: [{ $ref: 'rules.yaml#/OfferStockManualOrSynced' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/productAdded' }
@@ -1000,6 +1055,7 @@ tests:
 
   TestCatalogImported:
     name: "Imports a full catalog from an external source"
+    rules: [{ $ref: 'rules.yaml#/CatalogImportReplacesContent' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given:
       - { $ref: '#/fixtures/catalogCreated' }
@@ -1011,6 +1067,7 @@ tests:
 
   TestCatalogImportIsRejected:
     name: "Rejects importing into a missing catalog, on a translation failure, or with a missing ref"
+    rules: [{ $ref: 'rules.yaml#/CatalogImportReplacesContent' }]
     actor: { $ref: 'actors.yaml#/Catalog' }
     given: []
     when:
@@ -1024,6 +1081,7 @@ tests:
   # ----------------------------- Customer (Supabase Auth wrapped — ADR-0015) ----------------------------
   TestCustomerRequestPhoneVerification:
     name: "Sends an SMS OTP to a phone (localized via the dialing code); emits nothing"
+    rules: [{ $ref: 'rules.yaml#/PhoneVerificationRegistersOrIdentifies' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given: []
     when:
@@ -1033,6 +1091,7 @@ tests:
 
   TestCustomerVerifyPhoneRegisters:
     name: "Verifying the OTP on a new phone registers the customer"
+    rules: [{ $ref: 'rules.yaml#/PhoneVerificationRegistersOrIdentifies' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given: []
     when:
@@ -1043,6 +1102,7 @@ tests:
 
   TestCustomerVerifyPhoneReturningIdentifies:
     name: "Verifying the OTP on a known phone identifies the returning customer"
+    rules: [{ $ref: 'rules.yaml#/PhoneVerificationRegistersOrIdentifies' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1054,6 +1114,7 @@ tests:
 
   TestCustomerVerifyPhoneIsRejected:
     name: "Rejects phone verification when the OTP is wrong or expired"
+    rules: [{ $ref: 'rules.yaml#/PhoneVerificationRegistersOrIdentifies' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given: []
     when:
@@ -1065,6 +1126,7 @@ tests:
 
   TestCustomerRequestEmailVerification:
     name: "Sends an email magic link to verify/link an email; emits nothing"
+    rules: [{ $ref: 'rules.yaml#/EmailVerificationUniqueTokenValid' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1075,6 +1137,7 @@ tests:
 
   TestCustomerRequestEmailVerificationDuplicateIsRejected:
     name: "Rejects requesting email verification for an email already used by another account"
+    rules: [{ $ref: 'rules.yaml#/EmailVerificationUniqueTokenValid' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1086,6 +1149,7 @@ tests:
 
   TestCustomerConfirmEmailVerification:
     name: "Confirms the email magic link (token verified server-side) and links the email"
+    rules: [{ $ref: 'rules.yaml#/EmailVerificationUniqueTokenValid' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1097,6 +1161,7 @@ tests:
 
   TestCustomerConfirmEmailInvalidTokenIsRejected:
     name: "Rejects email confirmation when the magic-link token is invalid or expired"
+    rules: [{ $ref: 'rules.yaml#/EmailVerificationUniqueTokenValid' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1109,6 +1174,7 @@ tests:
 
   TestCustomerRequestPhoneChange:
     name: "Sends an OTP to a new phone for a phone change; emits nothing"
+    rules: [{ $ref: 'rules.yaml#/PhoneChangeVerifiedAndUnique' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1119,6 +1185,7 @@ tests:
 
   TestCustomerRequestPhoneChangeDuplicateIsRejected:
     name: "Rejects changing to a phone already used by another account"
+    rules: [{ $ref: 'rules.yaml#/PhoneChangeVerifiedAndUnique' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1130,6 +1197,7 @@ tests:
 
   TestCustomerConfirmPhoneChange:
     name: "Confirms the OTP on the new phone and changes the phone"
+    rules: [{ $ref: 'rules.yaml#/PhoneChangeVerifiedAndUnique' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1141,6 +1209,7 @@ tests:
 
   TestCustomerChangeLanguage:
     name: "Persists the customer's preferred language"
+    rules: [{ $ref: 'rules.yaml#/CustomerProfileUpdate' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1152,6 +1221,7 @@ tests:
 
   TestCustomerInfoUpdated:
     name: "Updates the customer's display name"
+    rules: [{ $ref: 'rules.yaml#/CustomerProfileUpdate' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1163,6 +1233,7 @@ tests:
 
   TestCustomerUpdateWithoutFieldIsRejected:
     name: "Rejects a customer update that carries no editable field"
+    rules: [{ $ref: 'rules.yaml#/CustomerProfileUpdate' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1174,6 +1245,7 @@ tests:
 
   TestCustomerPreferencesSet:
     name: "Sets the customer's discovery preferences (timezone + dietary tags)"
+    rules: [{ $ref: 'rules.yaml#/CustomerPreferences' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1185,6 +1257,7 @@ tests:
 
   TestCustomerRestaurantFavorited:
     name: "Marks a restaurant as favorite"
+    rules: [{ $ref: 'rules.yaml#/FavoritesManagement' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1196,6 +1269,7 @@ tests:
 
   TestCustomerFavoriteUnknownRestaurantIsRejected:
     name: "Rejects favoriting a restaurant that does not exist"
+    rules: [{ $ref: 'rules.yaml#/FavoritesManagement' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1207,6 +1281,7 @@ tests:
 
   TestCustomerRestaurantUnfavorited:
     name: "Removes a restaurant from favorites"
+    rules: [{ $ref: 'rules.yaml#/FavoritesManagement' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1219,6 +1294,7 @@ tests:
 
   TestCustomerUnfavoriteNonFavoriteIsNoOp:
     name: "Unfavoriting a restaurant that is not a favorite is a no-op (idempotent)"
+    rules: [{ $ref: 'rules.yaml#/FavoritesManagement' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1229,6 +1305,7 @@ tests:
 
   TestCustomerAddressSet:
     name: "Saves a delivery address in the customer's address book"
+    rules: [{ $ref: 'rules.yaml#/AddressBookManagement' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1240,6 +1317,7 @@ tests:
 
   TestCustomerAddressRemoved:
     name: "Removes a saved address from the address book"
+    rules: [{ $ref: 'rules.yaml#/AddressBookManagement' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1252,6 +1330,7 @@ tests:
 
   TestCustomerPaymentMethodSet:
     name: "Sets the customer's preferred Stripe payment method"
+    rules: [{ $ref: 'rules.yaml#/PaymentMethodStorage' }]
     actor: { $ref: 'actors.yaml#/Customer' }
     given:
       - { $ref: '#/fixtures/customerRegistered' }
@@ -1264,6 +1343,7 @@ tests:
   # ----------------------------- Cart --------------------------------
   TestCartFirstLineAdded:
     name: "Adds the first line to a new cart (the cart is created)"
+    rules: [{ $ref: 'rules.yaml#/CartPricedFromLiveCatalog' }]
     actor: { $ref: 'actors.yaml#/Cart' }
     given: []
     when:
@@ -1275,6 +1355,7 @@ tests:
 
   TestCartAddLineIsRejectedWhenOfferNotOrderable:
     name: "Rejects adding a line when the offer is unknown, unavailable, or out of stock"
+    rules: [{ $ref: 'rules.yaml#/CartRejectsUnorderableOrInvalidLine' }]
     actor: { $ref: 'actors.yaml#/Cart' }
     given: []
     when:
@@ -1287,6 +1368,7 @@ tests:
 
   TestCartAddLineIsRejectedWhenCartInvalid:
     name: "Rejects adding a line on a missing/closed/mismatched cart, with a bad option selection, or over the quantity limit"
+    rules: [{ $ref: 'rules.yaml#/CartRejectsUnorderableOrInvalidLine' }]
     actor: { $ref: 'actors.yaml#/Cart' }
     given: []
     when:
@@ -1301,6 +1383,7 @@ tests:
 
   TestCartLineQuantityChanged:
     name: "Changes the quantity of an existing cart line"
+    rules: [{ $ref: 'rules.yaml#/CartPricedFromLiveCatalog' }]
     actor: { $ref: 'actors.yaml#/Cart' }
     given:
       - { $ref: '#/fixtures/cartStarted' }
@@ -1313,6 +1396,7 @@ tests:
 
   TestCartLineRemoved:
     name: "Removes a line from a cart"
+    rules: [{ $ref: 'rules.yaml#/CartPricedFromLiveCatalog' }]
     actor: { $ref: 'actors.yaml#/Cart' }
     given:
       - { $ref: '#/fixtures/cartStarted' }
@@ -1325,6 +1409,7 @@ tests:
 
   TestCartRemoveLineIsRejected:
     name: "Rejects removing a line from a missing/closed cart or a line that does not exist"
+    rules: [{ $ref: 'rules.yaml#/CartRejectsUnorderableOrInvalidLine' }]
     actor: { $ref: 'actors.yaml#/Cart' }
     given: []
     when:
@@ -1338,6 +1423,7 @@ tests:
   # ----------------------------- Order -------------------------------
   TestOrderAcceptedByRestaurant:
     name: "Restaurant accepts a placed order"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1349,6 +1435,7 @@ tests:
 
   TestOrderAcceptIsRejected:
     name: "Rejects accepting a missing order or one not in an acceptable status"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given: []
     when:
@@ -1360,6 +1447,7 @@ tests:
 
   TestOrderPreparationStarted:
     name: "Restaurant starts preparing an accepted order"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1372,6 +1460,7 @@ tests:
 
   TestOrderMarkedReady:
     name: "Restaurant marks the order ready for pickup/delivery"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1385,6 +1474,7 @@ tests:
 
   TestOrderDelivered:
     name: "The order is delivered to the customer"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1397,6 +1487,7 @@ tests:
 
   TestOrderRejected:
     name: "Restaurant rejects a placed order"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1408,6 +1499,7 @@ tests:
 
   TestOrderCancelledByCustomer:
     name: "Customer cancels the order before acceptance"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1419,6 +1511,7 @@ tests:
 
   TestOrderCancelledByRestaurant:
     name: "Restaurant cancels an order it had accepted"
+    rules: [{ $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1431,6 +1524,7 @@ tests:
 
   TestOrderRated:
     name: "Customer rates the delivery (rider thumb) after delivery"
+    rules: [{ $ref: 'rules.yaml#/OrderRatedOnceWhenDelivered' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1443,6 +1537,7 @@ tests:
 
   TestOrderRateOrderIsRejected:
     name: "Rejects rating the delivery of a missing/not-delivered order or rating it twice"
+    rules: [{ $ref: 'rules.yaml#/OrderRatedOnceWhenDelivered' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given: []
     when:
@@ -1455,6 +1550,7 @@ tests:
 
   TestOrderRestaurantRated:
     name: "Customer rates the restaurant after delivery"
+    rules: [{ $ref: 'rules.yaml#/RestaurantRatedOncePerOrder' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1467,6 +1563,7 @@ tests:
 
   TestOrderRateRestaurantTwiceIsRejected:
     name: "Rejects rating the restaurant a second time for the same order"
+    rules: [{ $ref: 'rules.yaml#/RestaurantRatedOncePerOrder' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1480,6 +1577,7 @@ tests:
 
   TestOrderTipped:
     name: "Customer tips the rider, restaurant and Captain after delivery"
+    rules: [{ $ref: 'rules.yaml#/TipsAdditiveMultiRecipientSeparate' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1492,6 +1590,7 @@ tests:
 
   TestOrderTippedByRestaurant:
     name: "Restaurant tips the rider (thanking the courier)"
+    rules: [{ $ref: 'rules.yaml#/TipsAdditiveMultiRecipientSeparate' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1504,6 +1603,7 @@ tests:
 
   TestOrderTipIsRejected:
     name: "Rejects tipping a missing order, or a restaurant tipping itself"
+    rules: [{ $ref: 'rules.yaml#/TipsAdditiveMultiRecipientSeparate' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given: []
     when:
@@ -1516,6 +1616,7 @@ tests:
 
   TestOrderRefundRequested:
     name: "Customer requests a refund for a delivered order"
+    rules: [{ $ref: 'rules.yaml#/RefundRequestByCustomer' }]
     actor: { $ref: 'actors.yaml#/Order' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1529,6 +1630,7 @@ tests:
   # ---------------------- PlaceOrderProcess (saga) -------------------
   TestPlaceOrderCreatesPaymentIntent:
     name: "Checkout reads the open cart, prices it, and creates a Stripe payment intent"
+    rules: [{ $ref: 'rules.yaml#/CheckoutPricesCartCreatesPaymentIntent' }]
     actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/cartStarted' }
@@ -1548,6 +1650,7 @@ tests:
 
   TestPlaceOrderIsRejected:
     name: "Rejects checkout when the restaurant is paused, the cart is empty, the delivery address is missing or out of area, or the payment is declined"
+    rules: [{ $ref: 'rules.yaml#/CheckoutPricesCartCreatesPaymentIntent' }]
     actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/cartStarted' }
@@ -1569,6 +1672,7 @@ tests:
 
   TestPlaceOrderPaymentCapturedPlacesOrder:
     name: "On payment capture the saga materializes the order and closes the cart"
+    rules: [{ $ref: 'rules.yaml#/OrderMaterializedOnPaymentCapture' }]
     actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/paymentIntentCreated' }
@@ -1581,6 +1685,7 @@ tests:
 
   TestPlaceOrderPaymentFailedPlacesNothing:
     name: "On payment failure the saga aborts and places no order (cart stays open)"
+    rules: [{ $ref: 'rules.yaml#/CheckoutAbortsOnPaymentFailure' }]
     actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/paymentIntentCreated' }
@@ -1592,6 +1697,7 @@ tests:
   # ------------------------ RefundProcess (saga) ---------------------
   TestRefundOnOrderRejected:
     name: "Requests a Stripe refund when an order is rejected by the restaurant"
+    rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
     actor: { $ref: 'actors.yaml#/RefundProcess' }
     given: []
     when:
@@ -1601,6 +1707,7 @@ tests:
 
   TestRefundOnOrderCancelledByCustomer:
     name: "Requests a Stripe refund when the customer cancels the order"
+    rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
     actor: { $ref: 'actors.yaml#/RefundProcess' }
     given: []
     when:
@@ -1610,6 +1717,7 @@ tests:
 
   TestRefundOnOrderCancelledByRestaurant:
     name: "Requests a Stripe refund when the restaurant cancels the order"
+    rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
     actor: { $ref: 'actors.yaml#/RefundProcess' }
     given: []
     when:
@@ -1619,6 +1727,7 @@ tests:
 
   TestRefundOnRefundRequested:
     name: "Validates eligibility and requests a Stripe refund on a customer refund request"
+    rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
     actor: { $ref: 'actors.yaml#/RefundProcess' }
     given: []
     when:
@@ -1628,6 +1737,7 @@ tests:
 
   TestRefundSettledFactRecorded:
     name: "Records the settled refund fact reported back by Stripe"
+    rules: [{ $ref: 'rules.yaml#/RefundSettledFactRecorded' }]
     actor: { $ref: 'actors.yaml#/RefundProcess' }
     given: []
     when:
@@ -1638,6 +1748,7 @@ tests:
   # ---------------------- CartBindingProcess (saga) ------------------
   TestCartBindingOnCustomerIdentified:
     name: "Binds a returning visitor's open guest carts when they are identified"
+    rules: [{ $ref: 'rules.yaml#/GuestCartsBoundOnIdentification' }]
     actor: { $ref: 'actors.yaml#/CartBindingProcess' }
     given: []
     when:
@@ -1648,6 +1759,7 @@ tests:
   # -------------------------- DeliveryJob (ADR-0031) -----------------
   TestAcceptDelivery:
     name: "An independent rider accepts a pending delivery job"
+    rules: [{ $ref: 'rules.yaml#/DeliveryAcceptedOnlyWhenPending' }]
     actor: { $ref: 'actors.yaml#/DeliveryJob' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1659,6 +1771,7 @@ tests:
 
   TestAcceptDeliveryIsRejected:
     name: "Rejects accepting a missing job or one already taken"
+    rules: [{ $ref: 'rules.yaml#/DeliveryAcceptedOnlyWhenPending' }]
     actor: { $ref: 'actors.yaml#/DeliveryJob' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1673,6 +1786,7 @@ tests:
 
   TestConfirmPickup:
     name: "The assigned rider confirms pickup from the restaurant"
+    rules: [{ $ref: 'rules.yaml#/DeliveryPickupAndCompletionByRider' }]
     actor: { $ref: 'actors.yaml#/DeliveryJob' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1685,6 +1799,7 @@ tests:
 
   TestCompleteDelivery:
     name: "The assigned rider records hand-over to the customer"
+    rules: [{ $ref: 'rules.yaml#/DeliveryPickupAndCompletionByRider' }]
     actor: { $ref: 'actors.yaml#/DeliveryJob' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1698,6 +1813,7 @@ tests:
 
   TestCancelDelivery:
     name: "The restaurant cancels a pending delivery job"
+    rules: [{ $ref: 'rules.yaml#/DeliveryCancellableBeforeCompletion' }]
     actor: { $ref: 'actors.yaml#/DeliveryJob' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1709,6 +1825,7 @@ tests:
 
   TestCancelDeliveryIsRejected:
     name: "Rejects cancelling a missing or already-delivered job"
+    rules: [{ $ref: 'rules.yaml#/DeliveryCancellableBeforeCompletion' }]
     actor: { $ref: 'actors.yaml#/DeliveryJob' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1725,6 +1842,7 @@ tests:
   # ------------------- DeliveryDispatchProcess (saga) ----------------
   TestDispatchOnOrderReady:
     name: "A ready DELIVERY order triggers creation of a delivery job"
+    rules: [{ $ref: 'rules.yaml#/ReadyDeliveryOrderTriggersDispatch' }]
     actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
@@ -1736,6 +1854,7 @@ tests:
 
   TestDispatchPartnerAccepted:
     name: "Records the assigned courier when the partner accepts (inbound)"
+    rules: [{ $ref: 'rules.yaml#/PartnerAcceptanceRecordsCourier' }]
     actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1746,6 +1865,7 @@ tests:
 
   TestDispatchPartnerRejected:
     name: "Re-offers or flags for manual handling when the partner declines (inbound)"
+    rules: [{ $ref: 'rules.yaml#/PartnerRejectionReoffers' }]
     actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1756,6 +1876,7 @@ tests:
 
   TestDispatchClosesOrderOnPartnerDelivered:
     name: "Closes the order when the partner reports DELIVERED (inbound)"
+    rules: [{ $ref: 'rules.yaml#/OrderClosedOnDeliveryCompletion' }]
     actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -1767,6 +1888,7 @@ tests:
 
   TestDispatchClosesOrderOnRiderCompleted:
     name: "Closes the order when an independent rider completes the delivery"
+    rules: [{ $ref: 'rules.yaml#/OrderClosedOnDeliveryCompletion' }]
     actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }

@@ -19,6 +19,8 @@ Read the relevant file before implementing or changing anything:
 - [specs/errors.yaml](specs/errors.yaml) — **anticipated errors** (the old command invariants): each with typed `context` and default `messages.en`/`messages.fr`. Mapped per command in actors.yaml `throws`.
 - [specs/actors.yaml](specs/actors.yaml) — **actor-model catalog** (codegen source): aggregates & process managers, each with its inbox of `{ message → emits, throws }`, where every message/event/error is a `$ref` into commands.yaml/events.yaml/errors.yaml (checkable; the ref path encodes kind). Personas/authz live elsewhere (GraphQL `@auth`, story map).
 - [specs/story-map.md](specs/story-map.md) — Jeff Patton story map: backbone, actor×story×steps table, V0 walking skeleton, use cases → commands, open gaps.
+- [specs/stories.yaml](specs/stories.yaml) — the **executable story map** (codegen source): personas → activities → steps, each step a `$ref` into an api.yaml query/mutation. The validator enforces completeness BOTH ways: steps resolve + persona role authorized, AND every mutation/query is reached by ≥1 step (`op-uncovered-by-story`).
+- [specs/rules.yaml](specs/rules.yaml) — **business rules / invariants** (ADR-0032): each a readable guarantee. Every behaviour test links to ≥1 rule and every rule is asserted by ≥1 test (bidirectional, validator-enforced). Rules say WHAT we guarantee; [specs/tests.yaml](specs/tests.yaml) says HOW (Given/When/Then). A rule may span several tests.
 - [specs/api.yaml](specs/api.yaml) — the **GraphQL API surface** (source of truth): output-type registry, queries, mutations, and the ACL (`roles` → `@auth`/`@public`). The SDL is GENERATED from it to `specs/generated/schema.generated.graphql` (the hand-written `schema.graphql` has been removed). **Role = path**: one master schema served per-role under `/{role}/graphql`, filtered by the `@auth`/`@public` ACL (roles: PUBLIC, CUSTOMER, RESTAURANT_ACCOUNT, RESTAURANT, RIDER, ADMIN, EXTERNAL).
 - [specs/traceability.md](specs/traceability.md) — completeness matrix: persona→mutation→actor, persona→query→`View_*`, external→process-manager→actor, + coverage checklist. Derived from the other specs.
 - [specs/integrations/hubrise.md](specs/integrations/hubrise.md) — HubRise integration: exposed data, mapping → domain, ACL, gaps, import path.
@@ -90,9 +92,11 @@ Topic rules live in [docs/claude/](docs/claude/) — read the relevant one befor
 
 Generator/reviewer/observability agents are defined in `.claude/agents/`; acceptance gates are wired as
 hooks in `.claude/settings.json` (`.claude/hooks/stop-gate.sh`, `validate-generated.sh`). `make help`
-lists entrypoints. The validator (`cd tools/codegen && npm run validate`) is the single executable gate —
-it covers schema, behaviour-test coverage, observability contracts, and C4 consistency in one run; it
-must be **0 errors** (only the known view design-holes warn).
+lists entrypoints. The validator (`cd tools/codegen && npm run validate`) is the single executable gate for
+the **whole spec** — schema/refs, actor wiring, api↔model, views, C4, observability, and (ADR-0032)
+**tests, stories and rules completeness**: every message/event/error is exercised by a test, every
+mutation/query is reached by a story step, and every test↔rule link holds both ways. It must be
+**0 errors** (only the known view design-holes warn).
 
 ### Non-negotiable rules
 
@@ -104,6 +108,9 @@ must be **0 errors** (only the known view design-holes warn).
 - Every critical workflow must have an observability contract in `specs/observability.yaml`.
 - If a **behaviour test** fails, fix the generator/runtime — not the test. If an **observability test**
   fails, fix instrumentation/middleware — not the domain model.
+- **Completeness is part of every change (ADR-0032):** a new command/event/error also needs a behaviour
+  test (+ its `rules:` link); a new mutation/query also needs a story step; a new business rule also needs
+  a test. `npm run validate` blocks otherwise — do not weaken the gate, extend the specs.
 - Review and validation gates are executable and **blocking**; never hand-edit generated output
   (`specs/generated/**`, the `database.md` GENERATED region) — change the spec/emitter and regenerate.
 - Every recurring agent/loop failure becomes a new rule, test, or ADR.

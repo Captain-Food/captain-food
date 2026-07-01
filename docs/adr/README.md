@@ -62,6 +62,7 @@ Concrete architecture/domain-model decisions taken while building the specs (Acc
 | [0029](0029-multi-recipient-tips-model.md) | Multi-recipient tips (`Tip`/`TipOrder`/`OrderTipped`, rider/restaurant/Captain, customer- or restaurant-tipper, additive, separate from the split; realizes kDrive ADR-012) |
 | [0030](0030-uber-eats-comparison-model.md) | Uber Eats price-comparison model (single primary `cuisineCategory` + two reference policies, estimate-default with opt-in `basis` for real HubRise prices, `UberComparison` on Offer/Cart/Order computed in projections, no scraping, no new commands/events; realizes 0022/0023/0024/0025) |
 | [0031](0031-delivery-bounded-context.md) | Delivery bounded context (`DeliveryJob` aggregate + `DeliveryDispatchProcess`; one lifecycle, two paths — partner INBOUND facts via `avelo37-acl` AND independent-rider commands; PM-emitted `DeliveryRequested`, dual-emitter `OrderDelivered`, `View_DeliveryJob`, RIDER role wired to the context) |
+| [0032](0032-business-rules-and-completeness-gates.md) | Business-rules layer (`specs/rules.yaml`) + blocking completeness gates (bidirectional rule↔test linkage; `test-uncovered-*` promoted warning→error; new `op-uncovered-by-story` — every mutation/query anchored to a persona) |
 
 ## Proposed (deferred until app/runtime code exists)
 

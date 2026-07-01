@@ -35,4 +35,9 @@ changing anything (see `CLAUDE.md` for the index).
   approval.
 - Commands derive from **use cases** (story map), not mechanically one-per-event (see `CLAUDE.md`).
 - If a behaviour test fails, fix the generator or runtime — **do not weaken the test**.
+- **Completeness is enforced (ADR-0032), not optional:** a new command/event/error needs a behaviour test
+  in `tests.yaml`, and that test needs a `rules: [{ $ref: 'rules.yaml#/<Rule>' }]` link (add the rule to
+  `rules.yaml` if new); a new mutation/query needs a story step in `stories.yaml`. `npm run validate` fails
+  otherwise (`test-uncovered-*`, `rule-uncovered`, `test-no-rule`, `op-uncovered-by-story`). Extend the
+  specs — never weaken the gate.
 - After any DSL change: `npm run validate` must be green before `npm run generate`.

@@ -82,7 +82,7 @@ function main(): void {
     `• views:  ${coverage.views} views, ${coverage.viewColumns} columns, ${coverage.viewFedBy} fedBy links`,
   );
   console.error(
-    `• tests:  ${coverage.testCases} behaviour tests, ${Object.keys((model.defs['tests.yaml']?.fixtures ?? {}) as object).length} fixtures`,
+    `• tests:  ${coverage.testCases} behaviour tests, ${Object.keys((model.defs['tests.yaml']?.fixtures ?? {}) as object).length} fixtures, ${coverage.rules} business rules`,
   );
   console.error(
     `• obs:    ${coverage.obsContracts} observability contracts · C4: ${Object.keys((model.defs['architecture/c4-l2.yaml']?.boundedContexts ?? {}) as object).length} bounded contexts`,
@@ -94,8 +94,9 @@ function main(): void {
   console.error('    - actor wiring: messages→commands/events, emits→events, throws→errors');
   console.error(`    - api↔model: ${coverage.mutationLinks} command links→commands, ${coverage.readsLinks} reads→views, roles→UserType`);
   console.error('    - views: aggregate→actors, fedBy→events, column types→scalars, indexes→columns, fk→views');
-  console.error(`    - stories: ${coverage.storyLinks} step→op links resolve, persona role authorized for each op (roles/UserType)`);
-  console.error(`    - tests: ${coverage.testCases} Given/When/Then cases — fixture/command data fields, actor handles \`when\`, \`then\` events ⊆ emits, \`thrown\` errors ⊆ handler throws`);
+  console.error(`    - stories: ${coverage.storyLinks} step→op links resolve, persona role authorized, every mutation/query reached by a story step`);
+  console.error(`    - tests: ${coverage.testCases} Given/When/Then cases — data fields, actor handles \`when\`, \`then\`⊆emits, \`thrown\`⊆throws; every message/event/error exercised`);
+  console.error(`    - rules: ${coverage.rules} business rules — every test asserts ≥1 rule, every rule asserted by ≥1 test (ADR-0032)`);
   console.error(`    - observability: ${coverage.obsContracts} workflow contracts — $ref bindings resolve, mandatory ids (correlation_id/trace_id), span kinds, success.required_spans ⊆ declared spans`);
   console.error('    - c4: bounded-context↔actor mapping (no unmapped aggregate / phantom container ref)');
 
