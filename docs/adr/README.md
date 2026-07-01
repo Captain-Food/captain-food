@@ -50,6 +50,15 @@ lineage behind them.
 | [0025](0025-amount-split-pedagogical-display.md) | Pedagogical "who gets what" amount-split display |
 | [0026](0026-ai-automation-tooling.md) | AI automation tooling: Perplexity Computer + Claude Code |
 
+## Design decisions (realized in the DSL)
+
+Concrete architecture/domain-model decisions taken while building the specs (Accepted; reflected in
+`specs/**`). New decisions are recorded here as they are made.
+
+| ADR | Title |
+|---|---|
+| [0027](0027-restaurant-pre-registration-prospection-model.md) | Restaurant pre-registration & prospection domain model (extend `Restaurant`, generic `externalIdentifiers`, dual-source ACLs, score in read model; rejects a separate `RestaurantDirectory` BC — dark kitchens) |
+
 ## Proposed (deferred until app/runtime code exists)
 
 These record decisions whose **rules** are locked in (CLAUDE.md, `docs/claude/observability.md`,
