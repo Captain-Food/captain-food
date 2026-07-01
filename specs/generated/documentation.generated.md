@@ -3,7 +3,8 @@
 
 A single, navigable view of the whole product, built from the specs and organized **top-level by
 bounded context** (🔲). Within each context: its API operations, output types, actors, views, commands,
-events, entities, scalars, errors, tests and observability contracts. Every item — and every
+events, entities, scalars, errors, business rules (📐 — what we guarantee), tests (🧪 — how it's verified,
+cross-linked to the rules) and observability contracts. Every item — and every
 **property** 🔹 — is anchored and **cross-linked**; `cross-cutting` holds the shared vocabulary and ops
 that belong to no single context. Stories and Architecture span all contexts.
 
@@ -1287,6 +1288,141 @@ A single restaurant location (HubRise: location); belongs to a RestaurantAccount
 | <a id="error-prospectcontactedtoorecently"></a>⛔ `ProspectContactedTooRecently` | A new contact is too soon after the previous one (anti-spam: ≥ 7 days apart). | 🇬🇧 This prospect was contacted too recently; wait before contacting again. | 🇫🇷 Ce prospect a été contacté trop récemment ; patientez avant de le recontacter. | [📩 `RecordProspectContact`](#command-recordprospectcontact) |
 | <a id="error-prospectnotfound"></a>⛔ `ProspectNotFound` | No prospect (contact history) exists for this restaurant. | 🇬🇧 Prospect not found. | 🇫🇷 Prospect introuvable. | [📩 `MarkProspectCold`](#command-markprospectcold), [📩 `RecordProspectReply`](#command-recordprospectreply) |
 
+### 📐 Business rules _(19)_
+
+<a id="rule-accountregistrationvalidcurrencyuniqueref"></a>
+#### 📐 Rule: `AccountRegistrationValidCurrencyUniqueRef`
+
+_A restaurant account is registered only with a valid ISO currency and a not-already-used external ref._
+
+- **Verified by**: [🧪 `TestRestaurantAccountRegistered`](#test-testrestaurantaccountregistered), [🧪 `TestRestaurantAccountRegisterIsRejected`](#test-testrestaurantaccountregisterisrejected)
+
+<a id="rule-accountupdaterequiresexistingaccountandfield"></a>
+#### 📐 Rule: `AccountUpdateRequiresExistingAccountAndField`
+
+_Account-level fields update only for an existing account and when at least one editable field is provided._
+
+- **Verified by**: [🧪 `TestRestaurantAccountUpdated`](#test-testrestaurantaccountupdated), [🧪 `TestRestaurantAccountUpdateIsRejected`](#test-testrestaurantaccountupdateisrejected)
+
+<a id="rule-accountdeletion"></a>
+#### 📐 Rule: `AccountDeletion`
+
+_A restaurant account can be deleted._
+
+- **Verified by**: [🧪 `TestRestaurantAccountDeleted`](#test-testrestaurantaccountdeleted)
+
+<a id="rule-locationregistrationunderaccountuniqueslug"></a>
+#### 📐 Rule: `LocationRegistrationUnderAccountUniqueSlug`
+
+_A location is registered under an existing account with a unique slug and a not-already-used external ref._
+
+- **Verified by**: [🧪 `TestRestaurantLocationRegistered`](#test-testrestaurantlocationregistered), [🧪 `TestRestaurantRegisterIsRejected`](#test-testrestaurantregisterisrejected)
+
+<a id="rule-restaurantactivationvisibility"></a>
+#### 📐 Rule: `RestaurantActivationVisibility`
+
+_Activating a restaurant makes it visible/orderable; activation is rejected from an invalid state._
+
+- **Verified by**: [🧪 `TestRestaurantActivated`](#test-testrestaurantactivated), [🧪 `TestRestaurantActivateIsRejected`](#test-testrestaurantactivateisrejected)
+
+<a id="rule-restaurantactivationidempotent"></a>
+#### 📐 Rule: `RestaurantActivationIdempotent`
+
+_Re-activating an already-active restaurant is a no-op (idempotent)._
+
+- **Verified by**: [🧪 `TestRestaurantActivateAgainIsNoOp`](#test-testrestaurantactivateagainisnoop)
+
+<a id="rule-restaurantlocationfieldsupdate"></a>
+#### 📐 Rule: `RestaurantLocationFieldsUpdate`
+
+_Editable location fields can be updated; an update to a missing location or with no field is rejected._
+
+- **Verified by**: [🧪 `TestRestaurantUpdated`](#test-testrestaurantupdated), [🧪 `TestRestaurantUpdateIsRejected`](#test-testrestaurantupdateisrejected)
+
+<a id="rule-restaurantdeactivation"></a>
+#### 📐 Rule: `RestaurantDeactivation`
+
+_A restaurant can be deactivated (hidden from customers)._
+
+- **Verified by**: [🧪 `TestRestaurantDeactivated`](#test-testrestaurantdeactivated)
+
+<a id="rule-orderacceptancemodemanagement"></a>
+#### 📐 Rule: `OrderAcceptanceModeManagement`
+
+_The order-acceptance mode reflects kitchen capacity and is rejected from an invalid state._
+
+- **Verified by**: [🧪 `TestRestaurantAcceptanceModeChanged`](#test-testrestaurantacceptancemodechanged), [🧪 `TestRestaurantAcceptanceModeIsRejected`](#test-testrestaurantacceptancemodeisrejected)
+
+<a id="rule-restaurantremoval"></a>
+#### 📐 Rule: `RestaurantRemoval`
+
+_A restaurant location can be removed._
+
+- **Verified by**: [🧪 `TestRestaurantRemoved`](#test-testrestaurantremoved)
+
+<a id="rule-listingseededfromopendata"></a>
+#### 📐 Rule: `ListingSeededFromOpenData`
+
+_A public NON_PARTNER listing can be seeded from open data (Sirene/Google) with no account, preserving source identifiers._
+
+- **Verified by**: [🧪 `TestRestaurantSeededFromSync`](#test-testrestaurantseededfromsync)
+
+<a id="rule-googlebusinessprofileenrichment"></a>
+#### 📐 Rule: `GoogleBusinessProfileEnrichment`
+
+_Google Business Profile data (rating/reviews/hours…) is stored separately from the restaurant's own info._
+
+- **Verified by**: [🧪 `TestRestaurantGoogleBusinessProfileUpdated`](#test-testrestaurantgooglebusinessprofileupdated)
+
+<a id="rule-closedlistingsyncedfromsource"></a>
+#### 📐 Rule: `ClosedListingSyncedFromSource`
+
+_A listing reported closed by the source is marked closed._
+
+- **Verified by**: [🧪 `TestRestaurantMarkedClosed`](#test-testrestaurantmarkedclosed)
+
+<a id="rule-listingclaimrequiresverifiedownership"></a>
+#### 📐 Rule: `ListingClaimRequiresVerifiedOwnership`
+
+_A listing can be claimed only with verified ownership, and only once._
+
+- **Verified by**: [🧪 `TestRestaurantListingClaimed`](#test-testrestaurantlistingclaimed), [🧪 `TestRestaurantListingClaimUnverifiedIsRejected`](#test-testrestaurantlistingclaimunverifiedisrejected), [🧪 `TestRestaurantListingClaimAgainIsRejected`](#test-testrestaurantlistingclaimagainisrejected)
+
+<a id="rule-listingoptout"></a>
+#### 📐 Rule: `ListingOptOut`
+
+_A restaurant can opt a listing out._
+
+- **Verified by**: [🧪 `TestRestaurantListingOptedOut`](#test-testrestaurantlistingoptedout)
+
+<a id="rule-listingfunnelprogression"></a>
+#### 📐 Rule: `ListingFunnelProgression`
+
+_A listing progresses through the partnership funnel (NON_PARTNER → PASSIVE_PARTNER → ACTIVE_PARTNER)._
+
+- **Verified by**: [🧪 `TestRestaurantListingStatusChanged`](#test-testrestaurantlistingstatuschanged)
+
+<a id="rule-gbporderlinksetupandverification"></a>
+#### 📐 Rule: `GbpOrderLinkSetupAndVerification`
+
+_The Google 'Order online' link can be configured and verified; verification is rejected when it fails._
+
+- **Verified by**: [🧪 `TestRestaurantGbpOrderLinkConfigured`](#test-testrestaurantgbporderlinkconfigured), [🧪 `TestRestaurantGbpOrderLinkVerified`](#test-testrestaurantgbporderlinkverified), [🧪 `TestRestaurantGbpOrderLinkVerifyIsRejected`](#test-testrestaurantgbporderlinkverifyisrejected)
+
+<a id="rule-prospectcontactscheduleandlimit"></a>
+#### 📐 Rule: `ProspectContactScheduleAndLimit`
+
+_A prospect contact is recorded only within the outreach schedule and under the contact limit._
+
+- **Verified by**: [🧪 `TestProspectContacted`](#test-testprospectcontacted), [🧪 `TestProspectContactedTooRecently`](#test-testprospectcontactedtoorecently), [🧪 `TestProspectContactLimitReached`](#test-testprospectcontactlimitreached)
+
+<a id="rule-prospectoutreachstatetransitions"></a>
+#### 📐 Rule: `ProspectOutreachStateTransitions`
+
+_A prospect can be marked cold or replied; acting on a missing prospect is rejected._
+
+- **Verified by**: [🧪 `TestProspectMarkedCold`](#test-testprospectmarkedcold), [🧪 `TestProspectReplied`](#test-testprospectreplied), [🧪 `TestProspectMarkColdNotFound`](#test-testprospectmarkcoldnotfound)
+
 ### 🧪 Tests _(3)_
 
 **[🎭 `RestaurantAccount`](#actor-restaurantaccount)**
@@ -1299,6 +1435,7 @@ _Registers a restaurant account_
 - **Given**: _(none)_
 - **When**: [📩 `RegisterRestaurantAccount`](#command-registerrestaurantaccount)
 - **Then**: [⚡ `RestaurantAccountRegistered`](#event-restaurantaccountregistered)
+- **Verifies**: [📐 `AccountRegistrationValidCurrencyUniqueRef`](#rule-accountregistrationvalidcurrencyuniqueref)
 
 <a id="test-testrestaurantaccountregisterisrejected"></a>
 #### 🧪 Test: `TestRestaurantAccountRegisterIsRejected`
@@ -1308,6 +1445,7 @@ _Rejects registering an account with an invalid currency or an already-used exte
 - **Given**: _(none)_
 - **When**: [📩 `RegisterRestaurantAccount`](#command-registerrestaurantaccount)
 - **Thrown**: [⛔ `InvalidCurrency`](#error-invalidcurrency), [⛔ `RefAlreadyUsed`](#error-refalreadyused)
+- **Verifies**: [📐 `AccountRegistrationValidCurrencyUniqueRef`](#rule-accountregistrationvalidcurrencyuniqueref)
 
 <a id="test-testrestaurantaccountupdated"></a>
 #### 🧪 Test: `TestRestaurantAccountUpdated`
@@ -1317,6 +1455,7 @@ _Updates account-level fields (legal name)_
 - **Given**: [⚡ `RestaurantAccountRegistered`](#event-restaurantaccountregistered)
 - **When**: [📩 `UpdateRestaurantAccount`](#command-updaterestaurantaccount)
 - **Then**: [⚡ `RestaurantAccountUpdated`](#event-restaurantaccountupdated)
+- **Verifies**: [📐 `AccountUpdateRequiresExistingAccountAndField`](#rule-accountupdaterequiresexistingaccountandfield)
 
 <a id="test-testrestaurantaccountupdateisrejected"></a>
 #### 🧪 Test: `TestRestaurantAccountUpdateIsRejected`
@@ -1326,6 +1465,7 @@ _Rejects updating a missing account or an update with no editable field_
 - **Given**: _(none)_
 - **When**: [📩 `UpdateRestaurantAccount`](#command-updaterestaurantaccount)
 - **Thrown**: [⛔ `RestaurantAccountNotFound`](#error-restaurantaccountnotfound), [⛔ `NoEditableFieldProvided`](#error-noeditablefieldprovided)
+- **Verifies**: [📐 `AccountUpdateRequiresExistingAccountAndField`](#rule-accountupdaterequiresexistingaccountandfield)
 
 <a id="test-testrestaurantaccountdeleted"></a>
 #### 🧪 Test: `TestRestaurantAccountDeleted`
@@ -1335,6 +1475,7 @@ _Deletes a restaurant account_
 - **Given**: [⚡ `RestaurantAccountRegistered`](#event-restaurantaccountregistered)
 - **When**: [📩 `DeleteRestaurantAccount`](#command-deleterestaurantaccount)
 - **Then**: [⚡ `RestaurantAccountDeleted`](#event-restaurantaccountdeleted)
+- **Verifies**: [📐 `AccountDeletion`](#rule-accountdeletion)
 
 **[🎭 `Restaurant`](#actor-restaurant)**
 
@@ -1346,6 +1487,7 @@ _Registers a location under an existing account_
 - **Given**: [⚡ `RestaurantAccountRegistered`](#event-restaurantaccountregistered)
 - **When**: [📩 `RegisterRestaurant`](#command-registerrestaurant)
 - **Then**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
+- **Verifies**: [📐 `LocationRegistrationUnderAccountUniqueSlug`](#rule-locationregistrationunderaccountuniqueslug)
 
 <a id="test-testrestaurantregisterisrejected"></a>
 #### 🧪 Test: `TestRestaurantRegisterIsRejected`
@@ -1355,6 +1497,7 @@ _Rejects registering a location when the account is missing, the slug is taken, 
 - **Given**: _(none)_
 - **When**: [📩 `RegisterRestaurant`](#command-registerrestaurant)
 - **Thrown**: [⛔ `RestaurantAccountNotFound`](#error-restaurantaccountnotfound), [⛔ `SlugAlreadyTaken`](#error-slugalreadytaken), [⛔ `RefAlreadyUsed`](#error-refalreadyused)
+- **Verifies**: [📐 `LocationRegistrationUnderAccountUniqueSlug`](#rule-locationregistrationunderaccountuniqueslug)
 
 <a id="test-testrestaurantactivated"></a>
 #### 🧪 Test: `TestRestaurantActivated`
@@ -1364,6 +1507,7 @@ _Activates a registered restaurant_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `ActivateRestaurant`](#command-activaterestaurant)
 - **Then**: [⚡ `RestaurantActivated`](#event-restaurantactivated)
+- **Verifies**: [📐 `RestaurantActivationVisibility`](#rule-restaurantactivationvisibility)
 
 <a id="test-testrestaurantactivateagainisnoop"></a>
 #### 🧪 Test: `TestRestaurantActivateAgainIsNoOp`
@@ -1373,6 +1517,7 @@ _Re-activating an already-active restaurant is a no-op (idempotent)_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered), [⚡ `RestaurantActivated`](#event-restaurantactivated)
 - **When**: [📩 `ActivateRestaurant`](#command-activaterestaurant)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `RestaurantActivationIdempotent`](#rule-restaurantactivationidempotent)
 
 <a id="test-testrestaurantactivateisrejected"></a>
 #### 🧪 Test: `TestRestaurantActivateIsRejected`
@@ -1382,6 +1527,7 @@ _Rejects activating a missing restaurant or one with no orderable offer_
 - **Given**: _(none)_
 - **When**: [📩 `ActivateRestaurant`](#command-activaterestaurant)
 - **Thrown**: [⛔ `RestaurantNotFound`](#error-restaurantnotfound), [⛔ `RestaurantNotReadyForActivation`](#error-restaurantnotreadyforactivation)
+- **Verifies**: [📐 `RestaurantActivationVisibility`](#rule-restaurantactivationvisibility)
 
 <a id="test-testrestaurantupdated"></a>
 #### 🧪 Test: `TestRestaurantUpdated`
@@ -1391,6 +1537,7 @@ _Updates editable location fields (display name)_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `UpdateRestaurant`](#command-updaterestaurant)
 - **Then**: [⚡ `RestaurantUpdated`](#event-restaurantupdated)
+- **Verifies**: [📐 `RestaurantLocationFieldsUpdate`](#rule-restaurantlocationfieldsupdate)
 
 <a id="test-testrestaurantupdateisrejected"></a>
 #### 🧪 Test: `TestRestaurantUpdateIsRejected`
@@ -1400,6 +1547,7 @@ _Rejects updating a missing restaurant or an update with no editable field_
 - **Given**: _(none)_
 - **When**: [📩 `UpdateRestaurant`](#command-updaterestaurant)
 - **Thrown**: [⛔ `RestaurantNotFound`](#error-restaurantnotfound), [⛔ `NoEditableFieldProvided`](#error-noeditablefieldprovided)
+- **Verifies**: [📐 `RestaurantLocationFieldsUpdate`](#rule-restaurantlocationfieldsupdate)
 
 <a id="test-testrestaurantdeactivated"></a>
 #### 🧪 Test: `TestRestaurantDeactivated`
@@ -1409,6 +1557,7 @@ _Deactivates an active restaurant_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered), [⚡ `RestaurantActivated`](#event-restaurantactivated)
 - **When**: [📩 `DeactivateRestaurant`](#command-deactivaterestaurant)
 - **Then**: [⚡ `RestaurantDeactivated`](#event-restaurantdeactivated)
+- **Verifies**: [📐 `RestaurantDeactivation`](#rule-restaurantdeactivation)
 
 <a id="test-testrestaurantacceptancemodechanged"></a>
 #### 🧪 Test: `TestRestaurantAcceptanceModeChanged`
@@ -1418,6 +1567,7 @@ _Switches an active restaurant to BUSY_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered), [⚡ `RestaurantActivated`](#event-restaurantactivated)
 - **When**: [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode)
 - **Then**: [⚡ `RestaurantAcceptanceModeChanged`](#event-restaurantacceptancemodechanged)
+- **Verifies**: [📐 `OrderAcceptanceModeManagement`](#rule-orderacceptancemodemanagement)
 
 <a id="test-testrestaurantacceptancemodeisrejected"></a>
 #### 🧪 Test: `TestRestaurantAcceptanceModeIsRejected`
@@ -1427,6 +1577,7 @@ _Rejects changing acceptance mode when the restaurant is inactive or already in 
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode)
 - **Thrown**: [⛔ `RestaurantNotActive`](#error-restaurantnotactive), [⛔ `AcceptanceModeUnchanged`](#error-acceptancemodeunchanged)
+- **Verifies**: [📐 `OrderAcceptanceModeManagement`](#rule-orderacceptancemodemanagement)
 
 <a id="test-testrestaurantremoved"></a>
 #### 🧪 Test: `TestRestaurantRemoved`
@@ -1436,6 +1587,7 @@ _Removes (delists) a location from its account_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `RemoveRestaurant`](#command-removerestaurant)
 - **Then**: [⚡ `RestaurantRemoved`](#event-restaurantremoved)
+- **Verifies**: [📐 `RestaurantRemoval`](#rule-restaurantremoval)
 
 <a id="test-testrestaurantseededfromsync"></a>
 #### 🧪 Test: `TestRestaurantSeededFromSync`
@@ -1445,6 +1597,7 @@ _Sync ACL seeds a public NON_PARTNER listing (no account)_
 - **Given**: _(none)_
 - **When**: [📩 `RegisterRestaurant`](#command-registerrestaurant)
 - **Then**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
+- **Verifies**: [📐 `ListingSeededFromOpenData`](#rule-listingseededfromopendata)
 
 <a id="test-testrestaurantgooglebusinessprofileupdated"></a>
 #### 🧪 Test: `TestRestaurantGoogleBusinessProfileUpdated`
@@ -1454,6 +1607,7 @@ _Records Google Business Profile enrichment_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `UpdateRestaurantGoogleBusinessProfile`](#command-updaterestaurantgooglebusinessprofile)
 - **Then**: [⚡ `RestaurantGoogleBusinessProfileUpdated`](#event-restaurantgooglebusinessprofileupdated)
+- **Verifies**: [📐 `GoogleBusinessProfileEnrichment`](#rule-googlebusinessprofileenrichment)
 
 <a id="test-testrestaurantmarkedclosed"></a>
 #### 🧪 Test: `TestRestaurantMarkedClosed`
@@ -1463,6 +1617,7 @@ _Marks a listing closed (Sirene closure)_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `MarkRestaurantClosed`](#command-markrestaurantclosed)
 - **Then**: [⚡ `RestaurantMarkedClosed`](#event-restaurantmarkedclosed)
+- **Verifies**: [📐 `ClosedListingSyncedFromSource`](#rule-closedlistingsyncedfromsource)
 
 <a id="test-testrestaurantlistingclaimed"></a>
 #### 🧪 Test: `TestRestaurantListingClaimed`
@@ -1472,6 +1627,7 @@ _Owner claims a listing with a valid Google ownership proof_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `ClaimRestaurantListing`](#command-claimrestaurantlisting)
 - **Then**: [⚡ `RestaurantListingClaimed`](#event-restaurantlistingclaimed)
+- **Verifies**: [📐 `ListingClaimRequiresVerifiedOwnership`](#rule-listingclaimrequiresverifiedownership)
 
 <a id="test-testrestaurantlistingclaimunverifiedisrejected"></a>
 #### 🧪 Test: `TestRestaurantListingClaimUnverifiedIsRejected`
@@ -1481,6 +1637,7 @@ _Rejects a claim whose Google ownership proof fails_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `ClaimRestaurantListing`](#command-claimrestaurantlisting)
 - **Thrown**: [⛔ `ListingOwnershipNotVerified`](#error-listingownershipnotverified)
+- **Verifies**: [📐 `ListingClaimRequiresVerifiedOwnership`](#rule-listingclaimrequiresverifiedownership)
 
 <a id="test-testrestaurantlistingclaimagainisrejected"></a>
 #### 🧪 Test: `TestRestaurantListingClaimAgainIsRejected`
@@ -1490,6 +1647,7 @@ _Rejects claiming an already-claimed listing_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered), [⚡ `RestaurantListingClaimed`](#event-restaurantlistingclaimed)
 - **When**: [📩 `ClaimRestaurantListing`](#command-claimrestaurantlisting)
 - **Thrown**: [⛔ `ListingAlreadyClaimed`](#error-listingalreadyclaimed)
+- **Verifies**: [📐 `ListingClaimRequiresVerifiedOwnership`](#rule-listingclaimrequiresverifiedownership)
 
 <a id="test-testrestaurantlistingoptedout"></a>
 #### 🧪 Test: `TestRestaurantListingOptedOut`
@@ -1499,6 +1657,7 @@ _Owner opts a listing out (proven via GBP)_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `OptOutRestaurantListing`](#command-optoutrestaurantlisting)
 - **Then**: [⚡ `RestaurantListingOptedOut`](#event-restaurantlistingoptedout)
+- **Verifies**: [📐 `ListingOptOut`](#rule-listingoptout)
 
 <a id="test-testrestaurantlistingstatuschanged"></a>
 #### 🧪 Test: `TestRestaurantListingStatusChanged`
@@ -1508,6 +1667,7 @@ _Admin moves a listing along the partnership funnel_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `ChangeRestaurantListingStatus`](#command-changerestaurantlistingstatus)
 - **Then**: [⚡ `RestaurantListingStatusChanged`](#event-restaurantlistingstatuschanged)
+- **Verifies**: [📐 `ListingFunnelProgression`](#rule-listingfunnelprogression)
 
 <a id="test-testrestaurantgbporderlinkconfigured"></a>
 #### 🧪 Test: `TestRestaurantGbpOrderLinkConfigured`
@@ -1517,6 +1677,7 @@ _Configures the Google 'Order online' link_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `ConfigureGoogleBusinessProfileOrderLink`](#command-configuregooglebusinessprofileorderlink)
 - **Then**: [⚡ `RestaurantGoogleBusinessProfileOrderLinkConfigured`](#event-restaurantgooglebusinessprofileorderlinkconfigured)
+- **Verifies**: [📐 `GbpOrderLinkSetupAndVerification`](#rule-gbporderlinksetupandverification)
 
 <a id="test-testrestaurantgbporderlinkverified"></a>
 #### 🧪 Test: `TestRestaurantGbpOrderLinkVerified`
@@ -1526,6 +1687,7 @@ _Verifies the configured Google 'Order online' link_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered), [⚡ `RestaurantGoogleBusinessProfileOrderLinkConfigured`](#event-restaurantgooglebusinessprofileorderlinkconfigured)
 - **When**: [📩 `VerifyGoogleBusinessProfileOrderLink`](#command-verifygooglebusinessprofileorderlink)
 - **Then**: [⚡ `RestaurantGoogleBusinessProfileOrderLinkVerified`](#event-restaurantgooglebusinessprofileorderlinkverified)
+- **Verifies**: [📐 `GbpOrderLinkSetupAndVerification`](#rule-gbporderlinksetupandverification)
 
 <a id="test-testrestaurantgbporderlinkverifyisrejected"></a>
 #### 🧪 Test: `TestRestaurantGbpOrderLinkVerifyIsRejected`
@@ -1535,6 +1697,7 @@ _Rejects verifying when no order link is configured_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `VerifyGoogleBusinessProfileOrderLink`](#command-verifygooglebusinessprofileorderlink)
 - **Thrown**: [⛔ `GbpOrderLinkNotConfigured`](#error-gbporderlinknotconfigured)
+- **Verifies**: [📐 `GbpOrderLinkSetupAndVerification`](#rule-gbporderlinksetupandverification)
 
 **[🎭 `Prospect`](#actor-prospect)**
 
@@ -1546,6 +1709,7 @@ _Records the first prospection contact (prospect is born)_
 - **Given**: _(none)_
 - **When**: [📩 `RecordProspectContact`](#command-recordprospectcontact)
 - **Then**: [⚡ `ProspectContacted`](#event-prospectcontacted)
+- **Verifies**: [📐 `ProspectContactScheduleAndLimit`](#rule-prospectcontactscheduleandlimit)
 
 <a id="test-testprospectcontactedtoorecently"></a>
 #### 🧪 Test: `TestProspectContactedTooRecently`
@@ -1555,6 +1719,7 @@ _Rejects a new contact too soon after the previous one (≥7 days apart)_
 - **Given**: [⚡ `ProspectContacted`](#event-prospectcontacted)
 - **When**: [📩 `RecordProspectContact`](#command-recordprospectcontact)
 - **Thrown**: [⛔ `ProspectContactedTooRecently`](#error-prospectcontactedtoorecently)
+- **Verifies**: [📐 `ProspectContactScheduleAndLimit`](#rule-prospectcontactscheduleandlimit)
 
 <a id="test-testprospectcontactlimitreached"></a>
 #### 🧪 Test: `TestProspectContactLimitReached`
@@ -1564,6 +1729,7 @@ _Rejects a 4th contact (anti-spam: ≤ 3)_
 - **Given**: [⚡ `ProspectContacted`](#event-prospectcontacted), [⚡ `ProspectContacted`](#event-prospectcontacted), [⚡ `ProspectContacted`](#event-prospectcontacted)
 - **When**: [📩 `RecordProspectContact`](#command-recordprospectcontact)
 - **Thrown**: [⛔ `ProspectContactLimitReached`](#error-prospectcontactlimitreached)
+- **Verifies**: [📐 `ProspectContactScheduleAndLimit`](#rule-prospectcontactscheduleandlimit)
 
 <a id="test-testprospectmarkedcold"></a>
 #### 🧪 Test: `TestProspectMarkedCold`
@@ -1573,6 +1739,7 @@ _Marks a contacted prospect cold_
 - **Given**: [⚡ `ProspectContacted`](#event-prospectcontacted)
 - **When**: [📩 `MarkProspectCold`](#command-markprospectcold)
 - **Then**: [⚡ `ProspectMarkedCold`](#event-prospectmarkedcold)
+- **Verifies**: [📐 `ProspectOutreachStateTransitions`](#rule-prospectoutreachstatetransitions)
 
 <a id="test-testprospectreplied"></a>
 #### 🧪 Test: `TestProspectReplied`
@@ -1582,6 +1749,7 @@ _Records a prospect reply_
 - **Given**: [⚡ `ProspectContacted`](#event-prospectcontacted)
 - **When**: [📩 `RecordProspectReply`](#command-recordprospectreply)
 - **Then**: [⚡ `ProspectReplied`](#event-prospectreplied)
+- **Verifies**: [📐 `ProspectOutreachStateTransitions`](#rule-prospectoutreachstatetransitions)
 
 <a id="test-testprospectmarkcoldnotfound"></a>
 #### 🧪 Test: `TestProspectMarkColdNotFound`
@@ -1591,6 +1759,7 @@ _Rejects marking cold a prospect that was never contacted_
 - **Given**: _(none)_
 - **When**: [📩 `MarkProspectCold`](#command-markprospectcold)
 - **Thrown**: [⛔ `ProspectNotFound`](#error-prospectnotfound)
+- **Verifies**: [📐 `ProspectOutreachStateTransitions`](#rule-prospectoutreachstatetransitions)
 
 ### 📡 Observability _(1)_
 
@@ -2316,6 +2485,50 @@ A purchasable offer of a product (HubRise: SKU).
 | <a id="error-catalogtranslationfailed"></a>⛔ `CatalogTranslationFailed` | The ACL could not map external (HubRise) shapes to domain types on import. | 🇬🇧 The imported catalog could not be processed. | 🇫🇷 Le catalogue importé n'a pas pu être traité. | [📩 `ImportCatalog`](#command-importcatalog) |
 | <a id="error-missingref"></a>⛔ `MissingRef` | An imported entity is missing its ref (idempotency key). | 🇬🇧 Every imported item must have a reference. | 🇫🇷 Chaque élément importé doit avoir une référence. | [📩 `ImportCatalog`](#command-importcatalog) |
 
+### 📐 Business rules _(6)_
+
+<a id="rule-catalogcreationforrestaurant"></a>
+#### 📐 Rule: `CatalogCreationForRestaurant`
+
+_A catalog is created for a restaurant; creation is rejected when invalid/duplicate._
+
+- **Verified by**: [🧪 `TestCatalogCreated`](#test-testcatalogcreated), [🧪 `TestCatalogCreateIsRejected`](#test-testcatalogcreateisrejected)
+
+<a id="rule-catalogproductmanagement"></a>
+#### 📐 Rule: `CatalogProductManagement`
+
+_Products can be added, updated and removed in a catalog, with rejection on invalid operations._
+
+- **Verified by**: [🧪 `TestCatalogProductAdded`](#test-testcatalogproductadded), [🧪 `TestCatalogAddProductIsRejected`](#test-testcatalogaddproductisrejected), [🧪 `TestCatalogProductUpdated`](#test-testcatalogproductupdated), [🧪 `TestCatalogUpdateProductIsRejected`](#test-testcatalogupdateproductisrejected), [🧪 `TestCatalogProductRemoved`](#test-testcatalogproductremoved)
+
+<a id="rule-catalogcategorytreemanagement"></a>
+#### 📐 Rule: `CatalogCategoryTreeManagement`
+
+_Catalog categories (the tree) can be added, updated and removed, with rejection on invalid operations._
+
+- **Verified by**: [🧪 `TestCatalogCategoryAdded`](#test-testcatalogcategoryadded), [🧪 `TestCatalogAddCategoryIsRejected`](#test-testcatalogaddcategoryisrejected), [🧪 `TestCatalogCategoryUpdated`](#test-testcatalogcategoryupdated), [🧪 `TestCatalogUpdateCategoryIsRejected`](#test-testcatalogupdatecategoryisrejected), [🧪 `TestCatalogCategoryRemoved`](#test-testcatalogcategoryremoved), [🧪 `TestCatalogRemoveCategoryIsRejected`](#test-testcatalogremovecategoryisrejected)
+
+<a id="rule-catalogoptionlistmanagement"></a>
+#### 📐 Rule: `CatalogOptionListManagement`
+
+_Option lists can be added, updated and removed, with rejection on invalid operations._
+
+- **Verified by**: [🧪 `TestCatalogOptionListAdded`](#test-testcatalogoptionlistadded), [🧪 `TestCatalogAddOptionListIsRejected`](#test-testcatalogaddoptionlistisrejected), [🧪 `TestCatalogOptionListUpdated`](#test-testcatalogoptionlistupdated), [🧪 `TestCatalogUpdateOptionListIsRejected`](#test-testcatalogupdateoptionlistisrejected), [🧪 `TestCatalogOptionListRemoved`](#test-testcatalogoptionlistremoved), [🧪 `TestCatalogRemoveOptionListIsRejected`](#test-testcatalogremoveoptionlistisrejected)
+
+<a id="rule-offerstockmanualorsynced"></a>
+#### 📐 Rule: `OfferStockManualOrSynced`
+
+_Offer stock can be updated manually or synced from HubRise; an invalid update is rejected._
+
+- **Verified by**: [🧪 `TestCatalogOfferStockUpdated`](#test-testcatalogofferstockupdated), [🧪 `TestCatalogUpdateOfferStockIsRejected`](#test-testcatalogupdateofferstockisrejected), [🧪 `TestCatalogOfferStockSyncedFromHubRise`](#test-testcatalogofferstocksyncedfromhubrise)
+
+<a id="rule-catalogimportreplacescontent"></a>
+#### 📐 Rule: `CatalogImportReplacesContent`
+
+_A HubRise catalog import replaces the catalog content (idempotent on ref); an invalid import is rejected._
+
+- **Verified by**: [🧪 `TestCatalogImported`](#test-testcatalogimported), [🧪 `TestCatalogImportIsRejected`](#test-testcatalogimportisrejected)
+
 ### 🧪 Tests _(1)_
 
 **[🎭 `Catalog`](#actor-catalog)**
@@ -2328,6 +2541,7 @@ _Creates a catalog for a registered restaurant_
 - **Given**: [⚡ `RestaurantRegistered`](#event-restaurantregistered)
 - **When**: [📩 `CreateCatalog`](#command-createcatalog)
 - **Then**: [⚡ `CatalogCreated`](#event-catalogcreated)
+- **Verifies**: [📐 `CatalogCreationForRestaurant`](#rule-catalogcreationforrestaurant)
 
 <a id="test-testcatalogcreateisrejected"></a>
 #### 🧪 Test: `TestCatalogCreateIsRejected`
@@ -2337,6 +2551,7 @@ _Rejects creating a catalog for a missing restaurant or with a duplicate ref_
 - **Given**: _(none)_
 - **When**: [📩 `CreateCatalog`](#command-createcatalog)
 - **Thrown**: [⛔ `RestaurantNotFound`](#error-restaurantnotfound), [⛔ `RefNotUnique`](#error-refnotunique)
+- **Verifies**: [📐 `CatalogCreationForRestaurant`](#rule-catalogcreationforrestaurant)
 
 <a id="test-testcatalogproductadded"></a>
 #### 🧪 Test: `TestCatalogProductAdded`
@@ -2346,6 +2561,7 @@ _Adds a product with one offer to a catalog_
 - **Given**: [⚡ `CatalogCreated`](#event-catalogcreated)
 - **When**: [📩 `AddProduct`](#command-addproduct)
 - **Then**: [⚡ `ProductAdded`](#event-productadded)
+- **Verifies**: [📐 `CatalogProductManagement`](#rule-catalogproductmanagement)
 
 <a id="test-testcatalogaddproductisrejected"></a>
 #### 🧪 Test: `TestCatalogAddProductIsRejected`
@@ -2355,6 +2571,7 @@ _Rejects adding a product when the catalog/category is missing, a price currency
 - **Given**: _(none)_
 - **When**: [📩 `AddProduct`](#command-addproduct)
 - **Thrown**: [⛔ `CatalogNotFound`](#error-catalognotfound), [⛔ `CurrencyMismatch`](#error-currencymismatch), [⛔ `CatalogCategoryRefNotFound`](#error-catalogcategoryrefnotfound), [⛔ `RefNotUnique`](#error-refnotunique)
+- **Verifies**: [📐 `CatalogProductManagement`](#rule-catalogproductmanagement)
 
 <a id="test-testcatalogproductupdated"></a>
 #### 🧪 Test: `TestCatalogProductUpdated`
@@ -2364,6 +2581,7 @@ _Updates an existing product (full replace)_
 - **Given**: [⚡ `ProductAdded`](#event-productadded)
 - **When**: [📩 `UpdateProduct`](#command-updateproduct)
 - **Then**: [⚡ `ProductUpdated`](#event-productupdated)
+- **Verifies**: [📐 `CatalogProductManagement`](#rule-catalogproductmanagement)
 
 <a id="test-testcatalogupdateproductisrejected"></a>
 #### 🧪 Test: `TestCatalogUpdateProductIsRejected`
@@ -2373,6 +2591,7 @@ _Rejects updating a missing product, removing its last offer, or mismatching the
 - **Given**: _(none)_
 - **When**: [📩 `UpdateProduct`](#command-updateproduct)
 - **Thrown**: [⛔ `ProductNotFound`](#error-productnotfound), [⛔ `ProductMustHaveOffer`](#error-productmusthaveoffer), [⛔ `CurrencyMismatch`](#error-currencymismatch)
+- **Verifies**: [📐 `CatalogProductManagement`](#rule-catalogproductmanagement)
 
 <a id="test-testcatalogproductremoved"></a>
 #### 🧪 Test: `TestCatalogProductRemoved`
@@ -2382,6 +2601,7 @@ _Removes a product from a catalog_
 - **Given**: [⚡ `ProductAdded`](#event-productadded)
 - **When**: [📩 `RemoveProduct`](#command-removeproduct)
 - **Then**: [⚡ `ProductRemoved`](#event-productremoved)
+- **Verifies**: [📐 `CatalogProductManagement`](#rule-catalogproductmanagement)
 
 <a id="test-testcatalogcategoryadded"></a>
 #### 🧪 Test: `TestCatalogCategoryAdded`
@@ -2391,6 +2611,7 @@ _Adds a category to a catalog_
 - **Given**: [⚡ `CatalogCreated`](#event-catalogcreated)
 - **When**: [📩 `AddCatalogCategory`](#command-addcatalogcategory)
 - **Then**: [⚡ `CatalogCategoryAdded`](#event-catalogcategoryadded)
+- **Verifies**: [📐 `CatalogCategoryTreeManagement`](#rule-catalogcategorytreemanagement)
 
 <a id="test-testcatalogaddcategoryisrejected"></a>
 #### 🧪 Test: `TestCatalogAddCategoryIsRejected`
@@ -2400,6 +2621,7 @@ _Rejects adding a category when the catalog/parent is missing or the ref is dupl
 - **Given**: _(none)_
 - **When**: [📩 `AddCatalogCategory`](#command-addcatalogcategory)
 - **Thrown**: [⛔ `CatalogNotFound`](#error-catalognotfound), [⛔ `ParentCatalogCategoryNotFound`](#error-parentcatalogcategorynotfound), [⛔ `RefNotUnique`](#error-refnotunique)
+- **Verifies**: [📐 `CatalogCategoryTreeManagement`](#rule-catalogcategorytreemanagement)
 
 <a id="test-testcatalogcategoryupdated"></a>
 #### 🧪 Test: `TestCatalogCategoryUpdated`
@@ -2409,6 +2631,7 @@ _Updates a catalog category (full replace)_
 - **Given**: [⚡ `CatalogCategoryAdded`](#event-catalogcategoryadded)
 - **When**: [📩 `UpdateCatalogCategory`](#command-updatecatalogcategory)
 - **Then**: [⚡ `CatalogCategoryUpdated`](#event-catalogcategoryupdated)
+- **Verifies**: [📐 `CatalogCategoryTreeManagement`](#rule-catalogcategorytreemanagement)
 
 <a id="test-testcatalogupdatecategoryisrejected"></a>
 #### 🧪 Test: `TestCatalogUpdateCategoryIsRejected`
@@ -2418,6 +2641,7 @@ _Rejects updating a missing category or one that would create a cycle_
 - **Given**: _(none)_
 - **When**: [📩 `UpdateCatalogCategory`](#command-updatecatalogcategory)
 - **Thrown**: [⛔ `CatalogCategoryNotFound`](#error-catalogcategorynotfound), [⛔ `CatalogCategoryCycle`](#error-catalogcategorycycle)
+- **Verifies**: [📐 `CatalogCategoryTreeManagement`](#rule-catalogcategorytreemanagement)
 
 <a id="test-testcatalogcategoryremoved"></a>
 #### 🧪 Test: `TestCatalogCategoryRemoved`
@@ -2427,6 +2651,7 @@ _Removes a category from a catalog_
 - **Given**: [⚡ `CatalogCategoryAdded`](#event-catalogcategoryadded)
 - **When**: [📩 `RemoveCatalogCategory`](#command-removecatalogcategory)
 - **Then**: [⚡ `CatalogCategoryRemoved`](#event-catalogcategoryremoved)
+- **Verifies**: [📐 `CatalogCategoryTreeManagement`](#rule-catalogcategorytreemanagement)
 
 <a id="test-testcatalogremovecategoryisrejected"></a>
 #### 🧪 Test: `TestCatalogRemoveCategoryIsRejected`
@@ -2436,6 +2661,7 @@ _Rejects removing a missing category or one that still has children/products_
 - **Given**: _(none)_
 - **When**: [📩 `RemoveCatalogCategory`](#command-removecatalogcategory)
 - **Thrown**: [⛔ `CatalogCategoryNotFound`](#error-catalogcategorynotfound), [⛔ `CatalogCategoryNotEmpty`](#error-catalogcategorynotempty)
+- **Verifies**: [📐 `CatalogCategoryTreeManagement`](#rule-catalogcategorytreemanagement)
 
 <a id="test-testcatalogoptionlistadded"></a>
 #### 🧪 Test: `TestCatalogOptionListAdded`
@@ -2445,6 +2671,7 @@ _Adds an option list (modifier group) to a catalog_
 - **Given**: [⚡ `CatalogCreated`](#event-catalogcreated)
 - **When**: [📩 `AddOptionList`](#command-addoptionlist)
 - **Then**: [⚡ `OptionListAdded`](#event-optionlistadded)
+- **Verifies**: [📐 `CatalogOptionListManagement`](#rule-catalogoptionlistmanagement)
 
 <a id="test-testcatalogaddoptionlistisrejected"></a>
 #### 🧪 Test: `TestCatalogAddOptionListIsRejected`
@@ -2454,6 +2681,7 @@ _Rejects adding an option list with no option or invalid selection bounds_
 - **Given**: _(none)_
 - **When**: [📩 `AddOptionList`](#command-addoptionlist)
 - **Thrown**: [⛔ `CatalogNotFound`](#error-catalognotfound), [⛔ `OptionListMustHaveOption`](#error-optionlistmusthaveoption), [⛔ `InvalidSelectionBounds`](#error-invalidselectionbounds)
+- **Verifies**: [📐 `CatalogOptionListManagement`](#rule-catalogoptionlistmanagement)
 
 <a id="test-testcatalogoptionlistupdated"></a>
 #### 🧪 Test: `TestCatalogOptionListUpdated`
@@ -2463,6 +2691,7 @@ _Updates an option list (full replace)_
 - **Given**: [⚡ `OptionListAdded`](#event-optionlistadded)
 - **When**: [📩 `UpdateOptionList`](#command-updateoptionlist)
 - **Then**: [⚡ `OptionListUpdated`](#event-optionlistupdated)
+- **Verifies**: [📐 `CatalogOptionListManagement`](#rule-catalogoptionlistmanagement)
 
 <a id="test-testcatalogupdateoptionlistisrejected"></a>
 #### 🧪 Test: `TestCatalogUpdateOptionListIsRejected`
@@ -2472,6 +2701,7 @@ _Rejects updating a missing option list or leaving it with no option_
 - **Given**: _(none)_
 - **When**: [📩 `UpdateOptionList`](#command-updateoptionlist)
 - **Thrown**: [⛔ `OptionListNotFound`](#error-optionlistnotfound), [⛔ `OptionListMustHaveOption`](#error-optionlistmusthaveoption)
+- **Verifies**: [📐 `CatalogOptionListManagement`](#rule-catalogoptionlistmanagement)
 
 <a id="test-testcatalogoptionlistremoved"></a>
 #### 🧪 Test: `TestCatalogOptionListRemoved`
@@ -2481,6 +2711,7 @@ _Removes an option list from a catalog_
 - **Given**: [⚡ `OptionListAdded`](#event-optionlistadded)
 - **When**: [📩 `RemoveOptionList`](#command-removeoptionlist)
 - **Then**: [⚡ `OptionListRemoved`](#event-optionlistremoved)
+- **Verifies**: [📐 `CatalogOptionListManagement`](#rule-catalogoptionlistmanagement)
 
 <a id="test-testcatalogremoveoptionlistisrejected"></a>
 #### 🧪 Test: `TestCatalogRemoveOptionListIsRejected`
@@ -2490,6 +2721,7 @@ _Rejects removing a missing option list or one still used by an offer_
 - **Given**: _(none)_
 - **When**: [📩 `RemoveOptionList`](#command-removeoptionlist)
 - **Thrown**: [⛔ `OptionListNotFound`](#error-optionlistnotfound), [⛔ `OptionListInUse`](#error-optionlistinuse)
+- **Verifies**: [📐 `CatalogOptionListManagement`](#rule-catalogoptionlistmanagement)
 
 <a id="test-testcatalogofferstockupdated"></a>
 #### 🧪 Test: `TestCatalogOfferStockUpdated`
@@ -2499,6 +2731,7 @@ _Sets the stock level of an offer_
 - **Given**: [⚡ `ProductAdded`](#event-productadded)
 - **When**: [📩 `UpdateOfferStock`](#command-updateofferstock)
 - **Then**: [⚡ `OfferStockUpdated`](#event-offerstockupdated)
+- **Verifies**: [📐 `OfferStockManualOrSynced`](#rule-offerstockmanualorsynced)
 
 <a id="test-testcatalogupdateofferstockisrejected"></a>
 #### 🧪 Test: `TestCatalogUpdateOfferStockIsRejected`
@@ -2508,6 +2741,7 @@ _Rejects setting stock for a missing or non-stock-tracked offer_
 - **Given**: _(none)_
 - **When**: [📩 `UpdateOfferStock`](#command-updateofferstock)
 - **Thrown**: [⛔ `OfferNotFound`](#error-offernotfound), [⛔ `OfferNotStockTracked`](#error-offernotstocktracked)
+- **Verifies**: [📐 `OfferStockManualOrSynced`](#rule-offerstockmanualorsynced)
 
 <a id="test-testcatalogofferstocksyncedfromhubrise"></a>
 #### 🧪 Test: `TestCatalogOfferStockSyncedFromHubRise`
@@ -2517,6 +2751,7 @@ _Records an inbound HubRise inventory sync (event reaction, no command)_
 - **Given**: [⚡ `ProductAdded`](#event-productadded)
 - **When**: [📩 `OfferStockUpdated`](#command-offerstockupdated)
 - **Then**: [⚡ `OfferStockUpdated`](#event-offerstockupdated)
+- **Verifies**: [📐 `OfferStockManualOrSynced`](#rule-offerstockmanualorsynced)
 
 <a id="test-testcatalogimported"></a>
 #### 🧪 Test: `TestCatalogImported`
@@ -2526,6 +2761,7 @@ _Imports a full catalog from an external source_
 - **Given**: [⚡ `CatalogCreated`](#event-catalogcreated)
 - **When**: [📩 `ImportCatalog`](#command-importcatalog)
 - **Then**: [⚡ `CatalogImported`](#event-catalogimported)
+- **Verifies**: [📐 `CatalogImportReplacesContent`](#rule-catalogimportreplacescontent)
 
 <a id="test-testcatalogimportisrejected"></a>
 #### 🧪 Test: `TestCatalogImportIsRejected`
@@ -2535,6 +2771,7 @@ _Rejects importing into a missing catalog, on a translation failure, or with a m
 - **Given**: _(none)_
 - **When**: [📩 `ImportCatalog`](#command-importcatalog)
 - **Thrown**: [⛔ `CatalogNotFound`](#error-catalognotfound), [⛔ `CatalogTranslationFailed`](#error-catalogtranslationfailed), [⛔ `MissingRef`](#error-missingref)
+- **Verifies**: [📐 `CatalogImportReplacesContent`](#rule-catalogimportreplacescontent)
 
 <a id="sec-ctx-order"></a>
 ## 🔲 3. order
@@ -3595,6 +3832,92 @@ An option chosen by the customer on a line item, priced at order time.
 | <a id="error-outsidedeliveryarea"></a>⛔ `OutsideDeliveryArea` | Delivery address is outside the restaurant's delivery area. | 🇬🇧 This address is outside the delivery area of '{restaurantName}'. | 🇫🇷 Cette adresse est en dehors de la zone de livraison de '{restaurantName}'. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-paymentdeclined"></a>⛔ `PaymentDeclined` | Stripe declined the payment synchronously at checkout (no order placed). | 🇬🇧 Payment was declined. | 🇫🇷 Le paiement a été refusé. | [📩 `PlaceOrder`](#command-placeorder) |
 
+### 📐 Business rules _(12)_
+
+<a id="rule-cartpricedfromlivecatalog"></a>
+#### 📐 Rule: `CartPricedFromLiveCatalog`
+
+_Cart lines are added/changed/removed and priced by the projection from the live catalog, never trusted from the client._
+
+- **Verified by**: [🧪 `TestCartFirstLineAdded`](#test-testcartfirstlineadded), [🧪 `TestCartLineQuantityChanged`](#test-testcartlinequantitychanged), [🧪 `TestCartLineRemoved`](#test-testcartlineremoved)
+
+<a id="rule-cartrejectsunorderableorinvalidline"></a>
+#### 📐 Rule: `CartRejectsUnorderableOrInvalidLine`
+
+_Adding an unorderable offer or operating on an invalid/absent line is rejected._
+
+- **Verified by**: [🧪 `TestCartAddLineIsRejectedWhenOfferNotOrderable`](#test-testcartaddlineisrejectedwhenoffernotorderable), [🧪 `TestCartAddLineIsRejectedWhenCartInvalid`](#test-testcartaddlineisrejectedwhencartinvalid), [🧪 `TestCartRemoveLineIsRejected`](#test-testcartremovelineisrejected)
+
+<a id="rule-orderlifecyclestatusmachine"></a>
+#### 📐 Rule: `OrderLifecycleStatusMachine`
+
+_An order advances accept → prepare → ready → delivered (or reject/cancel), each transition allowed only from the correct status._
+
+- **Verified by**: [🧪 `TestOrderAcceptedByRestaurant`](#test-testorderacceptedbyrestaurant), [🧪 `TestOrderAcceptIsRejected`](#test-testorderacceptisrejected), [🧪 `TestOrderPreparationStarted`](#test-testorderpreparationstarted), [🧪 `TestOrderMarkedReady`](#test-testordermarkedready), [🧪 `TestOrderDelivered`](#test-testorderdelivered), [🧪 `TestOrderRejected`](#test-testorderrejected), [🧪 `TestOrderCancelledByCustomer`](#test-testordercancelledbycustomer), [🧪 `TestOrderCancelledByRestaurant`](#test-testordercancelledbyrestaurant)
+
+<a id="rule-orderratedoncewhendelivered"></a>
+#### 📐 Rule: `OrderRatedOnceWhenDelivered`
+
+_A delivered order can be rated (rider thumb) exactly once._
+
+- **Verified by**: [🧪 `TestOrderRated`](#test-testorderrated), [🧪 `TestOrderRateOrderIsRejected`](#test-testorderrateorderisrejected)
+
+<a id="rule-restaurantratedonceperorder"></a>
+#### 📐 Rule: `RestaurantRatedOncePerOrder`
+
+_The restaurant can be rated exactly once per order._
+
+- **Verified by**: [🧪 `TestOrderRestaurantRated`](#test-testorderrestaurantrated), [🧪 `TestOrderRateRestaurantTwiceIsRejected`](#test-testorderraterestauranttwiceisrejected)
+
+<a id="rule-tipsadditivemultirecipientseparate"></a>
+#### 📐 Rule: `TipsAdditiveMultiRecipientSeparate`
+
+_Tips (rider/restaurant/Captain, by customer or restaurant) are additive and separate from the split; an invalid recipient is rejected (ADR-0029)._
+
+- **Verified by**: [🧪 `TestOrderTipped`](#test-testordertipped), [🧪 `TestOrderTippedByRestaurant`](#test-testordertippedbyrestaurant), [🧪 `TestOrderTipIsRejected`](#test-testordertipisrejected)
+
+<a id="rule-refundrequestbycustomer"></a>
+#### 📐 Rule: `RefundRequestByCustomer`
+
+_A customer can request a refund for an order._
+
+- **Verified by**: [🧪 `TestOrderRefundRequested`](#test-testorderrefundrequested)
+
+<a id="rule-checkoutpricescartcreatespaymentintent"></a>
+#### 📐 Rule: `CheckoutPricesCartCreatesPaymentIntent`
+
+_Checkout reads and prices the open cart and creates a Stripe PaymentIntent; it is rejected on paused restaurant / empty cart / missing or out-of-area address / declined payment._
+
+- **Verified by**: [🧪 `TestPlaceOrderCreatesPaymentIntent`](#test-testplaceordercreatespaymentintent), [🧪 `TestPlaceOrderIsRejected`](#test-testplaceorderisrejected)
+
+<a id="rule-ordermaterializedonpaymentcapture"></a>
+#### 📐 Rule: `OrderMaterializedOnPaymentCapture`
+
+_On payment capture the order is materialized and the cart is closed._
+
+- **Verified by**: [🧪 `TestPlaceOrderPaymentCapturedPlacesOrder`](#test-testplaceorderpaymentcapturedplacesorder)
+
+<a id="rule-checkoutabortsonpaymentfailure"></a>
+#### 📐 Rule: `CheckoutAbortsOnPaymentFailure`
+
+_On payment failure the saga aborts, no order is placed and the cart stays open._
+
+- **Verified by**: [🧪 `TestPlaceOrderPaymentFailedPlacesNothing`](#test-testplaceorderpaymentfailedplacesnothing)
+
+<a id="rule-refundonrejectionorcancellation"></a>
+#### 📐 Rule: `RefundOnRejectionOrCancellation`
+
+_A Stripe refund is requested when an order is rejected, cancelled, or a refund is requested._
+
+- **Verified by**: [🧪 `TestRefundOnOrderRejected`](#test-testrefundonorderrejected), [🧪 `TestRefundOnOrderCancelledByCustomer`](#test-testrefundonordercancelledbycustomer), [🧪 `TestRefundOnOrderCancelledByRestaurant`](#test-testrefundonordercancelledbyrestaurant), [🧪 `TestRefundOnRefundRequested`](#test-testrefundonrefundrequested)
+
+<a id="rule-refundsettledfactrecorded"></a>
+#### 📐 Rule: `RefundSettledFactRecorded`
+
+_The settled refund fact reported back by Stripe is recorded._
+
+- **Verified by**: [🧪 `TestRefundSettledFactRecorded`](#test-testrefundsettledfactrecorded)
+
 ### 🧪 Tests _(4)_
 
 **[🎭 `Cart`](#actor-cart)**
@@ -3607,6 +3930,7 @@ _Adds the first line to a new cart (the cart is created)_
 - **Given**: _(none)_
 - **When**: [📩 `AddCartLine`](#command-addcartline)
 - **Then**: [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
+- **Verifies**: [📐 `CartPricedFromLiveCatalog`](#rule-cartpricedfromlivecatalog)
 
 <a id="test-testcartaddlineisrejectedwhenoffernotorderable"></a>
 #### 🧪 Test: `TestCartAddLineIsRejectedWhenOfferNotOrderable`
@@ -3616,6 +3940,7 @@ _Rejects adding a line when the offer is unknown, unavailable, or out of stock_
 - **Given**: _(none)_
 - **When**: [📩 `AddCartLine`](#command-addcartline)
 - **Thrown**: [⛔ `OfferNotFound`](#error-offernotfound), [⛔ `OfferUnavailable`](#error-offerunavailable), [⛔ `InsufficientStock`](#error-insufficientstock)
+- **Verifies**: [📐 `CartRejectsUnorderableOrInvalidLine`](#rule-cartrejectsunorderableorinvalidline)
 
 <a id="test-testcartaddlineisrejectedwhencartinvalid"></a>
 #### 🧪 Test: `TestCartAddLineIsRejectedWhenCartInvalid`
@@ -3625,6 +3950,7 @@ _Rejects adding a line on a missing/closed/mismatched cart, with a bad option se
 - **Given**: _(none)_
 - **When**: [📩 `AddCartLine`](#command-addcartline)
 - **Thrown**: [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartRestaurantMismatch`](#error-cartrestaurantmismatch), [⛔ `InvalidOptionSelection`](#error-invalidoptionselection), [⛔ `QuantityExceedsLimit`](#error-quantityexceedslimit)
+- **Verifies**: [📐 `CartRejectsUnorderableOrInvalidLine`](#rule-cartrejectsunorderableorinvalidline)
 
 <a id="test-testcartlinequantitychanged"></a>
 #### 🧪 Test: `TestCartLineQuantityChanged`
@@ -3634,6 +3960,7 @@ _Changes the quantity of an existing cart line_
 - **Given**: [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
 - **When**: [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity)
 - **Then**: [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged)
+- **Verifies**: [📐 `CartPricedFromLiveCatalog`](#rule-cartpricedfromlivecatalog)
 
 <a id="test-testcartlineremoved"></a>
 #### 🧪 Test: `TestCartLineRemoved`
@@ -3643,6 +3970,7 @@ _Removes a line from a cart_
 - **Given**: [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
 - **When**: [📩 `RemoveCartLine`](#command-removecartline)
 - **Then**: [⚡ `CartLineRemoved`](#event-cartlineremoved)
+- **Verifies**: [📐 `CartPricedFromLiveCatalog`](#rule-cartpricedfromlivecatalog)
 
 <a id="test-testcartremovelineisrejected"></a>
 #### 🧪 Test: `TestCartRemoveLineIsRejected`
@@ -3652,6 +3980,7 @@ _Rejects removing a line from a missing/closed cart or a line that does not exis
 - **Given**: _(none)_
 - **When**: [📩 `RemoveCartLine`](#command-removecartline)
 - **Thrown**: [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartLineNotFound`](#error-cartlinenotfound)
+- **Verifies**: [📐 `CartRejectsUnorderableOrInvalidLine`](#rule-cartrejectsunorderableorinvalidline)
 
 **[🎭 `Order`](#actor-order)**
 
@@ -3663,6 +3992,7 @@ _Restaurant accepts a placed order_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced)
 - **When**: [📩 `AcceptOrder`](#command-acceptorder)
 - **Then**: [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testorderacceptisrejected"></a>
 #### 🧪 Test: `TestOrderAcceptIsRejected`
@@ -3672,6 +4002,7 @@ _Rejects accepting a missing order or one not in an acceptable status_
 - **Given**: _(none)_
 - **When**: [📩 `AcceptOrder`](#command-acceptorder)
 - **Thrown**: [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testorderpreparationstarted"></a>
 #### 🧪 Test: `TestOrderPreparationStarted`
@@ -3681,6 +4012,7 @@ _Restaurant starts preparing an accepted order_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant)
 - **When**: [📩 `StartPreparation`](#command-startpreparation)
 - **Then**: [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testordermarkedready"></a>
 #### 🧪 Test: `TestOrderMarkedReady`
@@ -3690,6 +4022,7 @@ _Restaurant marks the order ready for pickup/delivery_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant), [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted)
 - **When**: [📩 `MarkOrderReady`](#command-markorderready)
 - **Then**: [⚡ `OrderMarkedReady`](#event-ordermarkedready)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testorderdelivered"></a>
 #### 🧪 Test: `TestOrderDelivered`
@@ -3699,6 +4032,7 @@ _The order is delivered to the customer_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderMarkedReady`](#event-ordermarkedready)
 - **When**: [📩 `MarkOrderDelivered`](#command-markorderdelivered)
 - **Then**: [⚡ `OrderDelivered`](#event-orderdelivered)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testorderrejected"></a>
 #### 🧪 Test: `TestOrderRejected`
@@ -3708,6 +4042,7 @@ _Restaurant rejects a placed order_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced)
 - **When**: [📩 `RejectOrder`](#command-rejectorder)
 - **Then**: [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testordercancelledbycustomer"></a>
 #### 🧪 Test: `TestOrderCancelledByCustomer`
@@ -3717,6 +4052,7 @@ _Customer cancels the order before acceptance_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced)
 - **When**: [📩 `CancelOrderByCustomer`](#command-cancelorderbycustomer)
 - **Then**: [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testordercancelledbyrestaurant"></a>
 #### 🧪 Test: `TestOrderCancelledByRestaurant`
@@ -3726,6 +4062,7 @@ _Restaurant cancels an order it had accepted_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant)
 - **When**: [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant)
 - **Then**: [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant)
+- **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testorderrated"></a>
 #### 🧪 Test: `TestOrderRated`
@@ -3735,6 +4072,7 @@ _Customer rates the delivery (rider thumb) after delivery_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered)
 - **When**: [📩 `RateOrder`](#command-rateorder)
 - **Then**: [⚡ `OrderRated`](#event-orderrated)
+- **Verifies**: [📐 `OrderRatedOnceWhenDelivered`](#rule-orderratedoncewhendelivered)
 
 <a id="test-testorderrateorderisrejected"></a>
 #### 🧪 Test: `TestOrderRateOrderIsRejected`
@@ -3744,6 +4082,7 @@ _Rejects rating the delivery of a missing/not-delivered order or rating it twice
 - **Given**: _(none)_
 - **When**: [📩 `RateOrder`](#command-rateorder)
 - **Thrown**: [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `OrderAlreadyRated`](#error-orderalreadyrated)
+- **Verifies**: [📐 `OrderRatedOnceWhenDelivered`](#rule-orderratedoncewhendelivered)
 
 <a id="test-testorderrestaurantrated"></a>
 #### 🧪 Test: `TestOrderRestaurantRated`
@@ -3753,6 +4092,7 @@ _Customer rates the restaurant after delivery_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered)
 - **When**: [📩 `RateRestaurant`](#command-raterestaurant)
 - **Then**: [⚡ `RestaurantRated`](#event-restaurantrated)
+- **Verifies**: [📐 `RestaurantRatedOncePerOrder`](#rule-restaurantratedonceperorder)
 
 <a id="test-testorderraterestauranttwiceisrejected"></a>
 #### 🧪 Test: `TestOrderRateRestaurantTwiceIsRejected`
@@ -3762,6 +4102,7 @@ _Rejects rating the restaurant a second time for the same order_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered), [⚡ `RestaurantRated`](#event-restaurantrated)
 - **When**: [📩 `RateRestaurant`](#command-raterestaurant)
 - **Thrown**: [⛔ `RestaurantAlreadyRated`](#error-restaurantalreadyrated)
+- **Verifies**: [📐 `RestaurantRatedOncePerOrder`](#rule-restaurantratedonceperorder)
 
 <a id="test-testordertipped"></a>
 #### 🧪 Test: `TestOrderTipped`
@@ -3771,6 +4112,7 @@ _Customer tips the rider, restaurant and Captain after delivery_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered)
 - **When**: [📩 `TipOrder`](#command-tiporder)
 - **Then**: [⚡ `OrderTipped`](#event-ordertipped)
+- **Verifies**: [📐 `TipsAdditiveMultiRecipientSeparate`](#rule-tipsadditivemultirecipientseparate)
 
 <a id="test-testordertippedbyrestaurant"></a>
 #### 🧪 Test: `TestOrderTippedByRestaurant`
@@ -3780,6 +4122,7 @@ _Restaurant tips the rider (thanking the courier)_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered)
 - **When**: [📩 `TipOrder`](#command-tiporder)
 - **Then**: [⚡ `OrderTipped`](#event-ordertipped)
+- **Verifies**: [📐 `TipsAdditiveMultiRecipientSeparate`](#rule-tipsadditivemultirecipientseparate)
 
 <a id="test-testordertipisrejected"></a>
 #### 🧪 Test: `TestOrderTipIsRejected`
@@ -3789,6 +4132,7 @@ _Rejects tipping a missing order, or a restaurant tipping itself_
 - **Given**: _(none)_
 - **When**: [📩 `TipOrder`](#command-tiporder)
 - **Thrown**: [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `InvalidTipRecipient`](#error-invalidtiprecipient)
+- **Verifies**: [📐 `TipsAdditiveMultiRecipientSeparate`](#rule-tipsadditivemultirecipientseparate)
 
 <a id="test-testorderrefundrequested"></a>
 #### 🧪 Test: `TestOrderRefundRequested`
@@ -3798,6 +4142,7 @@ _Customer requests a refund for a delivered order_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderDelivered`](#event-orderdelivered)
 - **When**: [📩 `RequestRefund`](#command-requestrefund)
 - **Then**: [⚡ `RefundRequested`](#event-refundrequested)
+- **Verifies**: [📐 `RefundRequestByCustomer`](#rule-refundrequestbycustomer)
 
 **[🎭 `PlaceOrderProcess`](#actor-placeorderprocess)**
 
@@ -3809,6 +4154,7 @@ _Checkout reads the open cart, prices it, and creates a Stripe payment intent_
 - **Given**: [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
 - **When**: [📩 `PlaceOrder`](#command-placeorder)
 - **Then**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
+- **Verifies**: [📐 `CheckoutPricesCartCreatesPaymentIntent`](#rule-checkoutpricescartcreatespaymentintent)
 
 <a id="test-testplaceorderisrejected"></a>
 #### 🧪 Test: `TestPlaceOrderIsRejected`
@@ -3818,6 +4164,7 @@ _Rejects checkout when the restaurant is paused, the cart is empty, the delivery
 - **Given**: [⚡ `CartStarted`](#event-cartstarted)
 - **When**: [📩 `PlaceOrder`](#command-placeorder)
 - **Thrown**: [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CartEmpty`](#error-cartempty), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `PaymentDeclined`](#error-paymentdeclined)
+- **Verifies**: [📐 `CheckoutPricesCartCreatesPaymentIntent`](#rule-checkoutpricescartcreatespaymentintent)
 
 <a id="test-testplaceorderpaymentcapturedplacesorder"></a>
 #### 🧪 Test: `TestPlaceOrderPaymentCapturedPlacesOrder`
@@ -3827,6 +4174,7 @@ _On payment capture the saga materializes the order and closes the cart_
 - **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
 - **When**: [📩 `PaymentCaptured`](#command-paymentcaptured)
 - **Then**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `CartCheckedOut`](#event-cartcheckedout)
+- **Verifies**: [📐 `OrderMaterializedOnPaymentCapture`](#rule-ordermaterializedonpaymentcapture)
 
 <a id="test-testplaceorderpaymentfailedplacesnothing"></a>
 #### 🧪 Test: `TestPlaceOrderPaymentFailedPlacesNothing`
@@ -3836,6 +4184,7 @@ _On payment failure the saga aborts and places no order (cart stays open)_
 - **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
 - **When**: [📩 `PaymentFailed`](#command-paymentfailed)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `CheckoutAbortsOnPaymentFailure`](#rule-checkoutabortsonpaymentfailure)
 
 **[🎭 `RefundProcess`](#actor-refundprocess)**
 
@@ -3847,6 +4196,7 @@ _Requests a Stripe refund when an order is rejected by the restaurant_
 - **Given**: _(none)_
 - **When**: [📩 `OrderRejectedByRestaurant`](#command-orderrejectedbyrestaurant)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `RefundOnRejectionOrCancellation`](#rule-refundonrejectionorcancellation)
 
 <a id="test-testrefundonordercancelledbycustomer"></a>
 #### 🧪 Test: `TestRefundOnOrderCancelledByCustomer`
@@ -3856,6 +4206,7 @@ _Requests a Stripe refund when the customer cancels the order_
 - **Given**: _(none)_
 - **When**: [📩 `OrderCancelledByCustomer`](#command-ordercancelledbycustomer)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `RefundOnRejectionOrCancellation`](#rule-refundonrejectionorcancellation)
 
 <a id="test-testrefundonordercancelledbyrestaurant"></a>
 #### 🧪 Test: `TestRefundOnOrderCancelledByRestaurant`
@@ -3865,6 +4216,7 @@ _Requests a Stripe refund when the restaurant cancels the order_
 - **Given**: _(none)_
 - **When**: [📩 `OrderCancelledByRestaurant`](#command-ordercancelledbyrestaurant)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `RefundOnRejectionOrCancellation`](#rule-refundonrejectionorcancellation)
 
 <a id="test-testrefundonrefundrequested"></a>
 #### 🧪 Test: `TestRefundOnRefundRequested`
@@ -3874,6 +4226,7 @@ _Validates eligibility and requests a Stripe refund on a customer refund request
 - **Given**: _(none)_
 - **When**: [📩 `RefundRequested`](#command-refundrequested)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `RefundOnRejectionOrCancellation`](#rule-refundonrejectionorcancellation)
 
 <a id="test-testrefundsettledfactrecorded"></a>
 #### 🧪 Test: `TestRefundSettledFactRecorded`
@@ -3883,6 +4236,7 @@ _Records the settled refund fact reported back by Stripe_
 - **Given**: _(none)_
 - **When**: [📩 `PaymentRefunded`](#command-paymentrefunded)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `RefundSettledFactRecorded`](#rule-refundsettledfactrecorded)
 
 ### 📡 Observability _(2)_
 
@@ -4629,6 +4983,71 @@ Customer set or updated their preferred Stripe payment method.
 | <a id="error-emailalreadyinuse"></a>⛔ `EmailAlreadyInUse` | The email is already linked to another customer. | 🇬🇧 The email '{email}' is already in use by another account. | 🇫🇷 L'e-mail '{email}' est déjà utilisé par un autre compte. | [📩 `RequestEmailVerification`](#command-requestemailverification) |
 | <a id="error-phonealreadyinuse"></a>⛔ `PhoneAlreadyInUse` | The phone number is already linked to another customer (on change). | 🇬🇧 The phone number '{phone}' is already in use by another account. | 🇫🇷 Le numéro '{phone}' est déjà utilisé par un autre compte. | [📩 `RequestPhoneChange`](#command-requestphonechange), [📩 `ConfirmPhoneChange`](#command-confirmphonechange) |
 
+### 📐 Business rules _(9)_
+
+<a id="rule-phoneverificationregistersoridentifies"></a>
+#### 📐 Rule: `PhoneVerificationRegistersOrIdentifies`
+
+_Phone-OTP verification registers a new customer or identifies a returning one; an invalid code is rejected._
+
+- **Verified by**: [🧪 `TestCustomerRequestPhoneVerification`](#test-testcustomerrequestphoneverification), [🧪 `TestCustomerVerifyPhoneRegisters`](#test-testcustomerverifyphoneregisters), [🧪 `TestCustomerVerifyPhoneReturningIdentifies`](#test-testcustomerverifyphonereturningidentifies), [🧪 `TestCustomerVerifyPhoneIsRejected`](#test-testcustomerverifyphoneisrejected)
+
+<a id="rule-emailverificationuniquetokenvalid"></a>
+#### 📐 Rule: `EmailVerificationUniqueTokenValid`
+
+_Email verification requires a unique email and a valid token; duplicates/invalid tokens are rejected._
+
+- **Verified by**: [🧪 `TestCustomerRequestEmailVerification`](#test-testcustomerrequestemailverification), [🧪 `TestCustomerRequestEmailVerificationDuplicateIsRejected`](#test-testcustomerrequestemailverificationduplicateisrejected), [🧪 `TestCustomerConfirmEmailVerification`](#test-testcustomerconfirmemailverification), [🧪 `TestCustomerConfirmEmailInvalidTokenIsRejected`](#test-testcustomerconfirmemailinvalidtokenisrejected)
+
+<a id="rule-phonechangeverifiedandunique"></a>
+#### 📐 Rule: `PhoneChangeVerifiedAndUnique`
+
+_A phone change is verified and must be unique; a duplicate is rejected._
+
+- **Verified by**: [🧪 `TestCustomerRequestPhoneChange`](#test-testcustomerrequestphonechange), [🧪 `TestCustomerRequestPhoneChangeDuplicateIsRejected`](#test-testcustomerrequestphonechangeduplicateisrejected), [🧪 `TestCustomerConfirmPhoneChange`](#test-testcustomerconfirmphonechange)
+
+<a id="rule-customerprofileupdate"></a>
+#### 📐 Rule: `CustomerProfileUpdate`
+
+_A customer can change language and profile info; an update with no field is rejected._
+
+- **Verified by**: [🧪 `TestCustomerChangeLanguage`](#test-testcustomerchangelanguage), [🧪 `TestCustomerInfoUpdated`](#test-testcustomerinfoupdated), [🧪 `TestCustomerUpdateWithoutFieldIsRejected`](#test-testcustomerupdatewithoutfieldisrejected)
+
+<a id="rule-customerpreferences"></a>
+#### 📐 Rule: `CustomerPreferences`
+
+_A customer's preferences can be set._
+
+- **Verified by**: [🧪 `TestCustomerPreferencesSet`](#test-testcustomerpreferencesset)
+
+<a id="rule-favoritesmanagement"></a>
+#### 📐 Rule: `FavoritesManagement`
+
+_A customer can favorite/unfavorite restaurants; favoriting an unknown one is rejected and unfavoriting a non-favorite is a no-op._
+
+- **Verified by**: [🧪 `TestCustomerRestaurantFavorited`](#test-testcustomerrestaurantfavorited), [🧪 `TestCustomerFavoriteUnknownRestaurantIsRejected`](#test-testcustomerfavoriteunknownrestaurantisrejected), [🧪 `TestCustomerRestaurantUnfavorited`](#test-testcustomerrestaurantunfavorited), [🧪 `TestCustomerUnfavoriteNonFavoriteIsNoOp`](#test-testcustomerunfavoritenonfavoriteisnoop)
+
+<a id="rule-addressbookmanagement"></a>
+#### 📐 Rule: `AddressBookManagement`
+
+_A customer can add/update and remove saved delivery addresses._
+
+- **Verified by**: [🧪 `TestCustomerAddressSet`](#test-testcustomeraddressset), [🧪 `TestCustomerAddressRemoved`](#test-testcustomeraddressremoved)
+
+<a id="rule-paymentmethodstorage"></a>
+#### 📐 Rule: `PaymentMethodStorage`
+
+_A customer's payment method can be stored._
+
+- **Verified by**: [🧪 `TestCustomerPaymentMethodSet`](#test-testcustomerpaymentmethodset)
+
+<a id="rule-guestcartsboundonidentification"></a>
+#### 📐 Rule: `GuestCartsBoundOnIdentification`
+
+_A returning visitor's open guest carts are bound to their Customer on identification._
+
+- **Verified by**: [🧪 `TestCartBindingOnCustomerIdentified`](#test-testcartbindingoncustomeridentified)
+
 ### 🧪 Tests _(2)_
 
 **[🎭 `Customer`](#actor-customer)**
@@ -4641,6 +5060,7 @@ _Sends an SMS OTP to a phone (localized via the dialing code); emits nothing_
 - **Given**: _(none)_
 - **When**: [📩 `RequestPhoneVerification`](#command-requestphoneverification)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `PhoneVerificationRegistersOrIdentifies`](#rule-phoneverificationregistersoridentifies)
 
 <a id="test-testcustomerverifyphoneregisters"></a>
 #### 🧪 Test: `TestCustomerVerifyPhoneRegisters`
@@ -4650,6 +5070,7 @@ _Verifying the OTP on a new phone registers the customer_
 - **Given**: _(none)_
 - **When**: [📩 `VerifyPhone`](#command-verifyphone)
 - **Then**: [⚡ `CustomerRegistered`](#event-customerregistered)
+- **Verifies**: [📐 `PhoneVerificationRegistersOrIdentifies`](#rule-phoneverificationregistersoridentifies)
 
 <a id="test-testcustomerverifyphonereturningidentifies"></a>
 #### 🧪 Test: `TestCustomerVerifyPhoneReturningIdentifies`
@@ -4659,6 +5080,7 @@ _Verifying the OTP on a known phone identifies the returning customer_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `VerifyPhone`](#command-verifyphone)
 - **Then**: [⚡ `CustomerIdentified`](#event-customeridentified)
+- **Verifies**: [📐 `PhoneVerificationRegistersOrIdentifies`](#rule-phoneverificationregistersoridentifies)
 
 <a id="test-testcustomerverifyphoneisrejected"></a>
 #### 🧪 Test: `TestCustomerVerifyPhoneIsRejected`
@@ -4668,6 +5090,7 @@ _Rejects phone verification when the OTP is wrong or expired_
 - **Given**: _(none)_
 - **When**: [📩 `VerifyPhone`](#command-verifyphone)
 - **Thrown**: [⛔ `InvalidVerificationCode`](#error-invalidverificationcode), [⛔ `VerificationCodeExpired`](#error-verificationcodeexpired)
+- **Verifies**: [📐 `PhoneVerificationRegistersOrIdentifies`](#rule-phoneverificationregistersoridentifies)
 
 <a id="test-testcustomerrequestemailverification"></a>
 #### 🧪 Test: `TestCustomerRequestEmailVerification`
@@ -4677,6 +5100,7 @@ _Sends an email magic link to verify/link an email; emits nothing_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `RequestEmailVerification`](#command-requestemailverification)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `EmailVerificationUniqueTokenValid`](#rule-emailverificationuniquetokenvalid)
 
 <a id="test-testcustomerrequestemailverificationduplicateisrejected"></a>
 #### 🧪 Test: `TestCustomerRequestEmailVerificationDuplicateIsRejected`
@@ -4686,6 +5110,7 @@ _Rejects requesting email verification for an email already used by another acco
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `RequestEmailVerification`](#command-requestemailverification)
 - **Thrown**: [⛔ `EmailAlreadyInUse`](#error-emailalreadyinuse)
+- **Verifies**: [📐 `EmailVerificationUniqueTokenValid`](#rule-emailverificationuniquetokenvalid)
 
 <a id="test-testcustomerconfirmemailverification"></a>
 #### 🧪 Test: `TestCustomerConfirmEmailVerification`
@@ -4695,6 +5120,7 @@ _Confirms the email magic link (token verified server-side) and links the email_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `ConfirmEmailVerification`](#command-confirmemailverification)
 - **Then**: [⚡ `CustomerEmailVerified`](#event-customeremailverified)
+- **Verifies**: [📐 `EmailVerificationUniqueTokenValid`](#rule-emailverificationuniquetokenvalid)
 
 <a id="test-testcustomerconfirmemailinvalidtokenisrejected"></a>
 #### 🧪 Test: `TestCustomerConfirmEmailInvalidTokenIsRejected`
@@ -4704,6 +5130,7 @@ _Rejects email confirmation when the magic-link token is invalid or expired_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `ConfirmEmailVerification`](#command-confirmemailverification)
 - **Thrown**: [⛔ `InvalidVerificationToken`](#error-invalidverificationtoken), [⛔ `VerificationCodeExpired`](#error-verificationcodeexpired)
+- **Verifies**: [📐 `EmailVerificationUniqueTokenValid`](#rule-emailverificationuniquetokenvalid)
 
 <a id="test-testcustomerrequestphonechange"></a>
 #### 🧪 Test: `TestCustomerRequestPhoneChange`
@@ -4713,6 +5140,7 @@ _Sends an OTP to a new phone for a phone change; emits nothing_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `RequestPhoneChange`](#command-requestphonechange)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `PhoneChangeVerifiedAndUnique`](#rule-phonechangeverifiedandunique)
 
 <a id="test-testcustomerrequestphonechangeduplicateisrejected"></a>
 #### 🧪 Test: `TestCustomerRequestPhoneChangeDuplicateIsRejected`
@@ -4722,6 +5150,7 @@ _Rejects changing to a phone already used by another account_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `RequestPhoneChange`](#command-requestphonechange)
 - **Thrown**: [⛔ `PhoneAlreadyInUse`](#error-phonealreadyinuse)
+- **Verifies**: [📐 `PhoneChangeVerifiedAndUnique`](#rule-phonechangeverifiedandunique)
 
 <a id="test-testcustomerconfirmphonechange"></a>
 #### 🧪 Test: `TestCustomerConfirmPhoneChange`
@@ -4731,6 +5160,7 @@ _Confirms the OTP on the new phone and changes the phone_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `ConfirmPhoneChange`](#command-confirmphonechange)
 - **Then**: [⚡ `CustomerPhoneChanged`](#event-customerphonechanged)
+- **Verifies**: [📐 `PhoneChangeVerifiedAndUnique`](#rule-phonechangeverifiedandunique)
 
 <a id="test-testcustomerchangelanguage"></a>
 #### 🧪 Test: `TestCustomerChangeLanguage`
@@ -4740,6 +5170,7 @@ _Persists the customer's preferred language_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `ChangeLanguage`](#command-changelanguage)
 - **Then**: [⚡ `CustomerLanguageChanged`](#event-customerlanguagechanged)
+- **Verifies**: [📐 `CustomerProfileUpdate`](#rule-customerprofileupdate)
 
 <a id="test-testcustomerinfoupdated"></a>
 #### 🧪 Test: `TestCustomerInfoUpdated`
@@ -4749,6 +5180,7 @@ _Updates the customer's display name_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `UpdateCustomerInfo`](#command-updatecustomerinfo)
 - **Then**: [⚡ `CustomerInfoUpdated`](#event-customerinfoupdated)
+- **Verifies**: [📐 `CustomerProfileUpdate`](#rule-customerprofileupdate)
 
 <a id="test-testcustomerupdatewithoutfieldisrejected"></a>
 #### 🧪 Test: `TestCustomerUpdateWithoutFieldIsRejected`
@@ -4758,6 +5190,7 @@ _Rejects a customer update that carries no editable field_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `UpdateCustomerInfo`](#command-updatecustomerinfo)
 - **Thrown**: [⛔ `NoEditableFieldProvided`](#error-noeditablefieldprovided)
+- **Verifies**: [📐 `CustomerProfileUpdate`](#rule-customerprofileupdate)
 
 <a id="test-testcustomerpreferencesset"></a>
 #### 🧪 Test: `TestCustomerPreferencesSet`
@@ -4767,6 +5200,7 @@ _Sets the customer's discovery preferences (timezone + dietary tags)_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `SetCustomerPreferences`](#command-setcustomerpreferences)
 - **Then**: [⚡ `CustomerPreferencesSet`](#event-customerpreferencesset)
+- **Verifies**: [📐 `CustomerPreferences`](#rule-customerpreferences)
 
 <a id="test-testcustomerrestaurantfavorited"></a>
 #### 🧪 Test: `TestCustomerRestaurantFavorited`
@@ -4776,6 +5210,7 @@ _Marks a restaurant as favorite_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `MarkRestaurantAsFavorite`](#command-markrestaurantasfavorite)
 - **Then**: [⚡ `RestaurantFavorited`](#event-restaurantfavorited)
+- **Verifies**: [📐 `FavoritesManagement`](#rule-favoritesmanagement)
 
 <a id="test-testcustomerfavoriteunknownrestaurantisrejected"></a>
 #### 🧪 Test: `TestCustomerFavoriteUnknownRestaurantIsRejected`
@@ -4785,6 +5220,7 @@ _Rejects favoriting a restaurant that does not exist_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `MarkRestaurantAsFavorite`](#command-markrestaurantasfavorite)
 - **Thrown**: [⛔ `RestaurantNotFound`](#error-restaurantnotfound)
+- **Verifies**: [📐 `FavoritesManagement`](#rule-favoritesmanagement)
 
 <a id="test-testcustomerrestaurantunfavorited"></a>
 #### 🧪 Test: `TestCustomerRestaurantUnfavorited`
@@ -4794,6 +5230,7 @@ _Removes a restaurant from favorites_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered), [⚡ `RestaurantFavorited`](#event-restaurantfavorited)
 - **When**: [📩 `UnmarkRestaurantAsFavorite`](#command-unmarkrestaurantasfavorite)
 - **Then**: [⚡ `RestaurantUnfavorited`](#event-restaurantunfavorited)
+- **Verifies**: [📐 `FavoritesManagement`](#rule-favoritesmanagement)
 
 <a id="test-testcustomerunfavoritenonfavoriteisnoop"></a>
 #### 🧪 Test: `TestCustomerUnfavoriteNonFavoriteIsNoOp`
@@ -4803,6 +5240,7 @@ _Unfavoriting a restaurant that is not a favorite is a no-op (idempotent)_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `UnmarkRestaurantAsFavorite`](#command-unmarkrestaurantasfavorite)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `FavoritesManagement`](#rule-favoritesmanagement)
 
 <a id="test-testcustomeraddressset"></a>
 #### 🧪 Test: `TestCustomerAddressSet`
@@ -4812,6 +5250,7 @@ _Saves a delivery address in the customer's address book_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `SetCustomerAddress`](#command-setcustomeraddress)
 - **Then**: [⚡ `CustomerAddressSet`](#event-customeraddressset)
+- **Verifies**: [📐 `AddressBookManagement`](#rule-addressbookmanagement)
 
 <a id="test-testcustomeraddressremoved"></a>
 #### 🧪 Test: `TestCustomerAddressRemoved`
@@ -4821,6 +5260,7 @@ _Removes a saved address from the address book_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered), [⚡ `CustomerAddressSet`](#event-customeraddressset)
 - **When**: [📩 `RemoveCustomerAddress`](#command-removecustomeraddress)
 - **Then**: [⚡ `CustomerAddressRemoved`](#event-customeraddressremoved)
+- **Verifies**: [📐 `AddressBookManagement`](#rule-addressbookmanagement)
 
 <a id="test-testcustomerpaymentmethodset"></a>
 #### 🧪 Test: `TestCustomerPaymentMethodSet`
@@ -4830,6 +5270,7 @@ _Sets the customer's preferred Stripe payment method_
 - **Given**: [⚡ `CustomerRegistered`](#event-customerregistered)
 - **When**: [📩 `SetCustomerPaymentMethod`](#command-setcustomerpaymentmethod)
 - **Then**: [⚡ `CustomerPaymentMethodSet`](#event-customerpaymentmethodset)
+- **Verifies**: [📐 `PaymentMethodStorage`](#rule-paymentmethodstorage)
 
 **[🎭 `CartBindingProcess`](#actor-cartbindingprocess)**
 
@@ -4841,6 +5282,7 @@ _Binds a returning visitor's open guest carts when they are identified_
 - **Given**: _(none)_
 - **When**: [📩 `CustomerIdentified`](#command-customeridentified)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `GuestCartsBoundOnIdentification`](#rule-guestcartsboundonidentification)
 
 ### 📡 Observability _(1)_
 
@@ -5210,6 +5652,57 @@ The delivery partner reported a status change for the job (inbound): PICKED_UP, 
 | <a id="error-invaliddeliverystatus"></a>⛔ `InvalidDeliveryStatus` | The delivery job is not in a status that allows this transition. | 🇬🇧 This action is not allowed while the delivery is '{currentStatus}'. | 🇫🇷 Cette action n'est pas autorisée tant que la livraison est '{currentStatus}'. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `ConfirmPickup`](#command-confirmpickup), [📩 `CompleteDelivery`](#command-completedelivery), [📩 `CancelDelivery`](#command-canceldelivery) |
 | <a id="error-deliveryalreadyassigned"></a>⛔ `DeliveryAlreadyAssigned` | The delivery job has already been accepted by a courier/rider. | 🇬🇧 This delivery has already been taken. | 🇫🇷 Cette livraison a déjà été prise en charge. | [📩 `AcceptDelivery`](#command-acceptdelivery) |
 
+### 📐 Business rules _(7)_
+
+<a id="rule-deliveryacceptedonlywhenpending"></a>
+#### 📐 Rule: `DeliveryAcceptedOnlyWhenPending`
+
+_A pending delivery job can be accepted by an independent rider only once._
+
+- **Verified by**: [🧪 `TestAcceptDelivery`](#test-testacceptdelivery), [🧪 `TestAcceptDeliveryIsRejected`](#test-testacceptdeliveryisrejected)
+
+<a id="rule-deliverypickupandcompletionbyrider"></a>
+#### 📐 Rule: `DeliveryPickupAndCompletionByRider`
+
+_The assigned rider confirms pickup then records hand-over, in the correct order._
+
+- **Verified by**: [🧪 `TestConfirmPickup`](#test-testconfirmpickup), [🧪 `TestCompleteDelivery`](#test-testcompletedelivery)
+
+<a id="rule-deliverycancellablebeforecompletion"></a>
+#### 📐 Rule: `DeliveryCancellableBeforeCompletion`
+
+_A delivery job can be cancelled before completion but not after it is delivered._
+
+- **Verified by**: [🧪 `TestCancelDelivery`](#test-testcanceldelivery), [🧪 `TestCancelDeliveryIsRejected`](#test-testcanceldeliveryisrejected)
+
+<a id="rule-readydeliveryordertriggersdispatch"></a>
+#### 📐 Rule: `ReadyDeliveryOrderTriggersDispatch`
+
+_A ready DELIVERY order triggers creation of a delivery job (dispatch)._
+
+- **Verified by**: [🧪 `TestDispatchOnOrderReady`](#test-testdispatchonorderready)
+
+<a id="rule-partneracceptancerecordscourier"></a>
+#### 📐 Rule: `PartnerAcceptanceRecordsCourier`
+
+_When the partner accepts (inbound), the assigned courier is recorded on the job._
+
+- **Verified by**: [🧪 `TestDispatchPartnerAccepted`](#test-testdispatchpartneraccepted)
+
+<a id="rule-partnerrejectionreoffers"></a>
+#### 📐 Rule: `PartnerRejectionReoffers`
+
+_When the partner declines (inbound), the job is re-offered or flagged for manual handling._
+
+- **Verified by**: [🧪 `TestDispatchPartnerRejected`](#test-testdispatchpartnerrejected)
+
+<a id="rule-orderclosedondeliverycompletion"></a>
+#### 📐 Rule: `OrderClosedOnDeliveryCompletion`
+
+_The order is closed (OrderDelivered) when the partner reports DELIVERED or an independent rider completes the delivery._
+
+- **Verified by**: [🧪 `TestDispatchClosesOrderOnPartnerDelivered`](#test-testdispatchclosesorderonpartnerdelivered), [🧪 `TestDispatchClosesOrderOnRiderCompleted`](#test-testdispatchclosesorderonridercompleted)
+
 ### 🧪 Tests _(2)_
 
 **[🎭 `DeliveryJob`](#actor-deliveryjob)**
@@ -5222,6 +5715,7 @@ _An independent rider accepts a pending delivery job_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
 - **When**: [📩 `AcceptDelivery`](#command-acceptdelivery)
 - **Then**: [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
+- **Verifies**: [📐 `DeliveryAcceptedOnlyWhenPending`](#rule-deliveryacceptedonlywhenpending)
 
 <a id="test-testacceptdeliveryisrejected"></a>
 #### 🧪 Test: `TestAcceptDeliveryIsRejected`
@@ -5231,6 +5725,7 @@ _Rejects accepting a missing job or one already taken_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
 - **When**: [📩 `AcceptDelivery`](#command-acceptdelivery)
 - **Thrown**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned)
+- **Verifies**: [📐 `DeliveryAcceptedOnlyWhenPending`](#rule-deliveryacceptedonlywhenpending)
 
 <a id="test-testconfirmpickup"></a>
 #### 🧪 Test: `TestConfirmPickup`
@@ -5240,6 +5735,7 @@ _The assigned rider confirms pickup from the restaurant_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
 - **When**: [📩 `ConfirmPickup`](#command-confirmpickup)
 - **Then**: [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
+- **Verifies**: [📐 `DeliveryPickupAndCompletionByRider`](#rule-deliverypickupandcompletionbyrider)
 
 <a id="test-testcompletedelivery"></a>
 #### 🧪 Test: `TestCompleteDelivery`
@@ -5249,6 +5745,7 @@ _The assigned rider records hand-over to the customer_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
 - **When**: [📩 `CompleteDelivery`](#command-completedelivery)
 - **Then**: [⚡ `DeliveryCompleted`](#event-deliverycompleted)
+- **Verifies**: [📐 `DeliveryPickupAndCompletionByRider`](#rule-deliverypickupandcompletionbyrider)
 
 <a id="test-testcanceldelivery"></a>
 #### 🧪 Test: `TestCancelDelivery`
@@ -5258,6 +5755,7 @@ _The restaurant cancels a pending delivery job_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
 - **When**: [📩 `CancelDelivery`](#command-canceldelivery)
 - **Then**: [⚡ `DeliveryCancelled`](#event-deliverycancelled)
+- **Verifies**: [📐 `DeliveryCancellableBeforeCompletion`](#rule-deliverycancellablebeforecompletion)
 
 <a id="test-testcanceldeliveryisrejected"></a>
 #### 🧪 Test: `TestCancelDeliveryIsRejected`
@@ -5267,6 +5765,7 @@ _Rejects cancelling a missing or already-delivered job_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup), [⚡ `DeliveryCompleted`](#event-deliverycompleted)
 - **When**: [📩 `CancelDelivery`](#command-canceldelivery)
 - **Thrown**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+- **Verifies**: [📐 `DeliveryCancellableBeforeCompletion`](#rule-deliverycancellablebeforecompletion)
 
 **[🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)**
 
@@ -5278,6 +5777,7 @@ _A ready DELIVERY order triggers creation of a delivery job_
 - **Given**: [⚡ `OrderPlaced`](#event-orderplaced)
 - **When**: [📩 `OrderMarkedReady`](#command-ordermarkedready)
 - **Then**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **Verifies**: [📐 `ReadyDeliveryOrderTriggersDispatch`](#rule-readydeliveryordertriggersdispatch)
 
 <a id="test-testdispatchpartneraccepted"></a>
 #### 🧪 Test: `TestDispatchPartnerAccepted`
@@ -5287,6 +5787,7 @@ _Records the assigned courier when the partner accepts (inbound)_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
 - **When**: [📩 `DeliveryAcceptedByPartner`](#command-deliveryacceptedbypartner)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `PartnerAcceptanceRecordsCourier`](#rule-partneracceptancerecordscourier)
 
 <a id="test-testdispatchpartnerrejected"></a>
 #### 🧪 Test: `TestDispatchPartnerRejected`
@@ -5296,6 +5797,7 @@ _Re-offers or flags for manual handling when the partner declines (inbound)_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
 - **When**: [📩 `DeliveryRejectedByPartner`](#command-deliveryrejectedbypartner)
 - **Then**: ∅ _no event (idempotent no-op)_
+- **Verifies**: [📐 `PartnerRejectionReoffers`](#rule-partnerrejectionreoffers)
 
 <a id="test-testdispatchclosesorderonpartnerdelivered"></a>
 #### 🧪 Test: `TestDispatchClosesOrderOnPartnerDelivered`
@@ -5305,6 +5807,7 @@ _Closes the order when the partner reports DELIVERED (inbound)_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
 - **When**: [📩 `DeliveryStatusUpdated`](#command-deliverystatusupdated)
 - **Then**: [⚡ `OrderDelivered`](#event-orderdelivered)
+- **Verifies**: [📐 `OrderClosedOnDeliveryCompletion`](#rule-orderclosedondeliverycompletion)
 
 <a id="test-testdispatchclosesorderonridercompleted"></a>
 #### 🧪 Test: `TestDispatchClosesOrderOnRiderCompleted`
@@ -5314,6 +5817,7 @@ _Closes the order when an independent rider completes the delivery_
 - **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
 - **When**: [📩 `DeliveryCompleted`](#command-deliverycompleted)
 - **Then**: [⚡ `OrderDelivered`](#event-orderdelivered)
+- **Verifies**: [📐 `OrderClosedOnDeliveryCompletion`](#rule-orderclosedondeliverycompletion)
 
 <a id="sec-ctx-cross-cutting"></a>
 ## 🔲 6. cross-cutting

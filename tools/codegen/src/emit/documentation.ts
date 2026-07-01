@@ -21,7 +21,7 @@ const KIND_EMOJI: Record<string, string> = {
   scalar: '🔤', entity: '📦', command: '📩', event: '⚡', view: '🗄️', actor: '🎭',
   type: '🧩', query: '🔎', mutation: '✏️', error: '⛔', property: '🔹',
   story: '🎬', activity: '🧭', test: '🧪', obs: '📡', context: '🔲', container: '🧱', component: '⚙️',
-  subscription: '🔔',
+  subscription: '🔔', rule: '📐',
 };
 const emo = (kind: string) => KIND_EMOJI[kind] ?? '•';
 
@@ -308,7 +308,20 @@ export function emitDocumentation(model: Model, derived: Derived): string {
   });
 
   // ============================================================================================
-  // 10. TESTS (behaviour Given/When/Then — grouped by the aggregate under test)
+  // 10. RULES ↔ TESTS cross-index (rules.yaml ADR-0032): every rule is verified by ≥1 test, every test
+  // asserts ≥1 rule. Built once, used by both the Tests and Rules subsections below.
+  const ruleDefs = (defs['rules.yaml'] ?? {}) as Record<string, { description?: string }>;
+  const testsForRuleIndex = ((defs['tests.yaml'] ?? {}).tests ?? {}) as Record<string, Record<string, unknown>>;
+  const rulesOfTest = (t: Record<string, unknown>): string[] =>
+    (Array.isArray(t.rules) ? t.rules : []).map((r) => refName((r as { $ref?: string })?.$ref ?? '')).filter((n): n is string => !!n);
+  const ruleTests = new Map<string, string[]>();      // ruleName -> [testName]
+  const testActorName = new Map<string, string>();    // testName -> actor
+  for (const [tn, t] of Object.entries(testsForRuleIndex)) {
+    testActorName.set(tn, refName((t.actor as { $ref?: string })?.$ref ?? '') ?? '');
+    for (const rn of rulesOfTest(t)) push(ruleTests, rn, tn);
+  }
+
+  // 10a. TESTS (behaviour Given/When/Then — grouped by the aggregate under test)
   // ============================================================================================
   const testDocs: Doc[] = (() => {
     const tDefs = (defs['tests.yaml'] ?? {}) as Record<string, Record<string, SchemaNode>>;
@@ -336,6 +349,7 @@ export function emitDocumentation(model: Model, derived: Derived): string {
         const thrown = hasThrown
           ? `- **Thrown**: ${(t.thrown as Array<{ $ref?: string }>).map((r) => link('error', refName(r.$ref ?? '') ?? '')).join(', ') || '—'}`
           : '';
+        const rules = rulesOfTest(t).map((rn) => link('rule', rn)).join(', ');
         return [
           `${idTag(anchor('test', name))}\n#### ${emo('test')} Test: \`${name}\``,
           t.name ? `\n_${String(t.name)}_\n` : '',
@@ -343,11 +357,25 @@ export function emitDocumentation(model: Model, derived: Derived): string {
           `- **When**: ${link('command', cmd)}`,
           then,
           thrown,
+          rules ? `- **Verifies**: ${rules}` : '',
         ].filter(Boolean).join('\n');
       }).join('\n\n');
       return { ctx: cx.ofActor(a.name), md: `**${link('actor', a.name)}**\n\n${cases}` };
     }).filter((d): d is Doc => d !== null);
   })();
+
+  // 10b. RULES (business rules — grouped by the context of the tests that verify them)
+  // ============================================================================================
+  const ruleDocs: Doc[] = Object.entries(ruleDefs).map(([name, r]): Doc => {
+    const tns = ruleTests.get(name) ?? [];
+    const ctx = tns.length ? cx.ofActor(testActorName.get(tns[0]!) ?? '') : CROSS;
+    const verifiedBy = tns.map((tn) => link('test', tn)).join(', ') || '—';
+    return { ctx, md: [
+      `${idTag(anchor('rule', name))}\n#### ${emo('rule')} Rule: \`${name}\``,
+      r.description ? `\n_${String(r.description).trim().replace(/\s+/g, ' ')}_\n` : '',
+      `- **Verified by**: ${verifiedBy}`,
+    ].filter(Boolean).join('\n') };
+  });
 
   // Link any `$ref` to its anchored subsection, picking the kind from the target file.
   const anyLink = (ref: unknown): string => {
@@ -448,6 +476,7 @@ export function emitDocumentation(model: Model, derived: Derived): string {
       docSub(emo('entity'), 'Entities', entityDocs, ctx),
       rowSub(emo('scalar'), 'Scalars', ['Scalar', 'Type', 'Description'], scalarRows, ctx),
       rowSub(emo('error'), 'Errors', ['Error', 'Description', 'Message (en)', 'Message (fr)', 'Thrown by'], errorRows, ctx),
+      docSub(emo('rule'), 'Business rules', ruleDocs, ctx),
       docSub(emo('test'), 'Tests', testDocs, ctx),
       docSub(emo('obs'), 'Observability', obsDocs, ctx),
     ].filter(Boolean);
@@ -464,7 +493,8 @@ export function emitDocumentation(model: Model, derived: Derived): string {
 
 A single, navigable view of the whole product, built from the specs and organized **top-level by
 bounded context** (🔲). Within each context: its API operations, output types, actors, views, commands,
-events, entities, scalars, errors, tests and observability contracts. Every item — and every
+events, entities, scalars, errors, business rules (📐 — what we guarantee), tests (🧪 — how it's verified,
+cross-linked to the rules) and observability contracts. Every item — and every
 **property** 🔹 — is anchored and **cross-linked**; \`cross-cutting\` holds the shared vocabulary and ops
 that belong to no single context. Stories and Architecture span all contexts.
 

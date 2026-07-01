@@ -19,7 +19,7 @@ const ROLE_EMOJI: Record<string, string> = {
 const KIND_EMOJI: Record<string, string> = {
   scalar: '🔤', entity: '📦', command: '📩', event: '⚡', view: '🗄️', actor: '🎭',
   type: '🧩', query: '🔎', mutation: '✏️', error: '⛔', property: '🔹', story: '🎬', test: '🧪',
-  obs: '📡', context: '🔲', container: '🧱', component: '⚙️', subscription: '🔔',
+  obs: '📡', context: '🔲', container: '🧱', component: '⚙️', subscription: '🔔', rule: '📐',
 };
 const emo = (k: string) => KIND_EMOJI[k] ?? '•';
 
@@ -36,6 +36,7 @@ const KIND_CLASS: Record<string, string> = {
   scalar: 'k-scalar', query: 'k-op', mutation: 'k-op', command: 'k-op',
   event: 'k-event', error: 'k-error', property: 'k-prop', test: 'k-op',
   obs: 'k-event', context: 'k-type', container: 'k-type', component: 'k-op', subscription: 'k-op',
+  rule: 'k-scalar',
 };
 const cls = (k: string) => KIND_CLASS[k] ?? 'k-id';
 
@@ -335,6 +336,17 @@ export function emitDocumentationHtml(model: Model): string {
     return { ctx: cx.ofError(name), cells: [`<span id="${anchor('error', name)}" class="k-error">${emo('error')} ${esc(name)}</span>`, esc(String(n.description ?? '').replace(/\s+/g, ' ')), `🇬🇧 ${esc(en)}`, `🇫🇷 ${esc(fr)}`, by] };
   });
 
+  // RULES ↔ TESTS cross-index (rules.yaml, ADR-0032): each rule is verified by ≥1 test; each test asserts ≥1 rule.
+  const ruleDefs = (defs['rules.yaml'] ?? {}) as Record<string, { description?: string }>;
+  const rulesOfTest = (t: Record<string, unknown>): string[] =>
+    (Array.isArray(t.rules) ? t.rules : []).map((r) => refName((r as { $ref?: string })?.$ref ?? '')).filter((n): n is string => !!n);
+  const ruleTests = new Map<string, string[]>();     // ruleName -> [testName]
+  const testActorName = new Map<string, string>();   // testName -> actor
+  for (const [tn, t] of Object.entries(((defs['tests.yaml'] ?? {}).tests ?? {}) as Record<string, Record<string, unknown>>)) {
+    testActorName.set(tn, refName((t.actor as { $ref?: string })?.$ref ?? '') ?? '');
+    for (const rn of rulesOfTest(t)) { if (!ruleTests.has(rn)) ruleTests.set(rn, []); if (!ruleTests.get(rn)!.includes(tn)) ruleTests.get(rn)!.push(tn); }
+  }
+
   // 10. Tests (behaviour Given/When/Then) — rendered per actor, the actor placed in its context.
   const testDocs: Doc[] = (() => {
     const tDefs = (defs['tests.yaml'] ?? {}) as Record<string, Record<string, SchemaNode>>;
@@ -359,14 +371,25 @@ export function emitDocumentationHtml(model: Model): string {
         const outcome = hasThrown
           ? `<div class="rel"><span class="lbl">thrown:</span> ${(t.thrown as Array<{ $ref?: string }>).map((r) => link('error', refName(r.$ref ?? '') ?? '')).join(', ') || '—'}</div>`
           : `<div class="rel"><span class="lbl">then:</span> ${thenArr.length ? evLinks(thenArr) : '<span class="k-const">∅ no event (idempotent no-op)</span>'}</div>`;
+        const rules = rulesOfTest(t).map((rn) => link('rule', rn)).join(', ');
         const body = `<div class="rel"><span class="lbl">given:</span> ${given}</div>`
           + `<div class="rel"><span class="lbl">when:</span> ${link('command', cmd)}</div>`
-          + outcome;
+          + outcome
+          + (rules ? `<div class="rel"><span class="lbl">verifies:</span> ${rules}</div>` : '');
         return item('test', 'Test', name, body, typeof t.name === 'string' ? t.name : undefined);
       }).join('');
       return { ctx: cx.ofActor(a.name), html: `<h3>${link('actor', a.name)}</h3>${cases}` };
     }).filter((d): d is Doc => d !== null);
   })();
+
+  // 10b. Business rules (rules.yaml) — grouped by the context of the tests that verify them.
+  const ruleDocs: Doc[] = Object.entries(ruleDefs).map(([name, r]): Doc => {
+    const tns = ruleTests.get(name) ?? [];
+    const ctx = tns.length ? cx.ofActor(testActorName.get(tns[0]!) ?? '') : CROSS;
+    const verifiedBy = tns.map((tn) => link('test', tn)).join(', ') || '—';
+    const body = `<div class="rel"><span class="lbl">verified by:</span> ${verifiedBy}</div>`;
+    return { ctx, html: item('rule', 'Rule', name, body, String(r.description ?? '').trim().replace(/\s+/g, ' ')) };
+  });
 
   // any $ref -> a colored link, kind chosen from the target file.
   const anyLink = (ref: unknown): string => {
@@ -474,7 +497,7 @@ export function emitDocumentationHtml(model: Model): string {
     `${emo('view')} <span class="k-type">view</span>`, `${emo('command')} <span class="k-op">command</span>`,
     `${emo('event')} <span class="k-event">event</span>`, `${emo('entity')} <span class="k-type">entity</span>`,
     `${emo('scalar')} <span class="k-scalar">scalar</span>`, `${emo('error')} <span class="k-error">error</span>`,
-    `🔹 <span class="k-prop">property</span>`, `<span class="k-param">parameter</span>`, `${emo('test')} <span class="k-op">test</span>`, `${emo('obs')} <span class="k-event">observability</span>`,
+    `🔹 <span class="k-prop">property</span>`, `<span class="k-param">parameter</span>`, `${emo('rule')} <span class="k-scalar">rule</span>`, `${emo('test')} <span class="k-op">test</span>`, `${emo('obs')} <span class="k-event">observability</span>`,
   ].join(' · ');
   // Assemble each bounded context as a TOP-LEVEL section: a description + one subsection per kind
   // (only non-empty kinds are shown). `cross-cutting` collects the shared vocabulary and ops.
@@ -497,6 +520,7 @@ export function emitDocumentationHtml(model: Model): string {
       docSub(emo('entity'), 'Entities', entityDocs, ctx),
       tableSub(emo('scalar'), 'Scalars', ['Scalar', 'Type', 'Description'], scalarRows, ctx),
       tableSub(emo('error'), 'Errors', ['Error', 'Description', 'Message (en)', 'Message (fr)', 'Thrown by'], errorRows, ctx),
+      docSub(emo('rule'), 'Business rules', ruleDocs, ctx),
       docSub(emo('test'), 'Tests', testDocs, ctx),
       docSub(emo('obs'), 'Observability', obsDocs, ctx),
     ].join('');
@@ -525,6 +549,7 @@ export function emitDocumentationHtml(model: Model): string {
   for (const m of model.api.mutations) putDesc('mutation', m.name, dDesc('commands.yaml', m.command));
   for (const s of model.api.subscriptions) putDesc('subscription', s.name, s.description);
   for (const [f, c] of Object.entries((defs['observability.yaml'] ?? {}) as Record<string, Record<string, unknown>>)) putDesc('obs', f, `Observability contract — criticality: ${String(c.criticality ?? '—')}.`);
+  for (const [n, d] of Object.entries(ruleDefs)) putDesc('rule', n, (d as Record<string, unknown>).description as string);
   const descScript = `<script>window.CF_DESC=${JSON.stringify(descIndex).replace(/</g, '\\u003c')};</script>`;
 
   // Sticky breadcrumb (context › section › item, scroll-spy) + centralized-description hover tooltip.
