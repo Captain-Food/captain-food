@@ -62,10 +62,14 @@ unaffected.
    Ported so far (byte-identical, verified by generate+diff): spec loading + meta-strip, `$ref` referential
    integrity, the actor + view + API models, and the emitters for `translations.generated.json`,
    `views.generated.sql`, `c4.generated.dsl` + `c4.generated.md` (Structurizr + Mermaid), and
-   `schema.generated.graphql` (the full GraphQL SDL), the **`database.md`** §2 read-model injection, and the
+   `schema.generated.graphql` (the full GraphQL SDL), the **`database.md`** §2 read-model injection, the
    **`documentation.generated.md`** Markdown docs (the bounded-context engine `buildContextMap` + stories +
-   every kind rendered with cross-links, ~6.4k lines). Remaining: the HTML documentation emitter, then the
-   other validation gates — then flip CI to Rust and retire the TS codegen.
+   every kind rendered with cross-links, ~6.4k lines), and the **`documentation.generated.html`** interactive
+   docs (theme + navigable breadcrumb/tooltip + drill-down C4 map). **All 8 generated artifacts are now
+   byte-identical between the two codegens** (CI `rust-codegen` job: build + test + generate + diff, green).
+   Remaining: port the other validation gates (actor wiring, api↔model, views, stories, tests, rules,
+   translation params, screens, observability, C4) so `--check` fully replaces the TS gate — then flip CI to
+   Rust and retire the TypeScript codegen.
 3. **Generation targets**: what the codegen emits for Rust — `shared_types` (serde), Crux core skeletons from
    actors/commands/events, `async-graphql` schema, `sqlx` migrations from `views.yaml`, the Leptos SDUI
    registry from `customer_screens.yaml`. Currently it emits GraphQL SDL + SQL + C4 + docs (renderer-agnostic).
