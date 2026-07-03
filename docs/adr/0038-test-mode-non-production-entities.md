@@ -57,9 +57,18 @@ carried on the relevant events; it is set at creation and immutable thereafter.
   invariants + behaviour tests (a TEST order must never produce a payout; a TEST customer must not order a
   LIVE restaurant except the explicit receipt-test path).
 ### Follow-up actions (spec realization)
-- Add `Mode` scalar + `mode` to Restaurant/Customer/Order/DeliveryJob (entities + creation events/commands).
-- Add isolation/payout/notification invariants to `rules.yaml` + behaviour tests.
-- Decide TTL auto-cleanup of test data (open — likely a retention policy via `domain_stream`/a sweep).
+- ✅ `Mode` scalar (LIVE/TEST) + `mode` threaded onto Restaurant/Order (entities) and the creation
+  events (RestaurantRegistered/CustomerRegistered/OrderPlaced/DeliveryRequested) + commands
+  (RegisterRestaurant/PlaceOrder). Optional, absent = LIVE, set at creation. Generates the `Mode` enum,
+  a `ref_mode` lookup table, and `mode: Option<Mode>` on the entity structs.
+- ✅ Core isolation invariant: `OrderTestModeIsolation` rule + `CannotOrderTestRestaurant` error (thrown
+  by `PlaceOrderProcess`) + behaviour test — a LIVE order against a TEST restaurant is rejected; a TEST
+  order may target a LIVE restaurant (receipt validation).
+- ⬜ **Payout / analytics / notification exclusion** for TEST data — a **projection/read-model + BAM**
+  concern (the rule states it; enforced when the `View_*`/payout/notification layers are built, not at the
+  command boundary). `Customer`/`DeliveryJob` have no entity yet (event/view-modelled); `mode` on their
+  creation events carries the flag.
+- ⬜ TTL auto-cleanup of test data (open — a `domain_stream` retention policy on the relevant streams).
 
 ## References
 Stripe `livemode`/test mode, HubRise sandbox/test locations, Uber Eats/Direct test orders, Deliveroo staging.
