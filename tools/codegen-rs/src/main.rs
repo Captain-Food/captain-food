@@ -173,6 +173,217 @@ fn emit_translations_json(model: &Model) -> String {
     s
 }
 
+// ─── views.generated.sql (port of emit/database.ts `emitViewsSql`) ──────────────────────────────
+// Byte-identical CREATE TABLE + index DDL for every View_* (aggregate-fed or `source: reference`).
+
+struct SqlColumn {
+    name: String,
+    ty: String,
+    pk: bool,
+    unique: bool,
+    index: bool,
+    nullable: bool,
+}
+struct SqlView {
+    name: String,
+    columns: Vec<SqlColumn>,
+    indexes: Vec<Vec<String>>,
+}
+
+/// Explicit column `type`: a `$ref` into scalars.yaml (→ the scalar name) or an inline SQL primitive string.
+fn column_type_explicit(raw: &Value) -> String {
+    if let Some(r) = raw.get("$ref").and_then(|x| x.as_str()) {
+        return r.splitn(2, "#/").nth(1).unwrap_or("").to_string();
+    }
+    match raw {
+        Value::String(s) => s.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Map an events.yaml property schema node to the column type it implies (mirrors schemaNodeToColumnType).
+fn schema_node_to_column_type(node: &Value) -> String {
+    if let Some(r) = node.get("$ref").and_then(|x| x.as_str()) {
+        let mut it = r.splitn(2, "#/");
+        let file = it.next().unwrap_or("");
+        let name = it.next().unwrap_or("");
+        return if file == "scalars.yaml" {
+            name.to_string()
+        } else {
+            "jsonb".to_string()
+        };
+    }
+    match node.get("type").and_then(|x| x.as_str()) {
+        Some("array") => "jsonb".into(),
+        Some("integer") => "integer".into(),
+        Some("number") => "numeric".into(),
+        Some("boolean") => "boolean".into(),
+        Some("string") => {
+            if node.get("format").and_then(|x| x.as_str()) == Some("date-time") {
+                "timestamptz".into()
+            } else {
+                "text".into()
+            }
+        }
+        _ => "text".into(),
+    }
+}
+
+/// Derive a column type from the first `from` entry pointing at a typed event PROPERTY (mirrors deriveType).
+fn derive_type(from: &[String], events: &Value) -> String {
+    for r in from {
+        let ptr = r.splitn(2, "#/").nth(1).unwrap_or("");
+        let segs: Vec<&str> = ptr.split('/').filter(|s| !s.is_empty()).collect();
+        if segs.len() < 3 || segs[1] != "properties" {
+            continue;
+        }
+        if let Some(node) = events
+            .get(segs[0])
+            .and_then(|e| e.get("properties"))
+            .and_then(|p| p.get(segs[2]))
+        {
+            return schema_node_to_column_type(node);
+        }
+    }
+    String::new()
+}
+
+/// Map a column type (SQL primitive or scalars.yaml type) to a Postgres type (mirrors sqlType).
+fn sql_type(ty: &str, model: &Model) -> String {
+    let prim = match ty {
+        "uuid" => Some("UUID"),
+        "text" => Some("TEXT"),
+        "integer" => Some("INTEGER"),
+        "bigint" => Some("BIGINT"),
+        "boolean" => Some("BOOLEAN"),
+        "timestamptz" => Some("TIMESTAMPTZ"),
+        "jsonb" => Some("JSONB"),
+        "numeric" => Some("NUMERIC"),
+        _ => None,
+    };
+    if let Some(p) = prim {
+        return p.to_string();
+    }
+    if let Some(scalar) = model.defs.get("scalars.yaml").and_then(|s| s.get(ty)) {
+        if scalar.get("enum").map(|e| e.is_sequence()).unwrap_or(false) {
+            return "TEXT".into();
+        }
+        if scalar.get("format").and_then(|x| x.as_str()) == Some("uuid") {
+            return "UUID".into();
+        }
+        if scalar.get("type").and_then(|x| x.as_str()) == Some("integer") {
+            return if ty == "MoneyCents" { "BIGINT".into() } else { "INTEGER".into() };
+        }
+    }
+    "TEXT".into()
+}
+
+fn parse_col(name: String, col: &Value, events: &Value) -> SqlColumn {
+    let has_explicit = matches!(col.get("type"), Some(v) if !v.is_null());
+    let ty = if has_explicit {
+        column_type_explicit(col.get("type").unwrap())
+    } else {
+        let from: Vec<String> = col
+            .get("from")
+            .and_then(|f| f.as_sequence())
+            .map(|s| {
+                s.iter()
+                    .filter_map(|it| it.get("$ref").and_then(|r| r.as_str()).map(|x| x.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        derive_type(&from, events)
+    };
+    let flag = |k: &str| col.get(k).and_then(|x| x.as_bool()) == Some(true);
+    SqlColumn {
+        name,
+        ty,
+        pk: flag("pk"),
+        unique: flag("unique"),
+        index: flag("index"),
+        nullable: flag("nullable"),
+    }
+}
+
+fn parse_views(model: &Model) -> Vec<SqlView> {
+    let mut out = Vec::new();
+    let events = model.defs.get("events.yaml").cloned().unwrap_or(Value::Null);
+    if let Some(Value::Mapping(m)) = model.defs.get("views.yaml") {
+        for (k, node) in m {
+            let name = match k.as_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            let is_ref = node.get("source").and_then(|x| x.as_str()) == Some("reference");
+            let has_agg = node.get("aggregate").and_then(|x| x.as_str()).is_some();
+            if !has_agg && !is_ref {
+                continue; // skip file-level meta (version/description) and non-views
+            }
+            let mut columns = Vec::new();
+            if let Some(cm) = node.get("columns").and_then(|c| c.as_mapping()) {
+                for (ck, cv) in cm {
+                    if let Some(cn) = ck.as_str() {
+                        columns.push(parse_col(cn.to_string(), cv, &events));
+                    }
+                }
+            } else if let Some(cs) = node.get("columns").and_then(|c| c.as_sequence()) {
+                for cv in cs {
+                    let cn = cv.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    columns.push(parse_col(cn, cv, &events));
+                }
+            }
+            let mut indexes = Vec::new();
+            if let Some(seq) = node.get("indexes").and_then(|x| x.as_sequence()) {
+                for ix in seq {
+                    if let Some(cols) = ix.as_sequence() {
+                        indexes.push(
+                            cols.iter().filter_map(|c| c.as_str().map(|s| s.to_string())).collect(),
+                        );
+                    }
+                }
+            }
+            out.push(SqlView { name: name.to_string(), columns, indexes });
+        }
+    }
+    out
+}
+
+fn emit_views_sql(model: &Model) -> String {
+    let mut blocks = Vec::new();
+    for v in parse_views(model) {
+        let mut cols = Vec::new();
+        for c in &v.columns {
+            let mut bits = vec![format!("  {}", c.name), sql_type(&c.ty, model)];
+            if c.pk {
+                bits.push("PRIMARY KEY".into());
+            } else if c.unique {
+                bits.push(if c.nullable { "UNIQUE".into() } else { "NOT NULL UNIQUE".into() });
+            } else if !c.nullable {
+                bits.push("NOT NULL".into());
+            }
+            cols.push(bits.join(" "));
+        }
+        let ddl = format!("CREATE TABLE {} (\n{}\n);", v.name, cols.join(",\n"));
+        let mut idx: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for c in &v.columns {
+            if c.index && !c.pk && seen.insert(c.name.clone()) {
+                idx.push(format!("CREATE INDEX ON {} ({});", v.name, c.name));
+            }
+        }
+        for ix in &v.indexes {
+            if seen.insert(ix.join(",")) {
+                idx.push(format!("CREATE INDEX ON {} ({});", v.name, ix.join(", ")));
+            }
+        }
+        blocks.push(if idx.is_empty() { ddl } else { format!("{}\n{}", ddl, idx.join("\n")) });
+    }
+    format!(
+        "-- GENERATED by tools/codegen from specs/views.yaml — do not edit by hand.\n-- Read tables (View_*): denormalized, query-shaped, rebuildable from domain_events.\n\n{}\n",
+        blocks.join("\n\n")
+    )
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let check = args.iter().any(|a| a == "--check");
@@ -218,13 +429,19 @@ fn main() {
         eprintln!("✗ create {}: {}", out_dir.display(), e);
         std::process::exit(1);
     }
-    let i18n = out_dir.join("translations.generated.json");
-    if let Err(e) = fs::write(&i18n, emit_translations_json(&model)) {
-        eprintln!("✗ write {}: {}", i18n.display(), e);
-        std::process::exit(1);
+    let artifacts: [(&str, String); 2] = [
+        ("translations.generated.json", emit_translations_json(&model)),
+        ("views.generated.sql", emit_views_sql(&model)),
+    ];
+    for (name, content) in &artifacts {
+        let path = out_dir.join(name);
+        if let Err(e) = fs::write(&path, content) {
+            eprintln!("✗ write {}: {}", path.display(), e);
+            std::process::exit(1);
+        }
+        eprintln!("✓ wrote {}", path.display());
     }
-    eprintln!("✓ wrote {}", i18n.display());
-    eprintln!("(other emitters still produced by the TypeScript codegen until parity — ADR-0034)");
+    eprintln!("(remaining emitters still produced by the TypeScript codegen until parity — ADR-0034)");
 }
 
 #[cfg(test)]
