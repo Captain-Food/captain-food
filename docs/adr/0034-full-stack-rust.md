@@ -47,8 +47,8 @@ unaffected.
 ### Negative / risks
 - Leptos has no `shadcn/ui` equivalent — all components are generated from the SDUI spec (accepted; the spec
   fully defines structure/props/behaviour). Smaller ecosystem + talent pool than React/Node; WASM bundle/SSR
-  considerations. The existing **TypeScript `tools/codegen`** must either be kept as the spec toolchain that
-  now emits Rust, or ported to Rust (`scripts/generate.rs`) — open (see follow-ups).
+  considerations. The **TypeScript `tools/codegen`** was ported to Rust at parity and then retired (see
+  follow-up #2); `tools/codegen-rs` is now the single spec toolchain.
 
 ## Follow-ups (reconciliation — separately tracked)
 1. **Update tech references in the specs** to the Rust stack: `c4-l2.yaml` container technologies + relationships,
@@ -70,8 +70,9 @@ unaffected.
    observability, C4, translations, SDUI screens) is also ported. **Parity reached:** all 8 generated
    artifacts are byte-identical AND the validator emits the same `(rule, location)` issue set + coverage
    summary — the latter verified by a differential harness that breaks each section and diffs both tools
-   (CI `rust-codegen` job: build + test + validate + generate + diff, green). Remaining: flip CI so the Rust
-   `rust-codegen` job is the blocking gate and retire the TypeScript `consistency` job (and `tools/codegen`).
+   (CI `rust-codegen` job: build + test + validate + generate + diff, green). **DONE:** CI collapsed to a
+   single `codegen` job running the Rust tool; the `Makefile` (`make validate`/`generate`) and the acceptance
+   hooks (`stop-gate.sh`, `validate-generated.sh`) drive it; the TypeScript `tools/codegen` has been deleted.
 3. **Generation targets**: what the codegen emits for Rust — `shared_types` (serde), Crux core skeletons from
    actors/commands/events, `async-graphql` schema, `sqlx` migrations from `views.yaml`, the Leptos SDUI
    registry from `customer_screens.yaml`. Currently it emits GraphQL SDL + SQL + C4 + docs (renderer-agnostic).

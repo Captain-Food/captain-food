@@ -14,7 +14,7 @@ description: >
   Naming: a test key is `Test<Aggregate><Behaviour>` (PascalCase) so related cases regroup by actor;
   `name` is a readable sentence. Suffixes: `…IsRejected` (error), `…IsNoOp` / `…Again…` (idempotency).
 
-  Validated by the codegen (tests.yaml is a source file) — see `npm run validate`:
+  Validated by the codegen (tests.yaml is a source file) — see `make validate`:
     - every `$ref` resolves (events / commands / actors / errors / local fixtures);
     - the `when` message is one the named actor RECEIVES (actors.yaml inbox);
     - each `then` event is one that handler EMITS, and each `thrown` error one it may THROW;

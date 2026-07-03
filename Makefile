@@ -7,7 +7,7 @@
 
 CODEGEN_RS = tools/codegen-rs
 
-.PHONY: typecheck validate-schema test-behaviour test-observability c4-validate validate generate review gate night-loop budget-check budgeted-loop docs c4-export c4-render help rust rust-build rust-test
+.PHONY: typecheck validate-schema test-behaviour test-observability c4-validate validate generate check-drift review gate night-loop budget-check budgeted-loop docs c4-export c4-render help rust rust-build rust-test
 
 help:
 	@echo "targets: validate generate typecheck review gate night-loop budgeted-loop budget-check docs"
@@ -30,17 +30,20 @@ c4-validate: validate-schema         ## C4 consistency is validated inside `vali
 
 validate: typecheck validate-schema
 
-# Generate every artifact from the specs, then fail if the result drifts from what's committed.
+# Generate every artifact from the specs (writes into specs/generated/** + the database.md §2 region).
 generate:
 	cargo run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --specs specs
-	@git diff --quiet --ignore-cr-at-eol specs || { echo "generate: generated artifacts drifted from the specs — commit the regenerated files."; git --no-pager diff --ignore-cr-at-eol --stat specs; exit 1; }
+
+# Regenerate, then fail if the result drifts from what's committed (the CI drift gate, runnable locally).
+check-drift: generate
+	@git diff --quiet --ignore-cr-at-eol specs || { echo "check-drift: generated artifacts drifted from the specs — commit the regenerated files."; git --no-pager diff --ignore-cr-at-eol --stat specs; exit 1; }
 
 # --- Rust codegen build/test aliases (ADR-0034). ---
 rust-build:
 	cd $(CODEGEN_RS) && cargo build
 rust-test:
 	cd $(CODEGEN_RS) && cargo test
-rust: rust-build rust-test validate generate
+rust: rust-build rust-test validate check-drift
 	@echo "rust: build + test + validate + generate(+diff) OK"
 
 # Independent review: regenerate, then confirm the generated artifacts are in step with the DSL.

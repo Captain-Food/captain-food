@@ -21,7 +21,7 @@ afterthought. It is mounted as project guidance (see `CLAUDE.md` and `docs/claud
 | `user-story-mapping.yaml` | `specs/stories.yaml` (+ `specs/story-map.md`) | ✅ |
 | `observability/*.yaml` | `specs/observability.yaml` (contracts, `$ref`-bound to the model) | ✅ |
 | `c4-l2.yaml` / `c4-l3.yaml` | `specs/architecture/c4-l2.yaml` / `c4-l3.yaml` (validated DSL) | ✅ |
-| `/schemas/*.schema.json` | **codegen referential validation** (`tools/codegen/src/validate.ts`) instead of JSON Schema (see ADR-0002) | ✅ |
+| `/schemas/*.schema.json` | **codegen referential validation** (`tools/codegen-rs`, Rust — ADR-0034) instead of JSON Schema (see ADR-0002) | ✅ |
 | `/generated/**` | `specs/generated/**` (+ injected `specs/database.md` §2) | ✅ |
 | generator / reviewer / observability agents | `.claude/agents/*.md` | ✅ |
 | Stop / PostToolUse hooks | `.claude/hooks/*.sh` + `.claude/settings.json` | ✅ |
@@ -40,7 +40,7 @@ Consequences:
 
 - The DSL is **read-only for autonomous execution loops**.
 - Any change to the DSL goes through a **planning step and explicit approval**.
-- Generators validate their own output against the model (`npm run validate`).
+- Generators validate their own output against the model (`make validate`).
 
 ### 2. Planning and execution are separate modes ✅ (process)
 
@@ -74,10 +74,9 @@ specs/                         # the DSL — source of truth
   architecture/
     c4-l2.yaml c4-l3.yaml       # C4 as source-managed DSL
 
-tools/codegen/                 # the generator + validator (TypeScript, tsx) — the blocking gate
-  src/{load,validate,refs,model}.ts  src/emit/*
+tools/codegen-rs/              # the generator + validator (Rust, bin `generate`) — the single blocking gate (ADR-0034); `make rust`
+  src/{load,validate,refs,model}.rs  src/emit/*
   out/                         # ephemeral build scratch (gitignored): Structurizr .mmd exports, etc.
-tools/codegen-rs/              # the Rust port at parity (ADR-0034); `make rust`. Kept in lockstep with the TS codegen.
 
 docs/
   PLAYBOOK.md                  # this file
@@ -120,7 +119,7 @@ Spec -> Plan -> Execute -> Review -> Validate -> Publish -> Observe -> Learn
 | Plan | Claude (read-only) | Impact + migration + breakage analysis |
 | Execute | Claude (execution) | Generate code/implementation artifacts |
 | Review | Reviewer agent | Contract + consistency review |
-| Validate | Hooks + CI + `npm run validate` | Binary, executable gates |
+| Validate | Hooks + CI + `make validate` | Binary, executable gates |
 | Publish | Automation + human gate | Commit, PR, release notes, ADR drafts |
 | Observe | Observability stack + agent | Runtime + workflow diagnosis |
 | Learn | Human + memory update | Persist lessons into rules/ADRs |
@@ -132,7 +131,7 @@ binary and executable.
 ## Hook strategy ✅
 
 - **Stop hook** (`.claude/hooks/stop-gate.sh`): blocks loop completion unless the acceptance gates pass
-  (typecheck + `npm run validate`; behaviour/observability/C4 checks run through the same validator;
+  (`make validate`; behaviour/observability/C4 checks run through the same validator;
   app-level checks are skipped gracefully until they exist).
 - **PostToolUse hook** (`.claude/hooks/validate-generated.sh`): after a `specs/**` write, re-runs
   validation and returns contextual feedback (not just an exit code), and forbids hand-edits to
@@ -248,8 +247,8 @@ generator-only, documentation-only, or observability-only. List impacted model f
 generated artifacts, C4 views, ADRs, and migration steps. Do not modify any file."
 
 **Execution mode (generation):** "Use the approved `specs/**` as frozen input. Change generator logic
-under `tools/codegen` and regenerate into `out/`. Do not modify `specs/**` semantics. Run `npm run
-typecheck && npm run validate && npm run generate`. If validation fails, fix the generator, not the DSL."
+under `tools/codegen-rs` (Rust) and regenerate. Do not modify `specs/**` semantics. Run `make validate &&
+make generate`. If validation fails, fix the generator, not the DSL."
 
 **Review:** "Review generated artifacts against the DSL, the validator, behaviour tests, observability
 contracts, and C4. Produce a pass/fail report with precise evidence and required corrections."

@@ -2197,7 +2197,7 @@ fn emit_mermaid(model: &Model) -> String {
         "# Captain.Food — C4 diagrams (Mermaid, generated)".into(),
         "".into(),
         "Rendered by any Mermaid-aware viewer (GitHub, VS Code, mermaid.live). The authoritative source is".into(),
-        "`specs/architecture/c4-l2.yaml` / `c4-l3.yaml`; regenerate with `npm run generate`.".into(),
+        "`specs/architecture/c4-l2.yaml` / `c4-l3.yaml`; regenerate with `make generate`.".into(),
         "".into(),
         "## L2 — Containers & external systems".into(),
         "".into(),

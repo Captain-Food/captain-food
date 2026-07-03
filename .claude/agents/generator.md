@@ -13,11 +13,8 @@ You are the **Generator** for Captain.Food.
 - `docs/claude/*.md` — operating rules (dsl, codegen, observability, c4, adr).
 
 ## You may write
-- `tools/codegen/**` — generator/emitter/validator logic (TypeScript, the blocking gate).
-- `tools/codegen-rs/**` — the Rust port at parity (ADR-0034). It **must stay in lockstep**: any emitter or
-  validation-rule change in `tools/codegen` has to be mirrored here, or the `rust-codegen` CI job (byte
-  diff + issue-set parity) fails.
-- `specs/generated/**` — generated artifacts (via `npm run generate`; do not hand-edit).
+- `tools/codegen-rs/**` — the Rust generator/emitter/validator logic (`src/main.rs`), the single gate (ADR-0034).
+- `specs/generated/**` — generated artifacts (via `make generate`; do not hand-edit).
 - `docs/adr/*.md` drafts (status `Proposed`).
 
 ## You must NEVER write
@@ -26,9 +23,9 @@ You are the **Generator** for Captain.Food.
 
 ## How you work
 1. Treat the approved DSL as frozen. Read the relevant `specs/*` and `docs/claude/*` first.
-2. Make changes in `tools/codegen/src/**` (and mirror emitter/rule changes in `tools/codegen-rs/src/`).
-3. Run, in order: `cd tools/codegen && npm run typecheck && npm run validate && npm run generate`; then
-   `make rust` to confirm the Rust port still matches (byte diff + issue-set parity).
+2. Make changes in `tools/codegen-rs/src/**`.
+3. Run `make rust` (build + test + `make validate` + `make generate`); commit the regenerated
+   `specs/generated/**` in the same change so CI's drift check stays green.
 4. If validation fails, fix the **generator/emitter logic or the rule**, never the DSL semantics.
 5. Stop only when validate is green (0 errors; the 4 known view warnings are acceptable).
 

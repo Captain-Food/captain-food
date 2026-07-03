@@ -94,7 +94,7 @@ Topic rules live in [docs/claude/](docs/claude/) — read the relevant one befor
 
 Generator/reviewer/observability agents are defined in `.claude/agents/`; acceptance gates are wired as
 hooks in `.claude/settings.json` (`.claude/hooks/stop-gate.sh`, `validate-generated.sh`). `make help`
-lists entrypoints. The validator (`cd tools/codegen && npm run validate`) is the single executable gate for
+lists entrypoints. The validator (`make validate`, the Rust `tools/codegen-rs`) is the single executable gate for
 the **whole spec** — schema/refs, actor wiring, api↔model, views, C4, observability, and (ADR-0032)
 **tests, stories and rules completeness**: every message/event/error is exercised by a test, every
 mutation/query is reached by a story step, and every test↔rule link holds both ways. It must be
@@ -112,7 +112,7 @@ mutation/query is reached by a story step, and every test↔rule link holds both
   fails, fix instrumentation/middleware — not the domain model.
 - **Completeness is part of every change (ADR-0032):** a new command/event/error also needs a behaviour
   test (+ its `rules:` link); a new mutation/query also needs a story step; a new business rule also needs
-  a test. `npm run validate` blocks otherwise — do not weaken the gate, extend the specs.
+  a test. `make validate` blocks otherwise — do not weaken the gate, extend the specs.
 - Review and validation gates are executable and **blocking**; never hand-edit generated output
   (`specs/generated/**`, the `database.md` GENERATED region) — change the spec/emitter and regenerate.
 - Every recurring agent/loop failure becomes a new rule, test, or ADR.
@@ -126,10 +126,11 @@ The repo currently contains the **specs** ([specs/](specs/)), the **codegen** ge
 `.claude/agents`, `.claude/hooks`, `Makefile`). The Rust workspace (`crates/`) does **not** exist yet
 (ADR-0034), so the runtime layers of the playbook — the Crux core, Leptos/Axum apps, OpenTelemetry
 emission, Kubernetes probes, BAM projections, GraphQL operation observability — are specified as
-**contracts + ADRs** and deferred until then. The codegen has been **ported to Rust**
-([tools/codegen-rs/](tools/codegen-rs/), bin `generate`, ADR-0034): it now runs the full validator
-(validate.ts §1–§11) and every emitter, producing all 8 generated artifacts **byte-identical** to the
-TypeScript codegen and the **same validation issue set** — both verified in CI (the `rust-codegen` job:
-build + test + validate + generate + diff). Run it with `make rust` (needs a local Rust toolchain). The
-TypeScript `tools/codegen` stays the **blocking** gate (`cd tools/codegen && npm run validate`) until it is
-retired; both run in CI in parallel.
+**contracts + ADRs** and deferred until then. The codegen is a **Rust** tool
+([tools/codegen-rs/](tools/codegen-rs/), bin `generate`, ADR-0034): it runs the full validator (§1–§11)
+and every emitter (translations, views SQL + the `database.md` §2 injection, C4 Structurizr/Mermaid,
+GraphQL SDL, and the Markdown + HTML docs). It began as a TypeScript tool (`tools/codegen`), was ported
+to Rust at parity (all 8 artifacts byte-identical + the same validation issue set), and the TypeScript
+codegen was then **retired**. Run it with `make validate` / `make generate` (needs a local Rust
+toolchain; `make rust` = build + test + validate + generate). CI's single `codegen` gate does the same and
+fails on any spec↔generation drift.

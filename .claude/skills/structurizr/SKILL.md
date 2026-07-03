@@ -21,11 +21,11 @@ Architecture is **source-managed DSL** under `specs/architecture/` and validated
 ## Generate
 
 ```bash
-cd tools/codegen && npm run validate && npm run generate
+make validate && make generate
 # → specs/generated/c4.generated.dsl, specs/generated/c4.generated.md (+ the HTML doc's interactive map)
 ```
 
-`validate` enforces C4 consistency: every aggregate/process-manager is mapped to a bounded context
+`make validate` enforces C4 consistency: every aggregate/process-manager is mapped to a bounded context
 (`c4-actor-unmapped`), and every `$ref` (container `realizes`, component `handles`/`updates`) resolves —
 so the diagrams cannot drift from `actors.yaml`/`views.yaml`.
 
@@ -86,7 +86,7 @@ read models). It renders on GitHub, in VS Code (Mermaid extension), or at https:
 1. Edit `specs/architecture/c4-l2.yaml` / `c4-l3.yaml` (NOT the generated files).
 2. Add a new aggregate → put it in a bounded context (and, if it runs in `api`, in a component's
    `handles`); add a new `View_*` → add it to `projection-updaters.updates`.
-3. `cd tools/codegen && npm run validate` (must be 0 errors; only the 4 known view warnings are ok).
-4. `npm run generate` to refresh the DSL/Mermaid/HTML map.
+3. `make validate` (must be 0 errors; only the 4 known view warnings are ok).
+4. `make generate` to refresh the DSL/Mermaid/HTML map.
 
 See also: `docs/claude/c4.md` (rules) and ADR-0008 / P-11.

@@ -14,26 +14,22 @@ no LLM in the generation loop.
 - **[`specs/`](specs/)** — the domain & architecture model: scalars, entities, events, commands, errors,
   actors (aggregates + process managers), views (read models), the GraphQL API surface, story map,
   behaviour tests, observability contracts, and C4 (`specs/architecture/`).
-- **[`tools/codegen/`](tools/codegen/)** — a deterministic TypeScript generator/validator. It validates
-  referential integrity + behaviour-test coverage + observability + C4 in one gate, then emits artifacts.
-- **[`tools/codegen-rs/`](tools/codegen-rs/)** — the Rust port of the codegen (ADR-0034), at **parity**:
-  same full validator + emitters, all artifacts byte-identical and the same issue set (CI-verified via
-  `make rust`). The TypeScript codegen stays the blocking gate until it is retired.
+- **[`tools/codegen-rs/`](tools/codegen-rs/)** — a deterministic Rust generator/validator (ADR-0034). It
+  validates referential integrity + behaviour-test coverage + observability + C4 in one gate, then emits
+  artifacts. (It began as a TypeScript tool, ported to Rust at parity — byte-identical artifacts + the same
+  validation issue set — after which the TypeScript codegen was retired.)
 - **[`specs/generated/`](specs/generated/)** — the committed generated artifacts: the GraphQL SDL, the
   `View_*` SQL DDL, the Structurizr/Mermaid C4, and the navigable product documentation
-  (`documentation.generated.md` / `.html`). `tools/codegen/out/` is ephemeral build scratch.
+  (`documentation.generated.md` / `.html`). `tools/codegen-rs/out/` is ephemeral build scratch.
 
 ```bash
-cd tools/codegen
-npm ci
-npm run validate     # the single blocking gate — must be 0 errors
-npm run generate     # regenerate every artifact from the specs
+make validate     # the single blocking gate — must be 0 errors (needs a Rust toolchain: cargo)
+make generate     # regenerate every artifact from the specs
 ```
 
 The **codegen-consistency** workflow (the badge above) runs `validate` + `generate` on every push/PR and
-fails if the committed artifacts drift from the specs — so `specs/generated/` is always in sync. It runs
-two jobs in parallel: `consistency` (TypeScript, the blocking gate) and `rust-codegen` (the Rust port —
-`cargo build`/`test` + validate + generate + diff), keeping the two implementations in lockstep.
+fails if the committed artifacts drift from the specs — so `specs/generated/` is always in sync. Its single
+`codegen` job builds + tests the Rust `tools/codegen-rs`, validates, regenerates, and diffs.
 
 ## Operating model
 

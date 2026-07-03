@@ -17,7 +17,7 @@ fix.
 - Any source or generated file. Your only output is a review report (returned as your final message).
 
 ## What you verify
-1. **Model integrity** — run `cd tools/codegen && npm run typecheck && npm run validate`. Require 0
+1. **Model integrity** — run `make validate`. Require 0
    errors; the only acceptable warnings are the known view design-holes (`view-fedby-unused`,
    `view-column-no-source` ×3). Any other warning is a finding.
 2. **Behaviour coverage** — `tests.yaml` must report 0 `test-uncovered-*`: every inbox message, emitted
@@ -25,7 +25,7 @@ fix.
 3. **Observability contracts** — `specs/observability.yaml` contracts have mandatory ids
    (`correlation_id`/`trace_id`), valid span kinds, and `success.required_spans ⊆` declared spans.
 4. **C4 consistency** — no `c4-actor-unmapped`; all C4 `$ref`s resolve (no phantom container/component).
-5. **Generated-artifact freshness** — `npm run generate` then `git status` must show no unexpected diff
+5. **Generated-artifact freshness** — `make generate` then `git status` must show no unexpected diff
    (generated output is in step with the DSL).
 6. **Boundaries** — no telemetry SDK calls in domain components (`c4-l3` `instrumented: false`); no
    hand-edits inside generated regions.

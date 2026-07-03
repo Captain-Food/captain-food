@@ -99,7 +99,7 @@ from the log) — to avoid any confusion with a real/normalized table, every one
 **`View_`** (`View_{TableName}`).
 
 The read models below are the **source of truth in [views.yaml](views.yaml)** and the per-view detail
-is GENERATED from it (run `npm run generate` in `tools/codegen`). Each view declares only what is
+is GENERATED from it (run `make generate`). Each view declares only what is
 intrinsic to the read model: its **source aggregate + events** ([events.yaml](events.yaml) /
 [actors.yaml](actors.yaml)), its **business filters/rules**, and its **columns**. The consumer mapping
 — which GraphQL query reads it — is declared in [api.yaml](api.yaml) via `@reads` and
@@ -107,7 +107,7 @@ surfaced in [traceability.md](traceability.md) §2. Money is stored as integer m
 + `currency`), matching `Money`; `JSONB` is used where a whole sub-tree is fetched at once. The SQL
 DDL for these tables is generated to `specs/generated/views.generated.sql`.
 
-<!-- GENERATED:views START — source: specs/views.yaml; run `npm run generate`. Do not edit between the markers. -->
+<!-- GENERATED:views START — source: specs/views.yaml; run `make generate`. Do not edit between the markers. -->
 
 ### `View_RestaurantAccount` · 🛶 V0 · 🔒 internal · source aggregate `RestaurantAccount`
 
