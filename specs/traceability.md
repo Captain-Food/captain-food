@@ -7,7 +7,8 @@ are backed by. This is a **derived cross-reference** over [commands.yaml](comman
 regenerated/validated from those files.
 
 Personas map 1:1 to GraphQL paths/roles: `PUBLIC` · `CUSTOMER` · `RESTAURANT` · `RIDER` · `ADMIN` ·
-`EXTERNAL` (see [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md) §8).
+`EXTERNAL` (role = path; see [ADR-0006](../docs/adr/0006-graphql-role-as-path-acl.md) and the domain
+topology in [ADR-0036](../docs/adr/0036-domain-topology-single-origin-identity.md)).
 
 ---
 

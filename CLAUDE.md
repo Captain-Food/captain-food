@@ -9,7 +9,6 @@ that can evolve towards CQRS + event log.
 The [specs/](specs/) folder is the **source of truth** for the domain and architecture.
 Read the relevant file before implementing or changing anything:
 
-- [specs/ARCHITECTURE_OVERVIEW.md](specs/ARCHITECTURE_OVERVIEW.md) — big picture: V0 goals, domains/subdomains, monorepo structure, CQRS-light + event log backend, integrations, hosting.
 - [specs/PRODUCT_SPEC_WEB_CLIENT.md](specs/PRODUCT_SPEC_WEB_CLIENT.md) — web client product spec (user flows, checkout, Stripe payment, order tracking, NFRs, tech constraints).
 - [specs/database.md](specs/database.md) — event store schema (`domain_events`) + the `View_*` projection (read) tables, each declared by its source aggregate/events, business filters and columns (the query/UI mapping lives in [specs/traceability.md](specs/traceability.md) §2).
 - [specs/scalars.yaml](specs/scalars.yaml) — domain scalar types (IDs, names, money, enums: `OrderStatus`, `RestaurantStatus`, `ServiceType`, `StockStatus`, etc.).

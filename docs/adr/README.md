@@ -66,6 +66,7 @@ Concrete architecture/domain-model decisions taken while building the specs (Acc
 | [0033](0033-spec-driven-sdui-customer-screens.md) | Spec-Driven SDUI (`customer_screens.yaml`) + `translations.yaml` (errors.yaml-style i18n → one `translations.json`); screen reads/writes `$ref`-bound to `api.yaml` (API-meets-UI gate), non-SDUI screens flagged, gaps surfaced; screens+translations rendered in the docs; runtime deferred |
 | [0034](0034-full-stack-rust.md) | Full-stack Rust across all platforms (Crux core, Leptos/WASM, Axum BFF, Tauri, UniFFI mobile shells); codegen ported TS→Rust (`tools/codegen-rs`) at parity, then the TypeScript codegen retired |
 | [0035](0035-project-structure-clean-architecture.md) | Clean-Architecture crate layout (`crates/{domain,application,infrastructure,server,shared_types,core,web,desktop}`); serde allowed on domain events/VOs; V0 `View_*` = SQL views over `domain_events` (refines 0005); incremental migrations for stateful tables; ACL/sagas/tenant middleware placed; codegen generation targets defined |
+| [0036](0036-domain-topology-single-origin-identity.md) | Domain topology (`{slug}.captain.food` wildcard + `restos/riders/system/api` hosts) & single-origin identity — passkey RP-ID is `captain.food`, so checkout redirects there from restaurant subdomains (extracted from the retired ARCHITECTURE_OVERVIEW.md) |
 
 ## Proposed (deferred until app/runtime code exists)
 
