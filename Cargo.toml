@@ -1,0 +1,34 @@
+# Captain.Food — Cargo workspace root (ADR-0035, Clean Architecture crate layout).
+#
+# Virtual manifest (no [package] here): each layer is a member crate. The dependency DIRECTION is
+# enforced structurally by which crates each member lists — outer depends on inner, never the reverse;
+# `domain` lists no workspace crate at all. A forbidden edge (e.g. domain → application) would create a
+# cycle and fail to compile. See docs/adr/0035-project-structure-clean-architecture.md.
+[workspace]
+resolver = "2"
+members = [
+    "tools/codegen-rs",        # spec validator + generator (ADR-0034) — tooling, not part of the app graph
+    "crates/domain",           # ★ pure DDD — depends on nothing else
+    "crates/application",      # use cases + ports (traits) — depends on domain
+    "crates/infrastructure",   # adapters implementing ports — depends on application, domain
+    "crates/shared_types",     # serde DTOs (+ UniFFI later)
+    "crates/core",             # Crux core over domain — depends on domain, shared_types
+    "crates/server",           # Axum BFF — depends on application, infrastructure, shared_types
+    "crates/web",              # Leptos/WASM — depends on shared_types, core
+    "crates/desktop",          # Tauri shell — depends on server, web
+]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+
+# Centralized versions for the light, host-buildable deps used by the skeleton. Heavier framework deps
+# (axum/tokio/async-graphql, sqlx, leptos, tauri, crux, uniffi, reqwest) are added per crate when that
+# layer's real code lands — kept out of the scaffold so `cargo build` stays fast and green everywhere.
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+async-trait = "0.1"

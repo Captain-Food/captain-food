@@ -1,0 +1,13 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Captain.Food Axum BFF: the composition root that injects infrastructure adapters into the application, exposes GraphQL (role-as-path) + the SDUI hydration endpoint, and hosts tenant/auth/tracing middleware. Depends on `application` + `infrastructure` + `shared_types` (ADR-0035). Exposes a lib (wiring) so `desktop` can embed it."
+
+# axum/tokio/tower/async-graphql are added when the HTTP surface lands; the skeleton wires the graph only.
+[dependencies]
+application = { path = "../application" }
+infrastructure = { path = "../infrastructure" }
+shared_types = { path = "../shared_types" }

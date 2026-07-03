@@ -22,13 +22,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build the codegen
-        working-directory: tools/codegen-rs
-        run: cargo build --verbose
+      - name: Build the workspace (codegen + all layer crates — enforces the ADR-0035 dependency graph)
+        run: cargo build --workspace --verbose
 
-      - name: Unit tests
-        working-directory: tools/codegen-rs
-        run: cargo test --verbose
+      - name: Unit tests (whole workspace)
+        run: cargo test --workspace --verbose
 
       - name: Validate the specs (full validator §1–§11 — the blocking gate)
         run: cargo run --manifest-path tools/codegen-rs/Cargo.toml -- --check --specs specs

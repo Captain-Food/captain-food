@@ -1,0 +1,12 @@
+[package]
+name = "web"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Captain.Food Leptos frontend (compiles to WASM): the SDUI renderer + GENERATED component registry, action dispatcher, and non-SDUI screens (checkout, order tracking). Depends on `shared_types` + `app-core` (ADR-0035)."
+
+# leptos/leptos_router/leptos_i18n are added when the renderer lands; the skeleton is a plain lib.
+[dependencies]
+shared_types = { path = "../shared_types" }
+app-core = { path = "../core" }
