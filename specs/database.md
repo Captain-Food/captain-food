@@ -1,32 +1,18 @@
-## 1. Event store table
+## 1. Event store
 
-PostgreSQL table definition (conceptual):
+The store DDL — the `domain_events` log (+ indexes), the `ce_events` / `et_events` / `all_events` helper
+functions, the `domain_stream` retention table and the `$maxCount` trigger — is **GENERATED** to
+[`specs/generated/schema.generated.sql`](generated/schema.generated.sql) from
+[`database/tables.yaml`](database/tables.yaml) and [`database/functions/`](database/functions/) (run
+`make generate`). Plus one `ref_<enum>` lookup table per `scalars.yaml` enum. **This section is the
+rationale — the generated SQL is the source of truth; do not hand-write DDL here.**
 
-```sql
-CREATE TABLE domain_events (
-  position        BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, // $all order: total order across every stream (projection checkpoint)
-  id              UUID NOT NULL UNIQUE,        // event id — idempotency key, deduped on append
-  stream_name     TEXT NOT NULL,               // '<CatalogCategory>-<id>', e.g. 'Catalog-12345'; category = prefix before the first '-'
-  version         INT  NOT NULL,               // 0-based event number within the stream (expected-version concurrency)
-  user_id         UUID NOT NULL,
-  user_type       INT NOT NULL,
-  correlation_id  UUID NOT NULL,
-  cause_id        UUID NULL,
-  event_type      TEXT NOT NULL,               // event type ($et-<type> projection)
-  payload         JSONB NOT NULL,              // event data
-  metadata        JSONB,
-  occurred_at     TIMESTAMPTZ NOT NULL,        // could be interesting if we use integer
-  expired_at      TIMESTAMPTZ NULL,            // per-event TTL (cf. per-stream $maxAge / $maxCount metadata)
-  UNIQUE (stream_name, version)                // optimistic concurrency: one event per (stream, expected version)
-);
-
-CREATE INDEX ON domain_events (stream_name, version);  // read one stream in order; prefix-scannable per category
-CREATE INDEX ON domain_events (event_type);            // $et-<type>
-CREATE INDEX ON domain_events (occurred_at);
-```
-
-This mirrors **EventStoreDB / SqlStreamStore** in plain SQL. A **stream** is the ordered event
-sequence of one aggregate instance; it maps 1:1 to a domain aggregate (`actors.yaml`). The mapping:
+`domain_events` mirrors **EventStoreDB / SqlStreamStore** in plain SQL. A **stream** is the ordered event
+sequence of one aggregate instance; it maps 1:1 to a domain aggregate (`actors.yaml`). Key columns:
+`position` (the `$all` total order, identity PK, projection checkpoint), `id` (idempotent append,
+unique), `stream_name` (`<Category>-<id>`, e.g. `Catalog-12345`; category = prefix before the first `-`),
+`version` (0-based; `UNIQUE (stream_name, version)` gives expected-version concurrency), `event_type`,
+`payload` (JSONB), `occurred_at`, and `expired_at` (per-event TTL). The mapping:
 
 | EventStore concept | Column / mechanism here |
 |---|---|
@@ -35,139 +21,44 @@ sequence of one aggregate instance; it maps 1:1 to a domain aggregate (`actors.y
 | `$all` global position | `position` (identity) — total order; projections track a checkpoint on it |
 | Event id (idempotent append) | `id` — `UNIQUE` |
 | Event type | `event_type` |
-| `$ce-<category>` projection | `ce_events(category)` (below) |
-| `$et-<type>` projection | `et_events(event_type)` (below) |
-| `$all` global stream | `all_events()` (below) — `ORDER BY position` |
-| Stream `$maxAge` / `$maxCount` | `domain_stream(category, max_age, max_count)` policy + `expired_at`; a trigger enforces `$maxCount`, a scheduled sweep enforces `$maxAge` (below) |
+| `$ce-<category>` projection | `ce_events(category)` |
+| `$et-<type>` projection | `et_events(event_type)` |
+| `$all` global stream | `all_events()` — `ORDER BY position` |
+| Stream `$maxAge` / `$maxCount` | `domain_stream(category, max_age, max_count)` policy + `expired_at`; a trigger enforces `$maxCount`, a scheduled sweep enforces `$maxAge` |
 
 - The category prefix is one of `Restaurant | Catalog | Customer | Cart | Order | DeliveryJob`
   (matches the aggregates in [actors.yaml](actors.yaml)); the `<id>` suffix is the instance id.
-- `metadata`: optional. To stay faithful to EventStore, `correlation_id` / `cause_id` / user could be
-  folded in here (as `$correlationId` / `$causationId`) rather than kept as columns — left as columns
-  for now for query convenience.
+- `metadata`: optional. `correlation_id` / `cause_id` / user are kept as columns for query convenience
+  (an EventStore-faithful alternative would fold them into `metadata` as `$correlationId` / `$causationId`).
 
-### Helper — events for a category (`$ce-<category>`)
+### Log helpers (inspection / replay only — read paths use `View_*`, never `domain_events`)
 
-`ce_events(category)` returns every event whose stream belongs to one **category**, in chronological
-order — the SQL equivalent of EventStoreDB's `$ce-<category>` projection. This is for
-inspection/replay over the log only — read paths still go through the `View_*` projections, never
-`domain_events` directly.
+- `ce_events(category)` — `$ce-<category>`: every event of one category, ordered `(stream_name, version)`.
+- `et_events(event_type)` — `$et-<type>`: every event of one type across all streams, ordered `position`.
+- `all_events()` — `$all`: the whole log, ordered `position` (projections track a checkpoint on it).
 
-```sql
--- ce_events('Catalog')  ==  SELECT * FROM domain_events WHERE stream_name LIKE 'Catalog-%'
-CREATE FUNCTION ce_events(category TEXT)
-RETURNS SETOF domain_events
-LANGUAGE sql STABLE AS $$
-  SELECT *
-  FROM domain_events
-  WHERE split_part(stream_name, '-', 1) = category
-  ORDER BY stream_name, version;
-$$;
-```
-
-- `category` is a stream-name prefix: `Restaurant | Catalog | Customer | Cart | Order | DeliveryJob`.
-- The category is derived from `stream_name` (prefix before the first `-`), so no `stream_type`
-  column is stored.
-- Ordered by `(stream_name, version)` so each stream stays contiguous and replay-ordered.
-
-### Helper — events for an event type (`$et-<type>`)
-
-`et_events(event_type)` returns every event of one **event type** across all streams, in global
-order — the SQL equivalent of EventStoreDB's `$et-<type>` projection. Same caveat: inspection/replay
-only, never a read path.
-
-```sql
--- et_events('RestaurantRegistered')  ==  SELECT * FROM domain_events WHERE event_type = 'RestaurantRegistered'
-CREATE FUNCTION et_events(event_type TEXT)
-RETURNS SETOF domain_events
-LANGUAGE sql STABLE AS $$
-  SELECT *
-  FROM domain_events
-  WHERE domain_events.event_type = et_events.event_type
-  ORDER BY position;
-$$;
-```
-
-- `event_type` is an event name from [events.yaml](events.yaml), e.g. `'RestaurantRegistered'`.
-- Backed by the `(event_type)` index.
-- Ordered by `position` (the `$all` global order), since the result spans many streams.
-
-### Helper — the global log (`$all`)
-
-`all_events()` returns the entire log in global order — the SQL equivalent of EventStoreDB's `$all`
-stream. Inspection/replay only (projections track a checkpoint on `position`); never a read path.
-
-```sql
--- all_events()  ==  SELECT * FROM domain_events ORDER BY position
-CREATE FUNCTION all_events()
-RETURNS SETOF domain_events
-LANGUAGE sql STABLE AS $$
-  SELECT * FROM domain_events ORDER BY position;
-$$;
-```
+Bodies live in [`database/functions/*.sql`](database/functions/) and are assembled into the generated schema.
 
 ### Stream retention — `$maxAge` / `$maxCount`
 
-The log is **append-only by default** — full history is what makes the `View_*` projections rebuildable,
-so most categories keep everything. Retention is **opt-in per stream category** and meant only for
-**ephemeral** streams (e.g. `Cart`, which is never abandoned but need not be kept forever). A tiny config
-table holds the policy — the SQL equivalent of EventStoreDB's per-stream `$maxAge` / `$maxCount` metadata:
+The log is **append-only by default** — full history is what makes the `View_*` projections rebuildable, so
+most categories keep everything. Retention is **opt-in per stream category** via `domain_stream` and meant
+only for **ephemeral** streams (e.g. `Cart`). `$maxCount` is enforced synchronously by the
+`trg_domain_events_max_count` trigger (`enforce_max_count`), trimming a stream to its last N versions.
+**Only categories with a policy row are ever trimmed** — `Order`/`Restaurant`/`Customer` have none and keep
+full history, staying rebuildable (ADR-0005). `expired_at` is the per-event escape hatch.
+
+`$maxAge` is enforced by a scheduled sweep — **not part of the generated schema** (environment-specific): a
+`pg_cron` job, or a dedicated retention worker where `pg_cron` is unavailable (e.g. the managed tier):
 
 ```sql
-CREATE TABLE domain_stream (
-  category   TEXT PRIMARY KEY,   -- stream category (aggregate type): Restaurant | Catalog | Customer | Cart | Order | DeliveryJob
-  max_age    INTERVAL NULL,      -- $maxAge: events older than this are swept (NULL = keep forever)
-  max_count  INT      NULL       -- $maxCount: keep at most N most-recent events PER STREAM in the category (NULL = unbounded)
-);
--- Example: only Cart is truncated; the order/restaurant history stays complete.
--- INSERT INTO domain_stream (category, max_age, max_count) VALUES ('Cart', INTERVAL '90 days', 500);
-```
-
-**`$maxCount` — enforced synchronously by a trigger.** After each append, the oldest events of *that
-stream* beyond the category's `max_count` are trimmed (keeping the last N versions):
-
-```sql
-CREATE FUNCTION enforce_max_count() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE cap INT;
-BEGIN
-  SELECT max_count INTO cap FROM domain_stream WHERE category = split_part(NEW.stream_name, '-', 1);
-  IF cap IS NOT NULL THEN
-    DELETE FROM domain_events
-    WHERE stream_name = NEW.stream_name
-      AND version <= NEW.version - cap;   -- keep only the last `cap` versions of this stream
-  END IF;
-  RETURN NULL;                            -- AFTER ROW trigger
-END;
-$$;
-CREATE TRIGGER trg_domain_events_max_count
-AFTER INSERT ON domain_events
-FOR EACH ROW EXECUTE FUNCTION enforce_max_count();
-```
-
-**`$maxAge` / `expired_at` — enforced by a scheduled sweep.** An event is dropped when its explicit
-per-event `expired_at` has passed, OR when it is older than its category's `max_age`. Run as a
-`pg_cron` job when the managed Postgres offers it; otherwise the same statement is executed on a schedule
-by a **dedicated retention app** (a small worker):
-
-```sql
--- pg_cron (hourly). If pg_cron is unavailable (e.g. on the managed tier), a dedicated worker runs the
--- identical DELETE on the same cadence.
 SELECT cron.schedule('domain_events_retention', '0 * * * *', $$
-  DELETE FROM domain_events e
-  USING domain_stream s
+  DELETE FROM domain_events e USING domain_stream s
   WHERE split_part(e.stream_name, '-', 1) = s.category
-    AND (
-         (e.expired_at IS NOT NULL AND e.expired_at < now())      -- explicit per-event TTL
-      OR (s.max_age    IS NOT NULL AND e.occurred_at < now() - s.max_age)  -- category $maxAge
-    );
+    AND (   (e.expired_at IS NOT NULL AND e.expired_at < now())          -- explicit per-event TTL
+         OR (s.max_age    IS NOT NULL AND e.occurred_at < now() - s.max_age) );  -- category $maxAge
 $$);
 ```
-
-- **Only categories present in `domain_stream` (with a non-NULL policy) are ever trimmed** — `Order`,
-  `Restaurant`, `Customer`, etc. have no row (or NULLs) and keep full history, so their projections stay
-  rebuildable. Configure retention only where losing old events is acceptable.
-- `expired_at` stays the per-event escape hatch (a specific event given an explicit TTL on append),
-  independent of the category policy.
 
 ## 2. Read models — projection views (`View_*`)
 
