@@ -62,9 +62,9 @@ validation. In the story map, inbound events are marked 📥.
 
 ## Architecture (summary)
 
-- **Monorepo** (Turborepo/Nx): `apps/web-client` (Next.js, customer), `apps/web-admin` (Next.js, back-office), `apps/api` (Node + GraphQL); `packages/ui`, `packages/types`, `packages/config`.
-- **Frontend**: Next.js App Router, React, TypeScript, Tailwind CSS. All backend calls go through **GraphQL**.
-- **Backend**: Node/TypeScript (Hono or NestJS), **CQRS-light + event log**.
+- **Full-stack Rust** (ADR-0034 — supersedes the earlier Next.js/Node stack). **Cargo workspace**: `crates/core` (Crux shared business logic — pure, the runtime home of the domain model), `crates/shared_types` (serde), `crates/web` (Leptos → WASM, customer/restaurant/admin SDUI renderer), `crates/server` (Axum BFF), `crates/desktop` (Tauri 2.0). Mobile = thin SwiftUI/Compose shells over the Rust core via UniFFI.
+- **Frontend**: **Leptos** (Rust→WASM), SSR+hydration; the SDUI screens (ADR-0033) render via a generated Leptos component registry. All backend calls go through **GraphQL**.
+- **Backend**: **Rust** — Axum + Tokio + SQLx (compile-time-checked) + async-graphql, **CQRS-light + event log**.
   - Mutations (commands) validate invariants then write events into the append-only `domain_events` table.
   - Queries read from dedicated **read tables** (`read_orders_by_restaurant`, `read_restaurants_public`...), fed by projections — **never** directly from `domain_events`.
   - No full event sourcing (no snapshots/replay) in V0.
@@ -123,6 +123,8 @@ mutation/query is reached by a story step, and every test↔rule link holds both
 
 The repo currently contains the **specs** ([specs/](specs/)), the **codegen** generator/validator
 ([tools/codegen/](tools/codegen/)), and the **operating-model scaffold** ([docs/](docs/),
-`.claude/agents`, `.claude/hooks`, `Makefile`). Application code (apps/, packages/) does **not** exist
-yet, so the runtime layers of the playbook — OpenTelemetry emission, Kubernetes probes, BAM projections,
-GraphQL operation observability — are specified as **contracts + ADRs** and deferred until then.
+`.claude/agents`, `.claude/hooks`, `Makefile`). The Rust workspace (`crates/`) does **not** exist yet
+(ADR-0034), so the runtime layers of the playbook — the Crux core, Leptos/Axum apps, OpenTelemetry
+emission, Kubernetes probes, BAM projections, GraphQL operation observability — are specified as
+**contracts + ADRs** and deferred until then. The codegen (`tools/codegen`) is itself being **ported to
+Rust** (`scripts/generate.rs`, ADR-0034); until parity, the TypeScript codegen remains the validation gate.

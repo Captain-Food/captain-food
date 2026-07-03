@@ -39,11 +39,13 @@ existed but was an unvalidated island with hardcoded English strings.
    API-operations table with each read/write linked to its api anchor, and its ⚠️ gaps) and a **🌐 Translations**
    table. `component_registry` + `actions` declare the allowlists now.
 
-### Deferred to runtime (contracts, when apps/ exists)
-The SDUI **runtime**: the recursive renderer, the generated `registry.ts` / `types/screens.ts` / `i18n/keys.ts`,
-the Supabase `screen_specs` table + validation trigger, `resolvers.ts` / `action-dispatcher.ts`, the
-`/api/screens/:id` hydration route, and enforcing the component registry & i18n-key coverage in generated code.
-Recorded like the observability P-items; promote when `apps/web-client` lands.
+### Deferred to runtime (contracts, when the `crates/` workspace exists)
+The SDUI **runtime** — now **Leptos/Rust** (ADR-0034), not React: the recursive Leptos renderer, the generated
+`registry.rs` / shared serde types / `leptos_i18n` keys (from `translations.generated.json`), the Supabase
+`screen_specs` table + validation trigger, the resolver/action dispatchers (Axum), the `/api/screens/:id`
+hydration route, and enforcing the component registry in generated code. Recorded like the observability
+P-items; promote when `crates/web` lands. The SDUI spec is renderer-agnostic, so this stack swap changes only
+the generated component registry.
 
 ## Alternatives considered
 - **Keep the screens file unvalidated / hardcoded strings** — the exact drift risk this closes. Rejected.

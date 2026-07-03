@@ -7,8 +7,10 @@
 #                     to an api.yaml query/mutation so the codegen PROVES the GraphQL API answers the UI.
 # Every user-visible string is a `$ref` into translations.yaml (no hardcoded text). Some screens are
 # deliberately NOT SDUI-rendered (`sdui: false`) — Stripe/subscription/auth integrity.
-# The runtime (renderer, generated registry/types, Supabase screen_specs, resolver/action dispatchers)
-# is a DEFERRED contract until apps/ exists — see ADR-0033.
+# Stack (ADR-0034): Leptos (Rust → WASM) renders the SDUI tree via a GENERATED Leptos component registry;
+# Axum + async-graphql BFF; Crux shared core; leptos_i18n consumes translations.generated.json. The runtime
+# (renderer, generated registry.rs / types, Supabase screen_specs, resolvers) is a DEFERRED contract until
+# the `crates/` workspace exists — see ADR-0033 (SDUI, renderer-agnostic) + ADR-0034 (full-stack Rust).
 # ==============================================================================
 
 version: 1

@@ -1,13 +1,14 @@
 workspace "Captain.Food" "Local-first food ordering & delivery for independent restaurants and food trucks (V0: Tours)." {
   model {
     ss = softwareSystem "Captain.Food" "Local-first food ordering & delivery for independent restaurants and food trucks (V0: Tours)." {
-      ct_web_client = container "web-client" "Customer mobile-first web client; multi-tenant via {restaurantSlug}.captain.food." "Next.js (App Router), React, TypeScript, Tailwind"
-      ct_web_restaurant = container "web-restaurant" "Restaurant web app/dashboard: onboarding (incl. Google Business Profile 'Order online' setup — ADR-019), catalog, order queue, payouts (/restaurant-account/graphql, /restaurant/graphql)." "Next.js, React, TypeScript"
-      ct_web_admin = container "web-admin" "Platform back-office for Captain.Food staff (/admin/graphql): restaurant approvals, pre-registration pipeline, ops." "Next.js, React, TypeScript"
-      ct_mobile_customer = container "mobile-customer" "Customer mobile app (post-V0); same GraphQL API as web-client (/customer/graphql, /public/graphql)." "React Native / Expo (iOS + Android)"
-      ct_mobile_restaurant = container "mobile-restaurant" "Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql)." "React Native / Expo"
-      ct_mobile_rider = container "mobile-rider" "Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql)." "React Native / Expo"
-      ct_api = container "api" "CQRS-light write+read API. Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql)." "Node + TypeScript (Hono or NestJS), GraphQL" {
+      ct_web_client = container "web-client" "Customer mobile-first web client (SDUI renderer, ADR-0033/0034); multi-tenant via {restaurantSlug}.captain.food." "Leptos (Rust → WASM), Crux core, SSR+hydration"
+      ct_web_restaurant = container "web-restaurant" "Restaurant web app/dashboard: onboarding (incl. Google Business Profile 'Order online' setup — ADR-019), catalog, order queue, payouts (/restaurant-account/graphql, /restaurant/graphql)." "Leptos (Rust → WASM), Crux core"
+      ct_web_admin = container "web-admin" "Platform back-office for Captain.Food staff (/admin/graphql): restaurant approvals, pre-registration pipeline, ops." "Leptos (Rust → WASM), Crux core"
+      ct_desktop_restaurant = container "desktop-restaurant" "Restaurant-manager desktop app (ADR-0034): the web-restaurant UI in a native shell, same Rust core in-process." "Tauri 2.0 shell + Leptos + Crux core (Rust)"
+      ct_mobile_customer = container "mobile-customer" "Customer mobile app (post-V0); thin native UI over the shared Rust core (ADR-0034); same GraphQL API (/customer/graphql, /public/graphql)." "SwiftUI (iOS) / Jetpack Compose (Android) thin shells → Crux core via UniFFI (Rust)"
+      ct_mobile_restaurant = container "mobile-restaurant" "Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql)." "SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust)"
+      ct_mobile_rider = container "mobile-rider" "Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql)." "SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust)"
+      ct_api = container "api" "CQRS-light write+read API (ADR-0034). Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql)." "Rust — Axum + Tokio + SQLx + async-graphql (BFF over the Crux core)" {
         group "restaurant" {
           a_RestaurantAccount = component "RestaurantAccount" "Restaurant provider domain: accounts, locations, lifecycle, order-acceptance mode (incl. catalog & order-fulfilment operations performed by restaurant staff)." "Aggregate"
           a_Restaurant = component "Restaurant" "Restaurant provider domain: accounts, locations, lifecycle, order-acceptance mode (incl. catalog & order-fulfilment operations performed by restaurant staff)." "Aggregate"
@@ -51,7 +52,7 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
       }
       ct_event_store = container "event-store" "Append-only domain_events table (the write model / source of truth at runtime)." "Managed PostgreSQL (e.g. Supabase)"
       ct_read_models = container "read-models" "Denormalized View_* projection tables fed from the event log; queries read here, never domain_events." "Managed PostgreSQL"
-      ct_sync_worker = container "sync-worker" "Restaurant listing sync (ADR-0020): polls INSEE Sirene + Google Maps and, via the ACL, calls the api's RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed as the owner. Prospection scoring/outreach is a later step." "Scheduled worker (GitHub Actions cron + Node)"
+      ct_sync_worker = container "sync-worker" "Restaurant listing sync (ADR-0020): polls INSEE Sirene + Google Maps and, via the ACL, calls the api's RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed as the owner. Prospection scoring/outreach is a later step." "Scheduled worker (GitHub Actions cron + Rust binary, shared Crux core)"
       ct_bam = container "bam" "Business Activity Monitoring projector — consumes the same event stream to answer business questions." "Projection worker"
       ct_otel_collector = container "otel-collector" "Receives traces/metrics/logs from the api and bam containers; exports to the backend(s)." "OpenTelemetry Collector"
     }
@@ -68,6 +69,7 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
     ct_web_client -> ct_api "GraphQL over HTTPS (/customer/graphql, /public/graphql)"
     ct_web_restaurant -> ct_api "GraphQL (/restaurant-account/graphql, /restaurant/graphql)"
     ct_web_admin -> ct_api "GraphQL (/admin/graphql)"
+    ct_desktop_restaurant -> ct_api "GraphQL (/restaurant-account/graphql, /restaurant/graphql) — Tauri shell"
     ct_mobile_customer -> ct_api "GraphQL (/customer/graphql, /public/graphql) — post-V0"
     ct_mobile_restaurant -> ct_api "GraphQL (/restaurant/graphql) — post-V0"
     ct_mobile_rider -> ct_api "GraphQL (/rider/graphql) — post-V0"

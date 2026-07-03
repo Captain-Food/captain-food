@@ -6585,16 +6585,17 @@ aggregates; components bind the aggregates they handle and the read models they 
 
 | Container | Technology | Description |
 | --- | --- | --- |
-| 🧱 `web-client` | Next.js (App Router), React, TypeScript, Tailwind | Customer mobile-first web client; multi-tenant via {restaurantSlug}.captain.food. |
-| 🧱 `web-restaurant` | Next.js, React, TypeScript | Restaurant web app/dashboard: onboarding (incl. Google Business Profile 'Order online' setup — ADR-019), catalog, order queue, payouts (/restaurant-account/graphql, /restaurant/graphql). |
-| 🧱 `web-admin` | Next.js, React, TypeScript | Platform back-office for Captain.Food staff (/admin/graphql): restaurant approvals, pre-registration pipeline, ops. |
-| 🧱 `mobile-customer` | React Native / Expo (iOS + Android) | Customer mobile app (post-V0); same GraphQL API as web-client (/customer/graphql, /public/graphql). |
-| 🧱 `mobile-restaurant` | React Native / Expo | Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql). |
-| 🧱 `mobile-rider` | React Native / Expo | Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql). |
-| 🧱 `api` | Node + TypeScript (Hono or NestJS), GraphQL | CQRS-light write+read API. Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql).<br>realizes: [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess), [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
+| 🧱 `web-client` | Leptos (Rust → WASM), Crux core, SSR+hydration | Customer mobile-first web client (SDUI renderer, ADR-0033/0034); multi-tenant via {restaurantSlug}.captain.food. |
+| 🧱 `web-restaurant` | Leptos (Rust → WASM), Crux core | Restaurant web app/dashboard: onboarding (incl. Google Business Profile 'Order online' setup — ADR-019), catalog, order queue, payouts (/restaurant-account/graphql, /restaurant/graphql). |
+| 🧱 `web-admin` | Leptos (Rust → WASM), Crux core | Platform back-office for Captain.Food staff (/admin/graphql): restaurant approvals, pre-registration pipeline, ops. |
+| 🧱 `desktop-restaurant` | Tauri 2.0 shell + Leptos + Crux core (Rust) | Restaurant-manager desktop app (ADR-0034): the web-restaurant UI in a native shell, same Rust core in-process. |
+| 🧱 `mobile-customer` | SwiftUI (iOS) / Jetpack Compose (Android) thin shells → Crux core via UniFFI (Rust) | Customer mobile app (post-V0); thin native UI over the shared Rust core (ADR-0034); same GraphQL API (/customer/graphql, /public/graphql). |
+| 🧱 `mobile-restaurant` | SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust) | Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql). |
+| 🧱 `mobile-rider` | SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust) | Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql). |
+| 🧱 `api` | Rust — Axum + Tokio + SQLx + async-graphql (BFF over the Crux core) | CQRS-light write+read API (ADR-0034). Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql).<br>realizes: [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess), [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
 | 🧱 `event-store` | Managed PostgreSQL (e.g. Supabase) | Append-only domain_events table (the write model / source of truth at runtime). |
 | 🧱 `read-models` | Managed PostgreSQL | Denormalized View_* projection tables fed from the event log; queries read here, never domain_events. |
-| 🧱 `sync-worker` | Scheduled worker (GitHub Actions cron + Node) | Restaurant listing sync (ADR-0020): polls INSEE Sirene + Google Maps and, via the ACL, calls the api's RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed as the owner. Prospection scoring/outreach is a later step. |
+| 🧱 `sync-worker` | Scheduled worker (GitHub Actions cron + Rust binary, shared Crux core) | Restaurant listing sync (ADR-0020): polls INSEE Sirene + Google Maps and, via the ACL, calls the api's RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed as the owner. Prospection scoring/outreach is a later step. |
 | 🧱 `bam` | Projection worker | Business Activity Monitoring projector — consumes the same event stream to answer business questions. |
 | 🧱 `otel-collector` | OpenTelemetry Collector | Receives traces/metrics/logs from the api and bam containers; exports to the backend(s). |
 
@@ -6619,6 +6620,7 @@ aggregates; components bind the aggregates they handle and the read models they 
 | `web-client` → `api` | GraphQL over HTTPS (/customer/graphql, /public/graphql) |
 | `web-restaurant` → `api` | GraphQL (/restaurant-account/graphql, /restaurant/graphql) |
 | `web-admin` → `api` | GraphQL (/admin/graphql) |
+| `desktop-restaurant` → `api` | GraphQL (/restaurant-account/graphql, /restaurant/graphql) — Tauri shell |
 | `mobile-customer` → `api` | GraphQL (/customer/graphql, /public/graphql) — post-V0 |
 | `mobile-restaurant` → `api` | GraphQL (/restaurant/graphql) — post-V0 |
 | `mobile-rider` → `api` | GraphQL (/rider/graphql) — post-V0 |

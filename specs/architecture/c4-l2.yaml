@@ -61,26 +61,29 @@ boundedContexts:
 # --- Containers (deployable / runtime units) ---
 containers:
   web-client:
-    technology: "Next.js (App Router), React, TypeScript, Tailwind"
-    description: "Customer mobile-first web client; multi-tenant via {restaurantSlug}.captain.food."
+    technology: "Leptos (Rust → WASM), Crux core, SSR+hydration"
+    description: "Customer mobile-first web client (SDUI renderer, ADR-0033/0034); multi-tenant via {restaurantSlug}.captain.food."
   web-restaurant:
-    technology: "Next.js, React, TypeScript"
+    technology: "Leptos (Rust → WASM), Crux core"
     description: "Restaurant web app/dashboard: onboarding (incl. Google Business Profile 'Order online' setup — ADR-019), catalog, order queue, payouts (/restaurant-account/graphql, /restaurant/graphql)."
   web-admin:
-    technology: "Next.js, React, TypeScript"
+    technology: "Leptos (Rust → WASM), Crux core"
     description: "Platform back-office for Captain.Food staff (/admin/graphql): restaurant approvals, pre-registration pipeline, ops."
+  desktop-restaurant:
+    technology: "Tauri 2.0 shell + Leptos + Crux core (Rust)"
+    description: "Restaurant-manager desktop app (ADR-0034): the web-restaurant UI in a native shell, same Rust core in-process."
   mobile-customer:
-    technology: "React Native / Expo (iOS + Android)"
-    description: "Customer mobile app (post-V0); same GraphQL API as web-client (/customer/graphql, /public/graphql)."
+    technology: "SwiftUI (iOS) / Jetpack Compose (Android) thin shells → Crux core via UniFFI (Rust)"
+    description: "Customer mobile app (post-V0); thin native UI over the shared Rust core (ADR-0034); same GraphQL API (/customer/graphql, /public/graphql)."
   mobile-restaurant:
-    technology: "React Native / Expo"
+    technology: "SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust)"
     description: "Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql)."
   mobile-rider:
-    technology: "React Native / Expo"
+    technology: "SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust)"
     description: "Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql)."
   api:
-    technology: "Node + TypeScript (Hono or NestJS), GraphQL"
-    description: "CQRS-light write+read API. Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql)."
+    technology: "Rust — Axum + Tokio + SQLx + async-graphql (BFF over the Crux core)"
+    description: "CQRS-light write+read API (ADR-0034). Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql)."
     realizes:
       - { $ref: 'actors.yaml#/RestaurantAccount' }
       - { $ref: 'actors.yaml#/Restaurant' }
@@ -101,7 +104,7 @@ containers:
     technology: "Managed PostgreSQL"
     description: "Denormalized View_* projection tables fed from the event log; queries read here, never domain_events."
   sync-worker:
-    technology: "Scheduled worker (GitHub Actions cron + Node)"
+    technology: "Scheduled worker (GitHub Actions cron + Rust binary, shared Crux core)"
     description: "Restaurant listing sync (ADR-0020): polls INSEE Sirene + Google Maps and, via the ACL, calls the api's RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed as the owner. Prospection scoring/outreach is a later step."
   bam:
     technology: "Projection worker"
@@ -127,6 +130,7 @@ relationships:
   - { from: web-client, to: api, description: "GraphQL over HTTPS (/customer/graphql, /public/graphql)" }
   - { from: web-restaurant, to: api, description: "GraphQL (/restaurant-account/graphql, /restaurant/graphql)" }
   - { from: web-admin, to: api, description: "GraphQL (/admin/graphql)" }
+  - { from: desktop-restaurant, to: api, description: "GraphQL (/restaurant-account/graphql, /restaurant/graphql) — Tauri shell" }
   - { from: mobile-customer, to: api, description: "GraphQL (/customer/graphql, /public/graphql) — post-V0" }
   - { from: mobile-restaurant, to: api, description: "GraphQL (/restaurant/graphql) — post-V0" }
   - { from: mobile-rider, to: api, description: "GraphQL (/rider/graphql) — post-V0" }
