@@ -2,7 +2,7 @@
 name = "captain-food-codegen"
 version = "0.1.0"
 edition = "2021"
-description = "Captain.Food spec validator + artifact generator (Rust port of tools/codegen — ADR-0034). Full validator (validate.ts §1–§11) + all emitters, byte-identical to the TypeScript codegen. The TypeScript codegen remains the blocking gate until it is retired."
+description = "Captain.Food spec validator + artifact generator (ADR-0034) — the single codegen gate. Full validator (§1–§11) + all emitters. Began as a TypeScript tool (tools/codegen), ported to Rust at parity (byte-identical artifacts + identical validation issue set); the TypeScript codegen has since been retired."
 
 # The decision doc calls the entry `scripts/generate.rs`; here it is a proper Cargo binary named `generate`.
 [[bin]]

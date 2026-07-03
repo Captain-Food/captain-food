@@ -2,25 +2,27 @@
 # Most "gates" are folded into the single codegen validator (`validate`): schema, behaviour-test
 # coverage, observability contracts, and C4 consistency are all checked there. They are exposed as
 # separate targets so the loop reads like the playbook, but they currently delegate to `validate`.
+#
+# The codegen is the Rust tool (tools/codegen-rs, ADR-0034); it needs a local Rust toolchain (`cargo`).
 
-CODEGEN = tools/codegen
 CODEGEN_RS = tools/codegen-rs
 
-.PHONY: typecheck validate-schema test-behaviour test-observability c4-validate validate generate review gate night-loop budget-check budgeted-loop docs c4-export c4-render help rust rust-build rust-test rust-validate rust-generate
+.PHONY: typecheck validate-schema test-behaviour test-observability c4-validate validate generate review gate night-loop budget-check budgeted-loop docs c4-export c4-render help rust rust-build rust-test
 
 help:
 	@echo "targets: validate generate typecheck review gate night-loop budgeted-loop budget-check docs"
 	@echo "         c4-render (Structurizr Lite + docs/ADRs) · c4-export (validate/export DSL)"
 	@echo "         (validate-schema test-behaviour test-observability c4-validate -> all fold into 'validate')"
 	@echo "         budgeted-loop runs the night loop under a 30-min/week budget (.claude/loop-budget.json)"
-	@echo "         rust (build+test+validate+generate/diff) — the Rust codegen port (ADR-0034); needs cargo"
+	@echo "         codegen = tools/codegen-rs (Rust, ADR-0034); needs cargo. 'rust' = build+test alias."
 
+# `typecheck` = the Rust compiler is the type gate (build must succeed).
 typecheck:
-	cd $(CODEGEN) && npm run typecheck
+	cd $(CODEGEN_RS) && cargo build
 
-# The codegen validator is the single source of truth for these gates.
+# The codegen validator is the single source of truth for these gates (validate.ts §1–§11 in Rust).
 validate-schema:
-	cd $(CODEGEN) && npm run validate
+	cargo run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --check --specs specs
 
 test-behaviour: validate-schema      ## behaviour-test coverage is enforced inside `validate`
 test-observability: validate-schema  ## observability contracts are validated inside `validate`
@@ -28,22 +30,17 @@ c4-validate: validate-schema         ## C4 consistency is validated inside `vali
 
 validate: typecheck validate-schema
 
+# Generate every artifact from the specs, then fail if the result drifts from what's committed.
 generate:
-	cd $(CODEGEN) && npm run generate
+	cargo run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --specs specs
+	@git diff --quiet --ignore-cr-at-eol specs || { echo "generate: generated artifacts drifted from the specs — commit the regenerated files."; git --no-pager diff --ignore-cr-at-eol --stat specs; exit 1; }
 
-# --- Rust codegen (ADR-0034) — being ported to parity; run these locally (needs a Rust toolchain). ---
+# --- Rust codegen build/test aliases (ADR-0034). ---
 rust-build:
 	cd $(CODEGEN_RS) && cargo build
 rust-test:
 	cd $(CODEGEN_RS) && cargo test
-# The Rust gate mirrors the TS one: validate (referential integrity, more gates as they land) …
-rust-validate:
-	cargo run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --check --specs specs
-# … then generate the ported artifacts and fail if they drift from what's committed (spec↔generation).
-rust-generate:
-	cargo run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --specs specs
-	@git diff --quiet --ignore-cr-at-eol specs || { echo "rust-generate: generated artifacts drifted from the specs — commit the regenerated files."; git --no-pager diff --ignore-cr-at-eol --stat specs; exit 1; }
-rust: rust-build rust-test rust-validate rust-generate
+rust: rust-build rust-test validate generate
 	@echo "rust: build + test + validate + generate(+diff) OK"
 
 # Independent review: regenerate, then confirm the generated artifacts are in step with the DSL.
@@ -77,19 +74,20 @@ budgeted-loop:
 docs: generate
 	@echo "open specs/generated/documentation.generated.html"
 
-# Canonical generated artifacts live in specs/generated/ (committed). $(CODEGEN)/out is scratch.
+# Canonical generated artifacts live in specs/generated/ (committed). $(SCRATCH) is ephemeral scratch.
 DSL = specs/generated/c4.generated.dsl
+SCRATCH = tools/codegen-rs/out
 
 # Parse-VALIDATE + export the generated Structurizr DSL with the real Structurizr toolchain (catches any
 # emitter syntax drift our brace check can't). Uses structurizr-cli if installed, else the Docker image.
-# The .mmd exports go to the scratch $(CODEGEN)/out (never into specs/generated, which must stay clean).
+# The .mmd exports go to the scratch $(SCRATCH) (never into specs/generated, which must stay clean).
 # Gracefully skips when neither is available — the portable DSL still lives at $(DSL).
 c4-export: generate
-	@mkdir -p $(CODEGEN)/out && cp $(DSL) $(CODEGEN)/out/c4.generated.dsl
+	@mkdir -p $(SCRATCH) && cp $(DSL) $(SCRATCH)/c4.generated.dsl
 	@if command -v structurizr-cli >/dev/null 2>&1; then \
-		structurizr-cli export -workspace $(CODEGEN)/out/c4.generated.dsl -format mermaid -output $(CODEGEN)/out; \
+		structurizr-cli export -workspace $(SCRATCH)/c4.generated.dsl -format mermaid -output $(SCRATCH); \
 	elif command -v docker >/dev/null 2>&1; then \
-		MSYS_NO_PATHCONV=1 docker run --rm -v "$$(pwd -W 2>/dev/null || pwd)/$(CODEGEN)/out:/work" structurizr/structurizr export -workspace /work/c4.generated.dsl -format mermaid -output /work; \
+		MSYS_NO_PATHCONV=1 docker run --rm -v "$$(pwd -W 2>/dev/null || pwd)/$(SCRATCH):/work" structurizr/structurizr export -workspace /work/c4.generated.dsl -format mermaid -output /work; \
 	else \
 		echo "c4-export: no structurizr-cli or Docker — skipped. DSL is at $(DSL)"; \
 	fi

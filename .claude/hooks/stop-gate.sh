@@ -7,13 +7,18 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT/tools/codegen" 2>/dev/null || { echo "stop-gate: tools/codegen not found" >&2; exit 2; }
+# The codegen is the Rust tool (ADR-0034); make sure cargo is reachable in the hook's shell.
+export PATH="$HOME/.cargo/bin:$PATH"
+command -v cargo >/dev/null 2>&1 || { echo "stop-gate: cargo not found on PATH — install the Rust toolchain (rustup)." >&2; exit 2; }
+MANIFEST="$ROOT/tools/codegen-rs/Cargo.toml"
+[ -f "$MANIFEST" ] || { echo "stop-gate: tools/codegen-rs not found" >&2; exit 2; }
 
 fail=0
 step() { echo "→ $*"; "$@" || fail=1; }
 
-step npm run --silent typecheck
-step npm run --silent validate   # schema + behaviour coverage + observability + C4 (cli exits 1 on errors)
+# `cargo run --check` builds first (the compiler is the type gate) then runs the full validator
+# (§1–§11: schema + actor wiring + behaviour/rules coverage + observability + C4); exits 1 on errors.
+step cargo run --quiet --manifest-path "$MANIFEST" -- --check --specs "$ROOT/specs"
 
 # Optional app-level gates — only if a root package.json defines them (no-op until apps/ exists).
 if [ -f "$ROOT/package.json" ]; then

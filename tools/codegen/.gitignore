@@ -1,5 +1,0 @@
-node_modules/
-dist/
-# Ephemeral build scratch only (Structurizr .mmd exports, local experiments). The committed,
-# canonical generated artifacts now live in specs/generated/ (tracked; CI verifies they match the specs).
-out/

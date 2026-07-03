@@ -1,12 +1,12 @@
-//! Captain.Food codegen — Rust port (ADR-0034).
+//! Captain.Food codegen (ADR-0034) — the single spec gate.
 //!
-//! Faithful re-implementation of `tools/codegen` (TypeScript). It loads every `specs/**` DSL file and runs
-//! the full validator (validate.ts §1–§11: referential integrity, actor wiring, api↔model, views, stories,
-//! tests, rules, translations, screens, observability, C4) and every generator (translations, views SQL +
-//! the `database.md` §2 injection, C4 Structurizr/Mermaid, GraphQL SDL, and the Markdown + HTML docs). All
-//! 8 generated artifacts are byte-identical to the TypeScript codegen, and the validator emits the same
-//! (rule, location) issue set — both verified in CI. Until the TypeScript codegen is retired, it remains
-//! the blocking gate; the Rust `rust-codegen` CI job runs in parallel (validate + generate + diff).
+//! It loads every `specs/**` DSL file and runs the full validator (§1–§11: referential integrity, actor
+//! wiring, api↔model, views, stories, tests, rules, translations, screens, observability, C4) and every
+//! generator (translations, views SQL + the `database.md` §2 injection, C4 Structurizr/Mermaid, GraphQL
+//! SDL, and the Markdown + HTML docs). It began as a TypeScript tool (`tools/codegen`) and was ported here
+//! at parity — all 8 generated artifacts byte-identical and the same (rule, location) validation issue set
+//! (verified by a differential harness) — after which the TypeScript codegen was retired. CI (`codegen`
+//! job) builds + tests, validates, regenerates and fails on any drift.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;

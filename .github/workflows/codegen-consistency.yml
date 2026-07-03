@@ -2,8 +2,11 @@ name: codegen-consistency
 
 # Enforces the operating-model rule "specs/*.yaml are the source of truth; everything else is
 # generated". On every push/PR we validate the DSL, regenerate every artifact, and fail if the result
-# differs from what was committed — i.e. someone changed the specs (or an emitter) without running
-# `npm run generate`. This guarantees the committed generated artifacts never drift from the specs.
+# differs from what was committed — i.e. someone changed the specs (or an emitter) without regenerating.
+# This guarantees the committed generated artifacts never drift from the specs.
+#
+# The gate is the Rust codegen (tools/codegen-rs, ADR-0034). The earlier TypeScript codegen reached full
+# parity (byte-identical artifacts + identical validation issue set) and has been retired.
 on:
   push:
     branches: [main]
@@ -13,40 +16,31 @@ permissions:
   contents: read
 
 jobs:
-  consistency:
+  codegen:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: tools/codegen/package-lock.json
+      - name: Build the codegen
+        working-directory: tools/codegen-rs
+        run: cargo build --verbose
 
-      - name: Install codegen dependencies
-        working-directory: tools/codegen
-        run: npm ci
+      - name: Unit tests
+        working-directory: tools/codegen-rs
+        run: cargo test --verbose
 
-      - name: Typecheck the generator
-        working-directory: tools/codegen
-        run: npm run typecheck
+      - name: Validate the specs (full validator §1–§11 — the blocking gate)
+        run: cargo run --manifest-path tools/codegen-rs/Cargo.toml -- --check --specs specs
 
-      - name: Validate the specs (the single blocking gate)
-        working-directory: tools/codegen
-        run: npm run validate
-
-      - name: Regenerate every artifact from the specs
-        working-directory: tools/codegen
-        run: npm run generate
-
-      - name: Fail if generated artifacts are out of date
+      - name: Regenerate every artifact + fail on spec↔generation drift
         run: |
-          # EOL-tolerant: the repo is authored on Windows (CRLF) while CI runs on Linux (LF), and the
-          # generator's output inherits its line endings from the source. Only genuine content drift
-          # should fail the build, never a CRLF-vs-LF difference — hence --ignore-cr-at-eol.
+          # Regenerate, then fail if the result differs from what's committed. EOL-tolerant: the repo is
+          # authored on Windows (CRLF) while CI runs on Linux (LF), and the generator's output inherits its
+          # line endings from the source — only genuine content drift should fail, never CRLF-vs-LF.
+          cargo run --manifest-path tools/codegen-rs/Cargo.toml -- --specs specs
           if ! git diff --quiet --ignore-cr-at-eol; then
-            echo "::error::Generated artifacts are stale — run 'npm run generate' in tools/codegen and commit the result so the repo matches specs/."
+            echo "::error::Generated artifacts are stale — run 'make generate' and commit the result so the repo matches specs/."
             git --no-pager diff --ignore-cr-at-eol --stat
             git --no-pager diff --ignore-cr-at-eol
             exit 1
@@ -54,36 +48,8 @@ jobs:
           # Catch brand-new generated files that were never committed.
           untracked="$(git ls-files --others --exclude-standard)"
           if [ -n "$untracked" ]; then
-            echo "::error::New generated files are not committed — run 'npm run generate' and commit:"
+            echo "::error::New generated files are not committed — run 'make generate' and commit:"
             echo "$untracked"
             exit 1
           fi
           echo "✓ generated artifacts match the specs"
-
-  # The Rust codegen (ADR-0034) is being ported incrementally; CI is its compiler/verifier since there is
-  # no local Rust toolchain. This job builds + tests + runs it against the specs. The `consistency` job
-  # above remains the blocking spec gate until the Rust tool reaches parity.
-  rust-codegen:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build the Rust codegen
-        working-directory: tools/codegen-rs
-        run: cargo build --verbose
-      - name: Unit tests
-        working-directory: tools/codegen-rs
-        run: cargo test --verbose
-      - name: Validate the specs (full validator §1–§11, parity with the TS gate)
-        run: cargo run --manifest-path tools/codegen-rs/Cargo.toml -- --check --specs specs
-      - name: Regenerate the ported artifacts + fail on spec↔generation drift
-        run: |
-          # Same guarantee as the TypeScript `consistency` job, for the artifacts the Rust codegen has
-          # ported so far: regenerate, then fail if the result differs from what's committed (EOL-tolerant:
-          # repo is CRLF, CI is LF). As more emitters land here, this covers more of specs/generated.
-          cargo run --manifest-path tools/codegen-rs/Cargo.toml -- --specs specs
-          if ! git diff --quiet --ignore-cr-at-eol; then
-            echo "::error::Rust codegen output drifted from the committed specs/generated — run 'make rust-generate' and commit."
-            git --no-pager diff --ignore-cr-at-eol --stat
-            exit 1
-          fi

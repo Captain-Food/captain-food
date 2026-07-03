@@ -4,3 +4,5 @@
 # Rust codegen build artifacts (ADR-0034)
 tools/codegen-rs/target/
 target/
+# Ephemeral codegen scratch (e.g. `make c4-export` .mmd output)
+tools/codegen-rs/out/
