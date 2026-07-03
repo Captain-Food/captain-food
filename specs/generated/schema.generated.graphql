@@ -19,6 +19,7 @@ scalar CustomerId
 scalar CartId
 scalar CartLineId
 scalar CorrelationId
+scalar CauseId
 scalar DeliveryJobId
 scalar RiderId
 scalar PaymentIntentId

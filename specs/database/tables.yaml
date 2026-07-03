@@ -1,9 +1,10 @@
 version: 1
 description: >
   Real (non-view) tables of the Captain.Food store — the append-only event log and its retention policy.
-  Their DDL is GENERATED from here (ADR-0037); do not hand-write it. Column types are SQL primitives:
-  this is infrastructure, deliberately decoupled from the domain scalars. The View_* read models live in
-  views.yaml (they are VIEWS over domain_events, not tables — ADR-0035).
+  Their DDL is GENERATED from here (ADR-0037); do not hand-write it. Column `type` is either a SQL
+  primitive (`text`/`uuid`/`bigint`/`integer`/`jsonb`/`timestamptz`/`interval`/…) or a `$ref` into a
+  scalars.yaml scalar (mapped to its Postgres type). The View_* read models live in views.yaml (they are
+  VIEWS over domain_events, not tables — ADR-0035).
 
 domain_events:
   description: >
@@ -16,8 +17,8 @@ domain_events:
     version:        { type: integer,                               note: "0-based event number within the stream" }
     user_id:        { type: uuid }
     user_type:      { type: integer }
-    correlation_id: { $ref: ../scalars.yaml#/CorrelationId }
-    cause_id:       { type: uuid,        nullable: true }
+    correlation_id: { type: { $ref: 'scalars.yaml#/CorrelationId' } }
+    cause_id:       { type: { $ref: 'scalars.yaml#/CauseId' },         nullable: true }
     event_type:     { type: text,                                  note: "$et-<type>" }
     payload:        { type: jsonb }
     metadata:       { type: jsonb,       nullable: true }

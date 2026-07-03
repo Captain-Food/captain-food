@@ -1720,11 +1720,23 @@ fn emit_schema_sql(model: &Model, specs: &std::path::Path) -> String {
                     Some(s) => s,
                     None => continue,
                 };
-                let cty = cv.get("type").and_then(|t| t.as_str()).unwrap_or_else(|| {
+                // `type` is either a SQL-primitive string (→ table_sql_type) or a `$ref` into a
+                // scalars.yaml scalar (→ its Postgres type via the shared sql_type mapping).
+                let ty_node = cv.get("type").unwrap_or_else(|| {
                     panic!("database/tables.yaml#/{}/columns/{}: missing type", name, cname)
                 });
+                let sqlty: String = if let Some(s) = ty_node.as_str() {
+                    table_sql_type(s).to_string()
+                } else if let Some(rf) = ty_node.get("$ref").and_then(|x| x.as_str()) {
+                    let scalar = ref_name(rf).unwrap_or_else(|| {
+                        panic!("database/tables.yaml#/{}/columns/{}: malformed $ref '{}'", name, cname, rf)
+                    });
+                    sql_type(&scalar, model)
+                } else {
+                    panic!("database/tables.yaml#/{}/columns/{}: type must be a SQL primitive or a $ref", name, cname)
+                };
                 let flag = |f: &str| cv.get(f).and_then(|x| x.as_bool()) == Some(true);
-                let mut line = format!("  {} {}", cname, table_sql_type(cty));
+                let mut line = format!("  {} {}", cname, sqlty);
                 if flag("identity") {
                     line.push_str(" GENERATED ALWAYS AS IDENTITY");
                 }

@@ -61,6 +61,13 @@ CorrelationId:
     Correlates a command with the events/state it produces. Returned by every mutation payload so the
     client can track the outcome via the read side (matches domain_events.correlation_id).
 
+CauseId:
+  type: string
+  format: uuid
+  description: >
+    Causation id: the id of the message/event that directly caused this one (matches
+    domain_events.cause_id). Threads a cause→effect chain through the log; null for a root command.
+
 DeliveryJobId:
   type: string
   format: uuid

@@ -48,6 +48,10 @@ pub struct CartLineId(pub uuid::Uuid);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CorrelationId(pub uuid::Uuid);
 
+/// Causation id: the id of the message/event that directly caused this one (matches domain_events.cause_id). Threads a cause→effect chain through the log; null for a root command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CauseId(pub uuid::Uuid);
+
 /// Identifies one DeliveryJob (a single delivery of an order from restaurant to customer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DeliveryJobId(pub uuid::Uuid);
