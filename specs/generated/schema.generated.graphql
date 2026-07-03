@@ -341,6 +341,17 @@ type RestaurantAccount {
   createdAt: DateTime!
 }
 
+type ProductItemOption {
+  id: OptionId!
+  ref: ExternalReference
+  optionListId: OptionListId!
+  name: OptionName!
+  price: Money!
+  default: Boolean!
+  availability: CatalogItemAvailability!
+  stock: Stock
+}
+
 type CartLineItem {
   cartLineId: CartLineId!
   offerId: OfferId!
@@ -1183,10 +1194,10 @@ input OptionListInput {
   minSelections: Int!
   maxSelections: Int
   multipleSelection: Boolean!
-  options: [OptionInput!]!
+  options: [ProductItemOptionInput!]!
 }
 
-input OptionInput {
+input ProductItemOptionInput {
   id: OptionId!
   ref: ExternalReference
   optionListId: OptionListId!

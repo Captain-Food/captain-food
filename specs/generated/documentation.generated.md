@@ -2432,21 +2432,21 @@ A purchasable offer of a product (HubRise: SKU).
 | <a id="entity-optionlist--minselections"></a>`minSelections` | `integer` | ✅ |  |
 | <a id="entity-optionlist--maxselections"></a>`maxSelections` | `integer` | ⬜ | Null means unlimited. |
 | <a id="entity-optionlist--multipleselection"></a>`multipleSelection` | `boolean` | ✅ | Whether the same option can be selected more than once. |
-| <a id="entity-optionlist--options"></a>`options` | [[📦 `Option`](#entity-option)] | ✅ |  |
+| <a id="entity-optionlist--options"></a>`options` | [[📦 `ProductItemOption`](#entity-productitemoption)] | ✅ |  |
 
-<a id="entity-option"></a>
-#### 📦 Entity: `Option`
+<a id="entity-productitemoption"></a>
+#### 📦 Entity: `ProductItemOption`
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| <a id="entity-option--id"></a>`id` | [🔤 `OptionId`](#scalar-optionid) | ✅ |  |
-| <a id="entity-option--ref"></a>`ref` | [🔤 `ExternalReference`](#scalar-externalreference) | ⬜ |  |
-| <a id="entity-option--optionlistid"></a>`optionListId` | [🔤 `OptionListId`](#scalar-optionlistid) | ✅ |  |
-| <a id="entity-option--name"></a>`name` | [🔤 `OptionName`](#scalar-optionname) | ✅ |  |
-| <a id="entity-option--price"></a>`price` | [📦 `Money`](#entity-money) | ✅ |  |
-| <a id="entity-option--default"></a>`default` | `boolean` | ✅ |  |
-| <a id="entity-option--availability"></a>`availability` | [🔤 `CatalogItemAvailability`](#scalar-catalogitemavailability) | ✅ |  |
-| <a id="entity-option--stock"></a>`stock` | [📦 `Stock`](#entity-stock) | ⬜ |  |
+| <a id="entity-productitemoption--id"></a>`id` | [🔤 `OptionId`](#scalar-optionid) | ✅ |  |
+| <a id="entity-productitemoption--ref"></a>`ref` | [🔤 `ExternalReference`](#scalar-externalreference) | ⬜ |  |
+| <a id="entity-productitemoption--optionlistid"></a>`optionListId` | [🔤 `OptionListId`](#scalar-optionlistid) | ✅ |  |
+| <a id="entity-productitemoption--name"></a>`name` | [🔤 `OptionName`](#scalar-optionname) | ✅ |  |
+| <a id="entity-productitemoption--price"></a>`price` | [📦 `Money`](#entity-money) | ✅ |  |
+| <a id="entity-productitemoption--default"></a>`default` | `boolean` | ✅ |  |
+| <a id="entity-productitemoption--availability"></a>`availability` | [🔤 `CatalogItemAvailability`](#scalar-catalogitemavailability) | ✅ |  |
+| <a id="entity-productitemoption--stock"></a>`stock` | [📦 `Stock`](#entity-stock) | ⬜ |  |
 
 ### 🔤 Scalars _(10)_
 

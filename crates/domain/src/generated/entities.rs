@@ -49,8 +49,8 @@ pub struct Tip {
 #[serde(rename_all = "camelCase")]
 pub struct Courier {
     pub display_name: String,
-    pub phone: ::core::option::Option<PhoneNumber>,
-    pub rider_id: ::core::option::Option<RiderId>,
+    pub phone: Option<PhoneNumber>,
+    pub rider_id: Option<RiderId>,
 }
 
 /// Per-service-mode VAT, mirroring HubRise product tax_rate.
@@ -58,8 +58,8 @@ pub struct Courier {
 #[serde(rename_all = "camelCase")]
 pub struct TaxRate {
     pub delivery: TaxRatePercent,
-    pub collection: ::core::option::Option<TaxRatePercent>,
-    pub eat_in: ::core::option::Option<TaxRatePercent>,
+    pub collection: Option<TaxRatePercent>,
+    pub eat_in: Option<TaxRatePercent>,
 }
 
 /// Inventory of a offer/option. status is DERIVED from quantity and lowStockThreshold (see scalars.yaml#/StockStatus).
@@ -67,16 +67,16 @@ pub struct TaxRate {
 #[serde(rename_all = "camelCase")]
 pub struct Stock {
     pub quantity: Quantity,
-    pub low_stock_threshold: ::core::option::Option<Quantity>,
+    pub low_stock_threshold: Option<Quantity>,
     pub status: StockStatus,
-    pub expires_at: ::core::option::Option<String>,
+    pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Address {
     pub line1: AddressLine,
-    pub line2: ::core::option::Option<AddressLine>,
+    pub line2: Option<AddressLine>,
     pub postal_code: PostalCode,
     pub city: CityName,
     pub country: CountryCode,
@@ -95,8 +95,8 @@ pub struct OpeningHoursSlot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestaurantContact {
-    pub email: ::core::option::Option<EmailAddress>,
-    pub phone: ::core::option::Option<PhoneNumber>,
+    pub email: Option<EmailAddress>,
+    pub phone: Option<PhoneNumber>,
 }
 
 /// WGS84 geographic coordinates of the restaurant location (e.g. from Google Maps, for map display & distance).
@@ -121,14 +121,14 @@ pub struct ExternalIdentifier {
 pub struct Prospect {
     pub restaurant_id: RestaurantId,
     pub pipeline_status: ProspectPipelineStatus,
-    pub last_contacted_at: ::core::option::Option<String>,
+    pub last_contacted_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomerContact {
     pub display_name: CustomerDisplayName,
-    pub email: ::core::option::Option<EmailAddress>,
+    pub email: Option<EmailAddress>,
     pub phone: PhoneNumber,
 }
 
@@ -137,12 +137,12 @@ pub struct CustomerContact {
 #[serde(rename_all = "camelCase")]
 pub struct RestaurantAccount {
     pub id: RestaurantAccountId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub legal_name: RestaurantLegalName,
     pub contact: RestaurantContact,
     pub default_currency: CurrencyCode,
     pub default_tax_rate: TaxRate,
-    pub timezone: ::core::option::Option<TimeZone>,
+    pub timezone: Option<TimeZone>,
     pub created_by: UserId,
     pub created_at: String,
 }
@@ -152,27 +152,27 @@ pub struct RestaurantAccount {
 #[serde(rename_all = "camelCase")]
 pub struct Restaurant {
     pub id: RestaurantId,
-    pub account_id: ::core::option::Option<RestaurantAccountId>,
+    pub account_id: Option<RestaurantAccountId>,
     pub listing_status: RestaurantListingStatus,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     #[serde(default)]
     pub external_identifiers: Vec<ExternalIdentifier>,
-    pub google_place_id: ::core::option::Option<GooglePlaceId>,
+    pub google_place_id: Option<GooglePlaceId>,
     pub slug: Slug,
     pub display_name: RestaurantDisplayName,
-    pub contact: ::core::option::Option<RestaurantContact>,
-    pub website: ::core::option::Option<WebUrl>,
+    pub contact: Option<RestaurantContact>,
+    pub website: Option<WebUrl>,
     #[serde(default)]
     pub tags: Vec<Tag>,
-    pub margin_rate: ::core::option::Option<MarginPercent>,
-    pub cuisine_category: ::core::option::Option<CuisineCategory>,
-    pub uber_prices_opt_in: ::core::option::Option<bool>,
+    pub margin_rate: Option<MarginPercent>,
+    pub cuisine_category: Option<CuisineCategory>,
+    pub uber_prices_opt_in: Option<bool>,
     pub address: Address,
-    pub location: ::core::option::Option<GeoPoint>,
+    pub location: Option<GeoPoint>,
     pub status: RestaurantStatus,
     pub order_acceptance: OrderAcceptanceMode,
-    pub timezone: ::core::option::Option<TimeZone>,
-    pub preparation_time_minutes: ::core::option::Option<i64>,
+    pub timezone: Option<TimeZone>,
+    pub preparation_time_minutes: Option<i64>,
     #[serde(default)]
     pub opening_hours: Vec<OpeningHoursSlot>,
     pub created_by: UserId,
@@ -184,7 +184,7 @@ pub struct Restaurant {
 #[serde(rename_all = "camelCase")]
 pub struct Catalog {
     pub id: CatalogId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub restaurant_id: RestaurantId,
     pub name: CatalogName,
 }
@@ -194,11 +194,11 @@ pub struct Catalog {
 #[serde(rename_all = "camelCase")]
 pub struct CatalogCategory {
     pub id: ProductCategoryId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub catalog_id: CatalogId,
-    pub parent_ref: ::core::option::Option<ExternalReference>,
+    pub parent_ref: Option<ExternalReference>,
     pub name: CatalogCategoryName,
-    pub description: ::core::option::Option<ProductDescription>,
+    pub description: Option<ProductDescription>,
     #[serde(default)]
     pub tags: Vec<Tag>,
     #[serde(default)]
@@ -210,12 +210,12 @@ pub struct CatalogCategory {
 #[serde(rename_all = "camelCase")]
 pub struct Product {
     pub id: ProductId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub catalog_id: CatalogId,
     pub restaurant_id: RestaurantId,
-    pub category_ref: ::core::option::Option<ExternalReference>,
+    pub category_ref: Option<ExternalReference>,
     pub name: ProductName,
-    pub description: ::core::option::Option<ProductDescription>,
+    pub description: Option<ProductDescription>,
     #[serde(default)]
     pub tags: Vec<Tag>,
     #[serde(default)]
@@ -229,12 +229,12 @@ pub struct Product {
 #[serde(rename_all = "camelCase")]
 pub struct Offer {
     pub id: OfferId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub product_id: ProductId,
     pub name: OfferName,
     pub price: Money,
     pub availability: CatalogItemAvailability,
-    pub stock: ::core::option::Option<Stock>,
+    pub stock: Option<Stock>,
     #[serde(default)]
     pub option_list_ids: Vec<OptionListId>,
 }
@@ -243,25 +243,25 @@ pub struct Offer {
 #[serde(rename_all = "camelCase")]
 pub struct OptionList {
     pub id: OptionListId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub name: OptionListName,
     pub min_selections: i64,
-    pub max_selections: ::core::option::Option<i64>,
+    pub max_selections: Option<i64>,
     pub multiple_selection: bool,
-    pub options: Vec<Option>,
+    pub options: Vec<ProductItemOption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Option {
+pub struct ProductItemOption {
     pub id: OptionId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub option_list_id: OptionListId,
     pub name: OptionName,
     pub price: Money,
     pub r#default: bool,
     pub availability: CatalogItemAvailability,
-    pub stock: ::core::option::Option<Stock>,
+    pub stock: Option<Stock>,
 }
 
 /// A line stored in a cart: the customer's selection by id (no prices stored).
@@ -281,7 +281,7 @@ pub struct CartLineItem {
 pub struct Cart {
     pub id: CartId,
     pub restaurant_id: RestaurantId,
-    pub customer_id: ::core::option::Option<CustomerId>,
+    pub customer_id: Option<CustomerId>,
     pub status: CartStatus,
     pub lines: Vec<CartLineItem>,
 }
@@ -291,7 +291,7 @@ pub struct Cart {
 #[serde(rename_all = "camelCase")]
 pub struct SelectedOption {
     pub option_id: OptionId,
-    pub option_list_id: ::core::option::Option<OptionListId>,
+    pub option_list_id: Option<OptionListId>,
     pub name: OptionName,
     pub price: Money,
 }
@@ -300,9 +300,9 @@ pub struct SelectedOption {
 #[serde(rename_all = "camelCase")]
 pub struct OrderLineItem {
     pub offer_id: OfferId,
-    pub product_id: ::core::option::Option<ProductId>,
+    pub product_id: Option<ProductId>,
     pub name: ProductName,
-    pub offer_name: ::core::option::Option<OfferName>,
+    pub offer_name: Option<OfferName>,
     pub quantity: i64,
     pub unit_price: Money,
     #[serde(default)]
@@ -314,14 +314,14 @@ pub struct OrderLineItem {
 #[serde(rename_all = "camelCase")]
 pub struct Order {
     pub id: OrderId,
-    pub r#ref: ::core::option::Option<ExternalReference>,
+    pub r#ref: Option<ExternalReference>,
     pub restaurant_id: RestaurantId,
-    pub customer_id: ::core::option::Option<CustomerId>,
+    pub customer_id: Option<CustomerId>,
     pub customer_contact: CustomerContact,
     pub service_type: ServiceType,
-    pub delivery_address: ::core::option::Option<Address>,
+    pub delivery_address: Option<Address>,
     pub items: Vec<OrderLineItem>,
     pub total_amount: Money,
     pub status: OrderStatus,
-    pub note: ::core::option::Option<OrderNote>,
+    pub note: Option<OrderNote>,
 }

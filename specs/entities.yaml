@@ -522,11 +522,11 @@ OptionList:
     options:
       type: array
       items:
-        $ref: '#/Option'
+        $ref: '#/ProductItemOption'
       minItems: 1
   required: [id, name, minSelections, multipleSelection, options]
 
-Option:
+ProductItemOption:
   type: object
   properties:
     id:

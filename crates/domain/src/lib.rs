@@ -20,12 +20,13 @@ mod scalar_serde_tests {
     use crate::generated::scalars::{OrderStatus, UserType};
 
     #[test]
-    fn enums_roundtrip_to_screaming_snake() {
-        assert_eq!(serde_json::to_string(&UserType::RestaurantAccount).unwrap(), "\"RESTAURANT_ACCOUNT\"");
-        assert_eq!(serde_json::to_string(&OrderStatus::OutForDelivery).unwrap(), "\"OUT_FOR_DELIVERY\"");
+    fn enums_serialize_verbatim_to_spec_values() {
+        // Variants are the spec values verbatim (no serde rename) — the identifier IS the wire value.
+        assert_eq!(serde_json::to_string(&UserType::RESTAURANT_ACCOUNT).unwrap(), "\"RESTAURANT_ACCOUNT\"");
+        assert_eq!(serde_json::to_string(&OrderStatus::OUT_FOR_DELIVERY).unwrap(), "\"OUT_FOR_DELIVERY\"");
         assert_eq!(
             serde_json::from_str::<OrderStatus>("\"CANCELLED_BY_CUSTOMER\"").unwrap(),
-            OrderStatus::CancelledByCustomer
+            OrderStatus::CANCELLED_BY_CUSTOMER
         );
     }
 }

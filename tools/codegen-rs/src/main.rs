@@ -28,7 +28,7 @@ const SOURCE_FILES: &[&str] = &[
     "rules.yaml",
     "tests.yaml",
     "translations.yaml",
-    "customer_screens.yaml",
+    "screens/customer_screens.yaml",
     "observability.yaml",
     "architecture/c4-l2.yaml",
     "architecture/c4-l3.yaml",
@@ -1226,9 +1226,9 @@ fn validate(model: &Model) -> Report {
         }
     }
 
-    // --- 11. Customer screens (customer_screens.yaml): the SDUI spec is bound to the API --------
+    // --- 11. Customer screens (screens/customer_screens.yaml): the SDUI spec is bound to the API --------
     {
-        let cs = model.defs.get("customer_screens.yaml");
+        let cs = model.defs.get("screens/customer_screens.yaml");
         let resolvers = cs.and_then(|v| v.get("resolvers")).and_then(|x| x.as_mapping());
         let actions = cs.and_then(|v| v.get("actions")).and_then(|x| x.as_mapping());
         let query_names: BTreeSet<&str> = api.queries.iter().map(|q| q.name.as_str()).collect();
@@ -1254,7 +1254,7 @@ fn validate(model: &Model) -> Report {
                         format!("resolver '{}' must declare a `query` ($ref into api.yaml) or a `gap`.", name),
                     )),
                     Some(rf) => {
-                        if ref_target_file(rf, "customer_screens.yaml").as_deref() != Some("api.yaml")
+                        if ref_target_file(rf, "screens/customer_screens.yaml").as_deref() != Some("api.yaml")
                             || !rf.contains("/queries/")
                             || !query_names.contains(op_name(rf).as_str())
                         {
@@ -1280,7 +1280,7 @@ fn validate(model: &Model) -> Report {
                     Some(r) => r,
                     None => continue,
                 };
-                if ref_target_file(rf, "customer_screens.yaml").as_deref() != Some("api.yaml")
+                if ref_target_file(rf, "screens/customer_screens.yaml").as_deref() != Some("api.yaml")
                     || !rf.contains("/mutations/")
                     || !mutation_names.contains(op_name(rf).as_str())
                 {
@@ -1310,6 +1310,31 @@ fn validate(model: &Model) -> Report {
                             ));
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // --- 12. Rust codegen naming: a generated type name must not collide with a Rust reserved/prelude
+    // type (the codegen emits it verbatim as a Rust `struct`/`enum`). Resolve at the root — rename it in
+    // the spec — rather than working around it in the generator (ADR-0035 naming policy).
+    {
+        let reserved: BTreeSet<&str> = [
+            "Option", "Result", "Box", "Vec", "String", "Some", "None", "Ok", "Err", "Copy", "Clone",
+            "Debug", "Default", "Drop", "Eq", "Ord", "PartialEq", "PartialOrd", "Hash", "Iterator", "Send",
+            "Sync", "Sized", "From", "Into", "TryFrom", "TryInto", "ToString", "AsRef", "AsMut", "Fn",
+            "FnMut", "FnOnce", "Self", "Cow", "Rc", "Arc", "Cell", "RefCell", "Duration", "Ordering",
+        ]
+        .into_iter()
+        .collect();
+        for file in ["scalars.yaml", "entities.yaml"] {
+            for name in map_keys(model.defs.get(file)) {
+                if reserved.contains(name.as_str()) {
+                    issues.push(err(
+                        "rust-reserved-typename",
+                        format!("{}/{}", file, name),
+                        format!("type name '{}' collides with a Rust prelude/reserved type — rename it in the spec (generated Rust cannot use it as a struct/enum).", name),
+                    ));
                 }
             }
         }
@@ -3345,12 +3370,12 @@ fn emit_documentation(model: &Model) -> String {
     };
 
     // SDUI screens + translations (reuse the C4/HTML approach)
-    let sf = model.defs.get("customer_screens.yaml");
+    let sf = model.defs.get("screens/customer_screens.yaml");
     let resolvers = sf.and_then(|v| v.get("resolvers")).and_then(|v| v.as_mapping());
     let action_defs = sf.and_then(|v| v.get("actions")).and_then(|v| v.as_mapping());
     let tr_defs = model.defs.get("translations.yaml").and_then(|v| v.as_mapping());
     let cellf = |s: &str| s.replace('|', "\\|");
-    let tr_en = |rf: &str| -> String { resolve_ref(model, rf, "customer_screens.yaml").and_then(|t| t.get("messages")).and_then(|m| m.get("en")).and_then(|x| x.as_str()).map(|s| s.to_string()).unwrap_or_else(|| rf.rsplit('/').next().unwrap_or(rf).to_string()) };
+    let tr_en = |rf: &str| -> String { resolve_ref(model, rf, "screens/customer_screens.yaml").and_then(|t| t.get("messages")).and_then(|m| m.get("en")).and_then(|x| x.as_str()).map(|s| s.to_string()).unwrap_or_else(|| rf.rsplit('/').next().unwrap_or(rf).to_string()) };
     let t_text = |v: &Value| -> String { if let Some(rf) = v.get("$ref").and_then(|x| x.as_str()) { tr_en(rf) } else if let Some(s) = v.as_str() { s.to_string() } else { String::new() } };
     let tr_rows: Vec<Vec<String>> = tr_defs.map(|m| m.iter().filter_map(|(k, t)| k.as_str().map(|key| { let params = t.get("params").and_then(|x| x.as_mapping()).map(|pm| pm.iter().filter_map(|(pk, _)| pk.as_str().map(|p| format!("`{}`", p))).collect::<Vec<_>>().join(", ")).unwrap_or_default(); let params = if params.is_empty() { "—".to_string() } else { params }; vec![format!("{}`{}`", id_tag(&danchor("translation", key)), key), params, cellf(t.get("messages").and_then(|mm| mm.get("en")).and_then(|x| x.as_str()).unwrap_or("")), cellf(t.get("messages").and_then(|mm| mm.get("fr")).and_then(|x| x.as_str()).unwrap_or(""))] })).collect()).unwrap_or_default();
     let translations_section = md_table(&["Key", "Params", "🇬🇧 en", "🇫🇷 fr"], &tr_rows);
@@ -3911,7 +3936,7 @@ fn emit_documentation_html(model: &Model) -> String {
         h_table(&["Component", "Instrumented", "Description", "Binds"], &comp_rows));
 
     // 13. Interactive map data
-    let sf = model.defs.get("customer_screens.yaml");
+    let sf = model.defs.get("screens/customer_screens.yaml");
     let l2m = |k: &str| l2.and_then(|v| v.get(k));
     let contexts_j: Vec<serde_json::Value> = l2m("boundedContexts").and_then(|v| v.as_mapping()).map(|m| m.iter().filter_map(|(k, bc)| k.as_str().map(|id| serde_json::json!({"id": id, "description": bc.get("description").and_then(|x| x.as_str()).unwrap_or(""), "aggregates": ref_names(bc.get("aggregates")), "processManagers": ref_names(bc.get("processManagers"))}))).collect()).unwrap_or_default();
     let containers_j: Vec<serde_json::Value> = l2m("containers").and_then(|v| v.as_mapping()).map(|m| m.iter().filter_map(|(k, c)| k.as_str().map(|id| serde_json::json!({"id": id, "technology": c.get("technology").and_then(|x| x.as_str()).unwrap_or(""), "description": c.get("description").and_then(|x| x.as_str()).unwrap_or(""), "realizes": ref_names(c.get("realizes"))}))).collect()).unwrap_or_default();
@@ -3940,7 +3965,7 @@ fn emit_documentation_html(model: &Model) -> String {
     let resolvers = sf.and_then(|v| v.get("resolvers")).and_then(|v| v.as_mapping());
     let action_defs = sf.and_then(|v| v.get("actions")).and_then(|v| v.as_mapping());
     let tr_defs = model.defs.get("translations.yaml").and_then(|v| v.as_mapping());
-    let tr_en = |rf: &str| -> String { resolve_ref(model, rf, "customer_screens.yaml").and_then(|t| t.get("messages")).and_then(|m| m.get("en")).and_then(|x| x.as_str()).map(|s| s.to_string()).unwrap_or_else(|| rf.rsplit('/').next().unwrap_or(rf).to_string()) };
+    let tr_en = |rf: &str| -> String { resolve_ref(model, rf, "screens/customer_screens.yaml").and_then(|t| t.get("messages")).and_then(|m| m.get("en")).and_then(|x| x.as_str()).map(|s| s.to_string()).unwrap_or_else(|| rf.rsplit('/').next().unwrap_or(rf).to_string()) };
     let t_text = |v: &Value| -> String { if let Some(rf) = v.get("$ref").and_then(|x| x.as_str()) { tr_en(rf) } else if let Some(s) = v.as_str() { s.to_string() } else { String::new() } };
     let tr_rows: Vec<Vec<String>> = tr_defs.map(|m| m.iter().filter_map(|(k, t)| k.as_str().map(|key| { let params = t.get("params").and_then(|x| x.as_mapping()).map(|pm| pm.iter().filter_map(|(pk, _)| pk.as_str().map(|p| format!("<span class=\"k-param\">{}</span>", h_esc(p)))).collect::<Vec<_>>().join(", ")).unwrap_or_default(); let params = if params.is_empty() { "<span class=\"muted\">—</span>".to_string() } else { params }; vec![format!("<span id=\"{}\" class=\"k-scalar\">{} {}</span>", danchor("translation", key), d_emo("translation"), h_esc(key)), params, format!("🇬🇧 {}", h_esc(t.get("messages").and_then(|mm| mm.get("en")).and_then(|x| x.as_str()).unwrap_or(""))), format!("🇫🇷 {}", h_esc(t.get("messages").and_then(|mm| mm.get("fr")).and_then(|x| x.as_str()).unwrap_or("")))] })).collect()).unwrap_or_default();
     let translations_html = h_table(&["Key", "Params", "en", "fr"], &tr_rows);
@@ -4437,20 +4462,6 @@ fn parse_stories(model: &Model) -> Vec<Persona> {
 
 // ─── crates/domain/src/generated/scalars.rs (ADR-0034 #3 — Rust domain types from scalars.yaml) ──
 
-/// PascalCase of a SCREAMING_SNAKE_CASE enum value (e.g. `OUT_FOR_DELIVERY` → `OutForDelivery`).
-fn pascal_variant(s: &str) -> String {
-    s.split('_')
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            let mut c = p.chars();
-            match c.next() {
-                Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
-                None => String::new(),
-            }
-        })
-        .collect()
-}
-
 /// A scalar's `description` as `///` doc lines (one per non-empty source line, trimmed).
 fn scalar_doc(node: &Value) -> String {
     let mut out = String::new();
@@ -4467,22 +4478,9 @@ fn scalar_doc(node: &Value) -> String {
     out
 }
 
-/// What serde's `rename_all = "SCREAMING_SNAKE_CASE"` produces for a PascalCase variant (insert `_` at
-/// each interior uppercase boundary, then uppercase). Used to PROVE at generation time that every enum
-/// variant round-trips back to its exact `scalars.yaml` wire value.
-fn serde_screaming_snake(variant: &str) -> String {
-    let mut out = String::new();
-    for (i, c) in variant.chars().enumerate() {
-        if c.is_ascii_uppercase() && i > 0 {
-            out.push('_');
-        }
-        out.push(c.to_ascii_uppercase());
-    }
-    out
-}
-
-/// Emit `crates/domain/src/generated/scalars.rs` from scalars.yaml: enums (SCREAMING_SNAKE, serde
-/// `rename_all`) and newtypes over `uuid::Uuid` / `i64` / `f64` / `String`, in file order.
+/// Emit `crates/domain/src/generated/scalars.rs` from scalars.yaml: enums (VERBATIM SCREAMING_SNAKE
+/// variants — no serde rename, so spec == Rust == wire 1:1) and newtypes over `uuid::Uuid` / `i64` /
+/// `f64` / `String`, in file order.
 fn emit_domain_scalars(model: &Model) -> String {
     let mut out = String::from(
         "// GENERATED by the Captain.Food codegen from specs/scalars.yaml — do not edit by hand.\n\nuse serde::{Deserialize, Serialize};\n",
@@ -4497,21 +4495,21 @@ fn emit_domain_scalars(model: &Model) -> String {
             out.push_str(&scalar_doc(node));
             if let Some(vals) = node.get("enum").and_then(|e| e.as_sequence()) {
                 out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]\n");
-                out.push_str("#[serde(rename_all = \"SCREAMING_SNAKE_CASE\")]\n");
+                out.push_str("#[allow(non_camel_case_types)]\n");
                 out.push_str(&format!("pub enum {} {{\n", name));
                 for v in vals {
                     if let Some(vs) = v.as_str() {
-                        let variant = pascal_variant(vs);
-                        // A value serde's rename_all can't reproduce (e.g. a digit after `_`) would need an
-                        // explicit #[serde(rename)]; fail loudly at generation rather than corrupt the wire.
-                        assert_eq!(
-                            serde_screaming_snake(&variant),
-                            vs,
-                            "scalars.yaml#/{}: enum value '{}' does not round-trip through serde rename_all",
+                        // Verbatim: the Rust variant IS the spec value — 1:1 spec↔code↔wire, no serde
+                        // transform. The value must be a valid Rust identifier; a spec smell (hyphen,
+                        // space, leading digit) fails here so it is fixed at the root, not masked.
+                        assert!(
+                            vs.chars().next().map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+                                && vs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+                            "scalars.yaml#/{}: enum value '{}' is not a valid Rust identifier — rename it in the spec",
                             name,
                             vs
                         );
-                        out.push_str(&format!("    {},\n", variant));
+                        out.push_str(&format!("    {},\n", vs));
                     }
                 }
                 out.push_str("}\n");
@@ -4605,9 +4603,9 @@ fn entity_field_type(entity: &str, prop: &str, node: &Value) -> String {
 
 /// Emit `crates/domain/src/generated/entities.rs` from entities.yaml: one serde `camelCase` struct per
 /// top-level entity, in file order. A field is optional (`Option<T>`) when `nullable: true` or absent
-/// from `required` — written fully qualified as `::core::option::Option` because entities.yaml defines
-/// its own `Option` entity, which shadows the prelude type inside the module. Optional ARRAYS stay
-/// `Vec<T>` with `#[serde(default)]` (a missing array deserializes to empty, never `Option<Vec>`).
+/// from `required`. Optional ARRAYS stay `Vec<T>` with `#[serde(default)]` (a missing array deserializes
+/// to empty, never `Option<Vec>`). Type names may safely use the prelude `Option` — the
+/// `rust-reserved-typename` validator gate forbids a spec type from colliding with it (resolve at root).
 fn emit_domain_entities(model: &Model) -> String {
     let mut out = String::from(
         "// GENERATED by the Captain.Food codegen from specs/entities.yaml — do not edit by hand.\n\nuse serde::{Deserialize, Serialize};\nuse super::scalars::*;\n",
@@ -4660,7 +4658,7 @@ fn emit_domain_entities(model: &Model) -> String {
                         }
                         out.push_str(&format!("    pub {}: {},\n", ident, ty));
                     } else if optional {
-                        out.push_str(&format!("    pub {}: ::core::option::Option<{}>,\n", ident, ty));
+                        out.push_str(&format!("    pub {}: Option<{}>,\n", ident, ty));
                     } else {
                         out.push_str(&format!("    pub {}: {},\n", ident, ty));
                     }

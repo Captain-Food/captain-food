@@ -220,10 +220,10 @@ pub struct StarRating(pub i64);
 
 /// Rider rating: thumbs up or down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum ThumbRating {
-    Up,
-    Down,
+    UP,
+    DOWN,
 }
 
 /// Free-text comment accompanying a restaurant rating.
@@ -231,15 +231,15 @@ pub enum ThumbRating {
 pub struct RatingComment(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum Weekday {
-    Monday,
-    Tuesday,
-    Wednesday,
-    Thursday,
-    Friday,
-    Saturday,
-    Sunday,
+    MONDAY,
+    TUESDAY,
+    WEDNESDAY,
+    THURSDAY,
+    FRIDAY,
+    SATURDAY,
+    SUNDAY,
 }
 
 /// Local time of day, HH:mm (HubRise opening_hours format).
@@ -248,72 +248,72 @@ pub struct TimeOfDay(pub String);
 
 /// Aligned with HubRise service types. COLLECTION == customer pickup. (EAT_IN is not offered by Captain.Food but is kept in TaxRate for catalog fidelity.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum ServiceType {
-    Delivery,
-    Collection,
+    DELIVERY,
+    COLLECTION,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum OrderStatus {
-    Placed,
-    Accepted,
-    Rejected,
-    Preparing,
-    Ready,
-    OutForDelivery,
-    Delivered,
-    CancelledByCustomer,
-    CancelledByRestaurant,
+    PLACED,
+    ACCEPTED,
+    REJECTED,
+    PREPARING,
+    READY,
+    OUT_FOR_DELIVERY,
+    DELIVERED,
+    CANCELLED_BY_CUSTOMER,
+    CANCELLED_BY_RESTAURANT,
 }
 
 /// Status of one delivery, reported by the partner (inbound) or driven by an independent rider's commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum DeliveryStatus {
-    Pending,
-    Assigned,
-    PickedUp,
-    OutForDelivery,
-    Delivered,
-    Failed,
-    Cancelled,
+    PENDING,
+    ASSIGNED,
+    PICKED_UP,
+    OUT_FOR_DELIVERY,
+    DELIVERED,
+    FAILED,
+    CANCELLED,
 }
 
 /// Fulfilment channel of a delivery: PARTNER (e.g. Avelo37) or INDEPENDENT (a Captain rider).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum DeliveryProvider {
-    Partner,
-    Independent,
+    PARTNER,
+    INDEPENDENT,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum RestaurantStatus {
-    Draft,
-    Active,
-    Inactive,
+    DRAFT,
+    ACTIVE,
+    INACTIVE,
 }
 
 /// Partnership funnel of a restaurant LISTING, orthogonal to RestaurantStatus (the operational DRAFT/ACTIVE/INACTIVE state). Orderable ⇔ ACTIVE_PARTNER + RestaurantStatus ACTIVE + acceptance ≠ PAUSED.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum RestaurantListingStatus {
-    NonPartner,
-    PassivePartner,
-    ActivePartner,
+    NON_PARTNER,
+    PASSIVE_PARTNER,
+    ACTIVE_PARTNER,
 }
 
 /// State of the restaurant's Google Business Profile 'Order online' link to {slug}.captain.food (ADR-0021; V1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum GbpLinkStatus {
-    Unset,
-    Configured,
-    Verified,
-    Broken,
+    UNSET,
+    CONFIGURED,
+    VERIFIED,
+    BROKEN,
 }
 
 /// B2B prospection priority (0–10), COMPUTED by the View_ProspectionPipeline projection from listing facts (ADR-0020) — never stored in an event.
@@ -322,139 +322,139 @@ pub struct ProspectionScore(pub i64);
 
 /// Prospect funnel stage, DERIVED in the pipeline projection: NEW (no contact) → CONTACTED → COLD (J+21) / REPLIED, and CONVERTED when the restaurant reaches ACTIVE_PARTNER.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum ProspectPipelineStatus {
-    New,
-    Contacted,
-    Cold,
-    Replied,
-    Converted,
+    NEW,
+    CONTACTED,
+    COLD,
+    REPLIED,
+    CONVERTED,
 }
 
 /// Channel of a prospection contact (email via Resend, Slack alert, or phone).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum OutreachChannel {
-    Email,
-    Slack,
-    Phone,
+    EMAIL,
+    SLACK,
+    PHONE,
 }
 
 /// Who a tip goes to (ADR-012). Tips are separate from the core 3-way split and Captain skims 0% (100% passes through); a tip to CAPTAIN is the tipper's explicit choice, not a cut of others' tips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum TipRecipient {
-    Rider,
-    Restaurant,
-    Captain,
+    RIDER,
+    RESTAURANT,
+    CAPTAIN,
 }
 
 /// Who gives a tip: the CUSTOMER (may tip rider/restaurant/Captain) or the RESTAURANT (may tip rider/ Captain — e.g. thanking the courier). Derived server-side from the caller's role, not client-supplied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum Tipper {
-    Customer,
-    Restaurant,
+    CUSTOMER,
+    RESTAURANT,
 }
 
 /// Lifecycle of a cart. Only an OPEN cart accepts line edits or checkout. Carts are never abandoned/expired — they persist until checked out, so there is no abandonment state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum CartStatus {
-    Open,
-    CheckedOut,
+    OPEN,
+    CHECKED_OUT,
 }
 
 /// Current order acceptance mode of a restaurant (HubRise: order_acceptance).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum OrderAcceptanceMode {
-    Normal,
-    Busy,
-    Paused,
+    NORMAL,
+    BUSY,
+    PAUSED,
 }
 
 /// Order payment state, folded from Stripe facts (PaymentIntentCreated/Captured/Failed/Refunded).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum PaymentStatus {
-    Pending,
-    Captured,
-    Failed,
-    Refunded,
+    PENDING,
+    CAPTURED,
+    FAILED,
+    REFUNDED,
 }
 
 /// Live status of a command/operation streamed by the operationStatusChanged subscription: PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum OperationStatus {
-    Pending,
-    Succeeded,
-    Rejected,
-    Failed,
+    PENDING,
+    SUCCEEDED,
+    REJECTED,
+    FAILED,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum CatalogItemAvailability {
-    Available,
-    Unavailable,
+    AVAILABLE,
+    UNAVAILABLE,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum StockStatus {
-    InStock,
-    LowStock,
-    OutOfStock,
+    IN_STOCK,
+    LOW_STOCK,
+    OUT_OF_STOCK,
 }
 
 /// Coarse price tier of a restaurant, used as a discovery filter (UI: $ / $$ / $$$).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum PriceRange {
-    Budget,
-    Moderate,
-    Premium,
+    BUDGET,
+    MODERATE,
+    PREMIUM,
 }
 
 /// A restaurant's SINGLE primary/representative cuisine bucket, used only to select ONE Uber Eats mark-up coefficient in View_UberEstimationPolicy (ADR-0024): FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40, BISTRONOMIC 1.45, FOOD_TRUCK 1.35. NOT for discovery — a restaurant may belong to several cuisines for browsing/filtering; that is the multi-valued `Restaurant.tags`. This is deliberately one value because the estimate needs a single coefficient.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum CuisineCategory {
-    FastFood,
-    Pizza,
-    Traditional,
-    Bistronomic,
-    FoodTruck,
+    FAST_FOOD,
+    PIZZA,
+    TRADITIONAL,
+    BISTRONOMIC,
+    FOOD_TRUCK,
 }
 
 /// Provenance of an Uber Eats comparison amount: REAL (the restaurant's own Uber prices, shared via HubRise after explicit opt-in — ADR-0023) or ESTIMATED (coefficient-based, always labelled — ADR-0024).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum ComparisonBasis {
-    Estimated,
-    Real,
+    ESTIMATED,
+    REAL,
 }
 
 /// Named, read-side-curated/personalized discovery shelf for the restaurants query. The read model resolves the actual member restaurants (editorial rules / customer history); the client just asks for a list by key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum RestaurantListKey {
-    OrderAgain,
-    Recommended,
-    TopDeals,
-    GreenPackaging,
+    ORDER_AGAIN,
+    RECOMMENDED,
+    TOP_DEALS,
+    GREEN_PACKAGING,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[allow(non_camel_case_types)]
 pub enum UserType {
-    Public,
-    Customer,
-    RestaurantAccount,
-    Restaurant,
-    Rider,
-    Admin,
-    External,
+    PUBLIC,
+    CUSTOMER,
+    RESTAURANT_ACCOUNT,
+    RESTAURANT,
+    RIDER,
+    ADMIN,
+    EXTERNAL,
 }
