@@ -22,7 +22,7 @@ const SOURCE_FILES: &[&str] = &[
     "commands.yaml",
     "errors.yaml",
     "actors.yaml",
-    "views.yaml",
+    "database/views.yaml",
     "api.yaml",
     "stories.yaml",
     "rules.yaml",
@@ -670,7 +670,7 @@ fn validate(model: &Model) -> Report {
     // 5b. every emitted event should be projected into a view, unless declared non-projected.
     let non_projected: BTreeSet<String> = model
         .defs
-        .get("views.yaml")
+        .get("database/views.yaml")
         .and_then(|v| v.get("nonProjectedEvents"))
         .and_then(|x| x.as_sequence())
         .map(|s| s.iter().filter_map(|r| r.get("$ref").and_then(|x| x.as_str()).and_then(ref_name)).collect())
@@ -1552,7 +1552,7 @@ fn parse_col(name: String, col: &Value, events: &Value) -> SqlColumn {
 fn parse_views(model: &Model) -> Vec<SqlView> {
     let mut out = Vec::new();
     let events = model.defs.get("events.yaml").cloned().unwrap_or(Value::Null);
-    if let Some(Value::Mapping(m)) = model.defs.get("views.yaml") {
+    if let Some(Value::Mapping(m)) = model.defs.get("database/views.yaml") {
         for (k, node) in m {
             let name = match k.as_str() {
                 Some(s) => s,
@@ -1909,7 +1909,7 @@ fn ref_strings(v: Option<&Value>) -> Vec<String> {
 /// (view name, fedBy event names) for every View_* (aggregate-fed or reference), in file order.
 fn views_fedby(model: &Model) -> Vec<(String, Vec<String>)> {
     let mut out = Vec::new();
-    if let Some(Value::Mapping(m)) = model.defs.get("views.yaml") {
+    if let Some(Value::Mapping(m)) = model.defs.get("database/views.yaml") {
         for (k, node) in m {
             let name = match k.as_str() {
                 Some(s) => s,
@@ -3198,7 +3198,7 @@ fn emit_documentation(model: &Model) -> String {
     }).collect();
 
     // 6. EVENTS
-    let non_projected: HashSet<String> = ref_names(model.defs.get("views.yaml").and_then(|v| v.get("nonProjectedEvents"))).into_iter().collect();
+    let non_projected: HashSet<String> = ref_names(model.defs.get("database/views.yaml").and_then(|v| v.get("nonProjectedEvents"))).into_iter().collect();
     let evt_map = model.defs.get("events.yaml").and_then(|v| v.as_mapping());
     let event_docs: Vec<Doc> = evt_map.map(|m| m.iter().filter_map(|(k, _)| k.as_str()).map(|ev| {
         let def = evt_map.and_then(|m| m.get(ev)).cloned().unwrap_or(Value::Null);
@@ -3314,7 +3314,7 @@ fn emit_documentation(model: &Model) -> String {
         let mut it = rf.splitn(2, "#/");
         let file = it.next().unwrap_or("");
         let name = it.next().unwrap_or("");
-        let kind = match file { "commands.yaml" => "command", "events.yaml" => "event", "actors.yaml" => "actor", "views.yaml" => "view", "scalars.yaml" => "scalar", _ => "entity" };
+        let kind = match file { "commands.yaml" => "command", "events.yaml" => "event", "actors.yaml" => "actor", "database/views.yaml" => "view", "scalars.yaml" => "scalar", _ => "entity" };
         dlink(kind, name)
     }
     fn ref_list_links(v: Option<&Value>) -> String {
@@ -3648,7 +3648,7 @@ fn h_any_link(rf: &str) -> String {
     let mut it = rf.splitn(2, "#/");
     let file = it.next().unwrap_or("");
     let name = it.next().unwrap_or("");
-    let kind = match file { "commands.yaml" => "command", "events.yaml" => "event", "actors.yaml" => "actor", "views.yaml" => "view", "scalars.yaml" => "scalar", _ => "entity" };
+    let kind = match file { "commands.yaml" => "command", "events.yaml" => "event", "actors.yaml" => "actor", "database/views.yaml" => "view", "scalars.yaml" => "scalar", _ => "entity" };
     h_link(kind, name)
 }
 fn h_ref_links(v: Option<&Value>) -> String {
@@ -3805,7 +3805,7 @@ fn emit_documentation_html(model: &Model) -> String {
     }).collect()).unwrap_or_default();
 
     // 6. Events
-    let non_projected: HashSet<String> = ref_names(model.defs.get("views.yaml").and_then(|v| v.get("nonProjectedEvents"))).into_iter().collect();
+    let non_projected: HashSet<String> = ref_names(model.defs.get("database/views.yaml").and_then(|v| v.get("nonProjectedEvents"))).into_iter().collect();
     let evt_map = model.defs.get("events.yaml").and_then(|v| v.as_mapping());
     let event_docs: Vec<HDoc> = evt_map.map(|m| m.iter().filter_map(|(k, _)| k.as_str()).map(|ev| {
         let def = evt_map.and_then(|m| m.get(ev)).cloned().unwrap_or(Value::Null);

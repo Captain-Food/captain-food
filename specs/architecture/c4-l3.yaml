@@ -53,14 +53,14 @@ components:
     description: "Update the View_* read models from events; span 'event.consume.projection'."
     instrumented: true
     updates:
-      - { $ref: 'views.yaml#/View_RestaurantAccount' }
-      - { $ref: 'views.yaml#/View_Restaurant' }
-      - { $ref: 'views.yaml#/View_Customer' }
-      - { $ref: 'views.yaml#/View_Catalog' }
-      - { $ref: 'views.yaml#/View_Cart' }
-      - { $ref: 'views.yaml#/View_OrderTracking' }
-      - { $ref: 'views.yaml#/View_ProspectionPipeline' }
-      - { $ref: 'views.yaml#/View_DeliveryJob' }
+      - { $ref: 'database/views.yaml#/View_RestaurantAccount' }
+      - { $ref: 'database/views.yaml#/View_Restaurant' }
+      - { $ref: 'database/views.yaml#/View_Customer' }
+      - { $ref: 'database/views.yaml#/View_Catalog' }
+      - { $ref: 'database/views.yaml#/View_Cart' }
+      - { $ref: 'database/views.yaml#/View_OrderTracking' }
+      - { $ref: 'database/views.yaml#/View_ProspectionPipeline' }
+      - { $ref: 'database/views.yaml#/View_DeliveryJob' }
   bam-projector:
     description: "Business Activity Monitoring projection (runs in the bam container); business_metrics only."
     instrumented: true
