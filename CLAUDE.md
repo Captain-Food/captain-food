@@ -62,11 +62,11 @@ validation. In the story map, inbound events are marked 📥.
 
 ## Architecture (summary)
 
-- **Full-stack Rust** (ADR-0034 — supersedes the earlier Next.js/Node stack). **Cargo workspace**: `crates/core` (Crux shared business logic — pure, the runtime home of the domain model), `crates/shared_types` (serde), `crates/web` (Leptos → WASM, customer/restaurant/admin SDUI renderer), `crates/server` (Axum BFF), `crates/desktop` (Tauri 2.0). Mobile = thin SwiftUI/Compose shells over the Rust core via UniFFI.
+- **Full-stack Rust** (ADR-0034 — supersedes the earlier Next.js/Node stack). **Cargo workspace** in Clean-Architecture layers (ADR-0035): `crates/domain` (pure DDD — aggregates/commands/events/policies/value-objects; may derive `serde` on events/VOs but no serialization *logic*), `crates/application` (use cases — `ports/` traits, command/query handlers, `process_managers/` sagas), `crates/infrastructure` (adapters — event store, read-model repos over `View_*`, `integrations/` ACL for HubRise/Stripe/delivery), `crates/server` (Axum BFF — GraphQL, SDUI, `middleware/tenant`), `crates/shared_types` (serde + UniFFI), `crates/core` (Crux app-shell over `domain`), `crates/web` (Leptos → WASM SDUI renderer), `crates/desktop` (Tauri 2.0). Mobile = thin SwiftUI/Compose shells over the core via UniFFI. Dependency rule: outer→inner only; `domain` imports nothing else.
 - **Frontend**: **Leptos** (Rust→WASM), SSR+hydration; the SDUI screens (ADR-0033) render via a generated Leptos component registry. All backend calls go through **GraphQL**.
 - **Backend**: **Rust** — Axum + Tokio + SQLx (compile-time-checked) + async-graphql, **CQRS-light + event log**.
   - Mutations (commands) validate invariants then write events into the append-only `domain_events` table.
-  - Queries read from dedicated **read tables** (`read_orders_by_restaurant`, `read_restaurants_public`...), fed by projections — **never** directly from `domain_events`.
+  - Queries read the dedicated **`View_*` read models** — **never** raw `domain_events`. In **V0** these are Postgres **SQL views defined over `domain_events`** (projection-on-read, ADR-0035); a hot view can later become a materialized table fed by a projector with no query-API change (refines ADR-0005).
   - No full event sourcing (no snapshots/replay) in V0.
 - **Database**: managed PostgreSQL (e.g. Supabase).
 - **Multi-tenant**: restaurant resolution via the `Host` header; pattern `{restaurantSlug}.captain.food` (wildcard `*.captain.food`).

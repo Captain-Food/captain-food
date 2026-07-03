@@ -64,6 +64,8 @@ Concrete architecture/domain-model decisions taken while building the specs (Acc
 | [0031](0031-delivery-bounded-context.md) | Delivery bounded context (`DeliveryJob` aggregate + `DeliveryDispatchProcess`; one lifecycle, two paths — partner INBOUND facts via `avelo37-acl` AND independent-rider commands; PM-emitted `DeliveryRequested`, dual-emitter `OrderDelivered`, `View_DeliveryJob`, RIDER role wired to the context) |
 | [0032](0032-business-rules-and-completeness-gates.md) | Business-rules layer (`specs/rules.yaml`) + blocking completeness gates (bidirectional rule↔test linkage; `test-uncovered-*` promoted warning→error; new `op-uncovered-by-story` — every mutation/query anchored to a persona) |
 | [0033](0033-spec-driven-sdui-customer-screens.md) | Spec-Driven SDUI (`customer_screens.yaml`) + `translations.yaml` (errors.yaml-style i18n → one `translations.json`); screen reads/writes `$ref`-bound to `api.yaml` (API-meets-UI gate), non-SDUI screens flagged, gaps surfaced; screens+translations rendered in the docs; runtime deferred |
+| [0034](0034-full-stack-rust.md) | Full-stack Rust across all platforms (Crux core, Leptos/WASM, Axum BFF, Tauri, UniFFI mobile shells); codegen ported TS→Rust (`tools/codegen-rs`) at parity, then the TypeScript codegen retired |
+| [0035](0035-project-structure-clean-architecture.md) | Clean-Architecture crate layout (`crates/{domain,application,infrastructure,server,shared_types,core,web,desktop}`); serde allowed on domain events/VOs; V0 `View_*` = SQL views over `domain_events` (refines 0005); incremental migrations for stateful tables; ACL/sagas/tenant middleware placed; codegen generation targets defined |
 
 ## Proposed (deferred until app/runtime code exists)
 
