@@ -20,6 +20,7 @@ app_name: "Captain.Food"
 base_url: "https://captain.food"
 default_locale: en
 supported_locales: [en, fr]
+app_types: [web, ios, android]   # customer app target platforms (ADR-0037); `windows` is restaurant-only
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DESIGN TOKENS
@@ -241,6 +242,7 @@ screens:
 
   # SCREEN 1 — Home / Discovery
   - id: home
+    roles: [PUBLIC, CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/"
     title: { $ref: 'translations.yaml#/common.nav.home' }
     sdui: true
@@ -294,6 +296,7 @@ screens:
 
   # SCREEN 2 — Search
   - id: search
+    roles: [PUBLIC, CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/search"
     title: { $ref: 'translations.yaml#/common.nav.search' }
     sdui: true
@@ -319,6 +322,7 @@ screens:
 
   # SCREEN 3 — Restaurant page
   - id: restaurant
+    roles: [PUBLIC, CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/r/:slug"
     title: "{{ restaurant.name }}"
     sdui: true
@@ -358,6 +362,7 @@ screens:
 
   # SCREEN 4 — Cart
   - id: cart
+    roles: [PUBLIC, CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/cart"
     title: { $ref: 'translations.yaml#/cart.title' }
     sdui: true
@@ -404,6 +409,7 @@ screens:
 
   # SCREEN 5 — Checkout (NOT SDUI — Stripe Elements + payment security)
   - id: checkout
+    roles: [CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/checkout"
     title: { $ref: 'translations.yaml#/checkout.title' }
     sdui: false
@@ -445,6 +451,7 @@ screens:
 
   # SCREEN 6 — Order confirmation & tracking (NOT SDUI — realtime subscription + state machine)
   - id: order_tracking
+    roles: [CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/orders/:orderId/confirmation"
     title: { $ref: 'translations.yaml#/order.tracking_title' }
     sdui: false
@@ -481,6 +488,7 @@ screens:
 
   # SCREEN 7 — Order history
   - id: order_history
+    roles: [CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/orders"
     title: { $ref: 'translations.yaml#/order.history_title' }
     sdui: true
@@ -503,6 +511,7 @@ screens:
 
   # SCREEN 8 — Account
   - id: account
+    roles: [CUSTOMER]   # which UserTypes may see this screen (ADR-0037)
     route: "/account"
     title: { $ref: 'translations.yaml#/common.nav.account' }
     sdui: true
@@ -542,6 +551,7 @@ screens:
 
   # SCREEN 9 — Partner landing (marketing; external onboarding)
   - id: partner_landing
+    roles: [PUBLIC]   # which UserTypes may see this screen (ADR-0037)
     route: "/partner"
     title: { $ref: 'translations.yaml#/partner.header' }
     sdui: true
