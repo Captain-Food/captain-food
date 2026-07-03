@@ -7,7 +7,7 @@
 //! translations, screens, observability, C4) and the emitters. Until parity, the TypeScript codegen stays
 //! the blocking gate (see ADR-0034).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -43,7 +43,22 @@ fn load_model(specs: &PathBuf) -> Result<Model, String> {
     for &f in SOURCE_FILES {
         let p = specs.join(f);
         let s = fs::read_to_string(&p).map_err(|e| format!("read {}: {}", p.display(), e))?;
-        let v: Value = serde_yaml::from_str(&s).map_err(|e| format!("parse {}: {}", f, e))?;
+        let parsed: Value = serde_yaml::from_str(&s).map_err(|e| format!("parse {}: {}", f, e))?;
+        // Strip file-level meta (version/description) exactly like load.ts META_KEYS, preserving key order,
+        // so scalar/enum/type iteration matches the TypeScript codegen.
+        let v = match parsed {
+            Value::Mapping(m) => {
+                let mut nm = serde_yaml::Mapping::new();
+                for (k, val) in m {
+                    if matches!(k.as_str(), Some("version") | Some("description")) {
+                        continue;
+                    }
+                    nm.insert(k, val);
+                }
+                Value::Mapping(nm)
+            }
+            other => other,
+        };
         defs.insert(f.to_string(), v);
     }
     Ok(Model { defs })
@@ -188,11 +203,31 @@ struct SqlColumn {
     unique: bool,
     index: bool,
     nullable: bool,
+    fk: Option<String>, // "View_Name.column" — used by the GraphQL FK-navigation emitter
 }
 struct SqlView {
     name: String,
+    aggregate: String,
     columns: Vec<SqlColumn>,
     indexes: Vec<Vec<String>>,
+}
+
+/// A foreign key `"View_Name.column"` — either a literal string or a `{ $ref: '#/View_X/columns/col' }`.
+fn parse_fk(raw: Option<&Value>) -> Option<String> {
+    match raw {
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(v) => {
+            if let Some(r) = v.get("$ref").and_then(|x| x.as_str()) {
+                let segs: Vec<&str> =
+                    r.splitn(2, "#/").nth(1).unwrap_or("").split('/').filter(|s| !s.is_empty()).collect();
+                if segs.len() >= 2 {
+                    return Some(format!("{}.{}", segs[0], segs[segs.len() - 1]));
+                }
+            }
+            None
+        }
+        None => None,
+    }
 }
 
 /// Explicit column `type`: a `$ref` into scalars.yaml (→ the scalar name) or an inline SQL primitive string.
@@ -307,6 +342,7 @@ fn parse_col(name: String, col: &Value, events: &Value) -> SqlColumn {
         unique: flag("unique"),
         index: flag("index"),
         nullable: flag("nullable"),
+        fk: parse_fk(col.get("fk")),
     }
 }
 
@@ -347,7 +383,8 @@ fn parse_views(model: &Model) -> Vec<SqlView> {
                     }
                 }
             }
-            out.push(SqlView { name: name.to_string(), columns, indexes });
+            let aggregate = node.get("aggregate").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            out.push(SqlView { name: name.to_string(), aggregate, columns, indexes });
         }
     }
     out
@@ -876,6 +913,576 @@ fn emit_mermaid(model: &Model) -> String {
     out.join("\n")
 }
 
+// ─── schema.generated.graphql (port of emit/schema.ts) ──────────────────────────────────────────
+
+struct ApiField {
+    name: String,
+    ty: String,
+    is_ref: bool,
+    required: bool,
+    nullable: bool,
+    array: bool,
+    format: Option<String>,
+}
+struct ApiType {
+    name: String,
+    reads: Vec<String>,
+    properties: Vec<ApiField>,
+}
+struct ApiQuery {
+    name: String,
+    args: Vec<ApiField>,
+    returns_type: String,
+    returns_list: bool,
+    returns_nullable: bool,
+    reads: Vec<String>,
+    roles: Vec<String>,
+}
+struct ApiMutation {
+    name: String,
+    command: String,
+    roles: Vec<String>,
+    payload: Vec<ApiField>,
+}
+struct Api {
+    types: Vec<ApiType>,
+    queries: Vec<ApiQuery>,
+    mutations: Vec<ApiMutation>,
+    subscriptions: Vec<ApiQuery>,
+}
+
+const DIRECTIVES: &str = "directive @auth(requires: [UserType!]!) on FIELD_DEFINITION\ndirective @public on FIELD_DEFINITION\ndirective @command(name: String!) on FIELD_DEFINITION\ndirective @reads(views: [String!]!) on FIELD_DEFINITION";
+
+fn pascal(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+fn camel(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+/// refOrName: the LAST `/`-segment of a `$ref` (object or string) or a bare type string.
+fn ref_or_name(v: &Value) -> String {
+    if let Some(r) = v.get("$ref").and_then(|x| x.as_str()) {
+        return r.rsplit('/').next().unwrap_or("").to_string();
+    }
+    if let Some(s) = v.as_str() {
+        return s.rsplit('/').next().unwrap_or("").to_string();
+    }
+    String::new()
+}
+fn name_list(v: Option<&Value>) -> Vec<String> {
+    v.and_then(|x| x.as_sequence())
+        .map(|s| s.iter().map(ref_or_name).filter(|r| !r.is_empty()).collect())
+        .unwrap_or_default()
+}
+fn string_list(v: Option<&Value>) -> Vec<String> {
+    v.and_then(|x| x.as_sequence())
+        .map(|s| s.iter().filter_map(|i| i.as_str().map(|x| x.to_string())).collect())
+        .unwrap_or_default()
+}
+
+fn parse_field(name: &str, n: &Value) -> ApiField {
+    let is_ref = n.get("$ref").and_then(|x| x.as_str()).is_some();
+    let ty = if is_ref {
+        ref_or_name(n)
+    } else {
+        n.get("type").and_then(|x| x.as_str()).unwrap_or("").to_string()
+    };
+    let flag = |k: &str| n.get(k).and_then(|x| x.as_bool()) == Some(true);
+    ApiField {
+        name: name.to_string(),
+        ty,
+        is_ref,
+        required: flag("required"),
+        nullable: flag("nullable"),
+        array: flag("array"),
+        format: n.get("format").and_then(|x| x.as_str()).map(|s| s.to_string()),
+    }
+}
+fn field_map(v: Option<&Value>) -> Vec<ApiField> {
+    match v.and_then(|x| x.as_mapping()) {
+        Some(m) => m.iter().filter_map(|(k, node)| k.as_str().map(|name| parse_field(name, node))).collect(),
+        None => vec![],
+    }
+}
+
+fn parse_api(model: &Model) -> Api {
+    let sect = |k: &str| model.defs.get("api.yaml").and_then(|v| v.get(k)).and_then(|v| v.as_mapping());
+    let mut types = Vec::new();
+    if let Some(m) = sect("types") {
+        for (k, t) in m {
+            if let Some(name) = k.as_str() {
+                types.push(ApiType { name: name.into(), reads: name_list(t.get("reads")), properties: field_map(t.get("properties")) });
+            }
+        }
+    }
+    let reads_by_type: HashMap<String, Vec<String>> = types.iter().map(|t| (t.name.clone(), t.reads.clone())).collect();
+    let parse_query = |name: &str, q: &Value, with_reads: bool| -> ApiQuery {
+        let returns = q.get("returns");
+        let rt = returns.and_then(|r| r.get("$ref")).or_else(|| returns.and_then(|r| r.get("type")));
+        let returns_type = rt.map(ref_or_name).unwrap_or_default();
+        let reads = if with_reads {
+            reads_by_type.get(&returns_type).cloned().unwrap_or_default()
+        } else {
+            vec![]
+        };
+        ApiQuery {
+            name: name.into(),
+            args: field_map(q.get("args")),
+            returns_type,
+            returns_list: returns.and_then(|r| r.get("array")).and_then(|x| x.as_bool()) == Some(true),
+            returns_nullable: returns.and_then(|r| r.get("nullable")).and_then(|x| x.as_bool()) == Some(true),
+            reads,
+            roles: string_list(q.get("roles")),
+        }
+    };
+    let mut queries = Vec::new();
+    if let Some(m) = sect("queries") {
+        for (k, q) in m {
+            if let Some(n) = k.as_str() {
+                queries.push(parse_query(n, q, true));
+            }
+        }
+    }
+    let mut subscriptions = Vec::new();
+    if let Some(m) = sect("subscriptions") {
+        for (k, q) in m {
+            if let Some(n) = k.as_str() {
+                subscriptions.push(parse_query(n, q, false));
+            }
+        }
+    }
+    let mut mutations = Vec::new();
+    if let Some(m) = sect("mutations") {
+        for (k, mu) in m {
+            if let Some(n) = k.as_str() {
+                mutations.push(ApiMutation {
+                    name: n.into(),
+                    command: mu.get("command").map(ref_or_name).unwrap_or_default(),
+                    roles: string_list(mu.get("roles")),
+                    payload: field_map(mu.get("payload")),
+                });
+            }
+        }
+    }
+    Api { types, queries, mutations, subscriptions }
+}
+
+fn inline_primitive(t: &str, format: Option<&str>) -> String {
+    match t {
+        "integer" => "Int".into(),
+        "boolean" => "Boolean".into(),
+        "string" => if format == Some("date-time") { "DateTime".into() } else { "String".into() },
+        _ => "String".into(),
+    }
+}
+
+fn ref_target_file(r: &str, ctx: &str) -> Option<String> {
+    let pr = parse_ref(r)?;
+    let file = if pr.file.is_empty() { ctx.to_string() } else { pr.file };
+    if is_source_file(&file) { Some(file) } else { None }
+}
+
+fn base_type(model: &Model, node: &Value, ctx: &str, input: bool) -> String {
+    if let Some(rf) = node.get("$ref").and_then(|x| x.as_str()) {
+        let file = ref_target_file(rf, ctx);
+        let name = parse_ref(rf).and_then(|p| p.path.into_iter().next()).unwrap_or_else(|| "String".into());
+        if file.as_deref() == Some("scalars.yaml") {
+            return name;
+        }
+        return if input { format!("{}Input", name) } else { name };
+    }
+    if node.get("type").and_then(|x| x.as_str()) == Some("array") {
+        if let Some(items) = node.get("items") {
+            return format!("[{}!]", base_type(model, items, ctx, input));
+        }
+    }
+    inline_primitive(
+        node.get("type").and_then(|x| x.as_str()).unwrap_or("string"),
+        node.get("format").and_then(|x| x.as_str()),
+    )
+}
+
+fn object_fields(model: &Model, def: &Value, ctx: &str, input: bool) -> Vec<String> {
+    let props = match def.get("properties").and_then(|p| p.as_mapping()) {
+        Some(m) => m,
+        None => return vec![],
+    };
+    let required: HashSet<&str> = def
+        .get("required")
+        .and_then(|r| r.as_sequence())
+        .map(|s| s.iter().filter_map(|x| x.as_str()).collect())
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for (k, p) in props {
+        let name = match k.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if input && p.get("readOnly").and_then(|x| x.as_bool()) == Some(true) {
+            continue;
+        }
+        let base = base_type(model, p, ctx, input);
+        let non_null = if input {
+            required.contains(name)
+        } else {
+            p.get("nullable").and_then(|x| x.as_bool()) != Some(true)
+        };
+        out.push(format!("  {}: {}{}", name, base, if non_null { "!" } else { "" }));
+    }
+    out
+}
+
+fn scalar_names(model: &Model) -> HashSet<String> {
+    model
+        .defs
+        .get("scalars.yaml")
+        .and_then(|v| v.as_mapping())
+        .map(|m| m.iter().filter_map(|(k, _)| k.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default()
+}
+
+fn api_field_type(model: &Model, f: &ApiField, input: bool) -> String {
+    let mut base = if f.is_ref {
+        if input && !scalar_names(model).contains(&f.ty) {
+            format!("{}Input", f.ty)
+        } else {
+            f.ty.clone()
+        }
+    } else {
+        inline_primitive(&f.ty, f.format.as_deref())
+    };
+    if f.array {
+        base = format!("[{}!]", base);
+    }
+    let non_null = if input { f.required } else { !f.nullable };
+    format!("{}{}", base, if non_null { "!" } else { "" })
+}
+
+fn scalars_block(model: &Model) -> String {
+    let mut lines = vec!["scalar DateTime".to_string()];
+    if let Some(m) = model.defs.get("scalars.yaml").and_then(|v| v.as_mapping()) {
+        for (k, def) in m {
+            if let Some(name) = k.as_str() {
+                if !def.get("enum").map(|e| e.is_sequence()).unwrap_or(false) {
+                    lines.push(format!("scalar {}", name));
+                }
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+fn enums_block(model: &Model) -> String {
+    let mut blocks = Vec::new();
+    if let Some(m) = model.defs.get("scalars.yaml").and_then(|v| v.as_mapping()) {
+        for (k, def) in m {
+            if let (Some(name), Some(vals)) = (k.as_str(), def.get("enum").and_then(|e| e.as_sequence())) {
+                let body: Vec<String> = vals.iter().map(|v| format!("  {}", v.as_str().unwrap_or(""))).collect();
+                blocks.push(format!("enum {} {{\n{}\n}}", name, body.join("\n")));
+            }
+        }
+    }
+    blocks.join("\n\n")
+}
+
+fn nav_add(
+    entity: &str,
+    field: &str,
+    line: &str,
+    entity_names: &HashSet<String>,
+    seen: &mut HashMap<String, HashSet<String>>,
+    out: &mut HashMap<String, Vec<String>>,
+) {
+    if !entity_names.contains(entity) {
+        return;
+    }
+    let s = seen.entry(entity.to_string()).or_default();
+    if s.contains(field) {
+        return;
+    }
+    s.insert(field.to_string());
+    out.entry(entity.to_string()).or_default().push(format!("  {}", line));
+}
+
+fn nav_by_entity(views: &[SqlView], entity_names: &HashSet<String>) -> HashMap<String, Vec<String>> {
+    let view_agg: HashMap<String, String> = views.iter().map(|v| (v.name.clone(), v.aggregate.clone())).collect();
+    let mut seen: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    for v in views {
+        for col in &v.columns {
+            let fk = match &col.fk {
+                Some(f) => f,
+                None => continue,
+            };
+            let target_view = fk.split('.').next().unwrap_or("");
+            let tgt = match view_agg.get(target_view) {
+                Some(t) if !t.is_empty() => t.clone(),
+                _ => continue,
+            };
+            let src = v.aggregate.clone();
+            if entity_names.contains(&tgt) {
+                nav_add(&src, &camel(&tgt), &format!("{}: {}{}", camel(&tgt), tgt, if col.nullable { "" } else { "!" }), entity_names, &mut seen, &mut out);
+                nav_add(&tgt, &format!("{}s", camel(&src)), &format!("{}s: [{}!]!", camel(&src), src), entity_names, &mut seen, &mut out);
+            }
+        }
+    }
+    out
+}
+
+fn output_types_block(model: &Model, views: &[SqlView], api: &Api) -> String {
+    let registered: HashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
+    let nav = nav_by_entity(views, &registered);
+    let mut blocks = Vec::new();
+    if let Some(m) = model.defs.get("entities.yaml").and_then(|v| v.as_mapping()) {
+        for (k, def) in m {
+            let name = match k.as_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            if registered.contains(name) {
+                continue;
+            }
+            let mut fields = object_fields(model, def, "entities.yaml", false);
+            if let Some(nf) = nav.get(name) {
+                fields.extend(nf.clone());
+            }
+            blocks.push(format!("type {} {{\n{}\n}}", name, fields.join("\n")));
+        }
+    }
+    for t in &api.types {
+        let mut fields: Vec<String> = t.properties.iter().map(|f| format!("  {}: {}", f.name, api_field_type(model, f, false))).collect();
+        if let Some(nf) = nav.get(&t.name) {
+            fields.extend(nf.clone());
+        }
+        blocks.push(format!("type {} {{\n{}\n}}", t.name, fields.join("\n")));
+    }
+    blocks.join("\n\n")
+}
+
+fn visit_inputs(model: &Model, name: &str, file: &str, needed: &mut Vec<(String, String)>, visited: &mut HashSet<String>) {
+    let key = format!("{}#{}", file, name);
+    if visited.contains(&key) {
+        return;
+    }
+    visited.insert(key);
+    let def = match model.defs.get(file).and_then(|d| d.get(name)) {
+        Some(d) => d,
+        None => return,
+    };
+    let mut refs = Vec::new();
+    collect_refs(def, file, &mut refs);
+    for (_loc, r) in refs {
+        if let Some(tf) = ref_target_file(&r, file) {
+            let rn = parse_ref(&r).and_then(|p| p.path.into_iter().next());
+            if tf != "scalars.yaml" {
+                if let Some(rn) = rn {
+                    needed.push((rn.clone(), tf.clone()));
+                    visit_inputs(model, &rn, &tf, needed, visited);
+                }
+            }
+        }
+    }
+}
+
+fn input_types_block(model: &Model, api: &Api) -> String {
+    let mut needed: Vec<(String, String)> = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+
+    let mut command_inputs = Vec::new();
+    for m in &api.mutations {
+        if let Some(def) = model.defs.get("commands.yaml").and_then(|d| d.get(&m.command)) {
+            command_inputs.push(format!("input {}Input {{\n{}\n}}", m.command, object_fields(model, def, "commands.yaml", true).join("\n")));
+            visit_inputs(model, &m.command, "commands.yaml", &mut needed, &mut visited);
+        }
+    }
+
+    let scalars = scalar_names(model);
+    let mut query_inputs = Vec::new();
+    for q in &api.queries {
+        if q.args.is_empty() {
+            continue;
+        }
+        let fields: Vec<String> = q.args.iter().map(|a| format!("  {}: {}", a.name, api_field_type(model, a, true))).collect();
+        query_inputs.push(format!("input {}QueryInput {{\n{}\n}}", pascal(&q.name), fields.join("\n")));
+        for a in &q.args {
+            if a.is_ref && !scalars.contains(&a.ty) {
+                visit_inputs(model, &a.ty, "entities.yaml", &mut needed, &mut visited);
+            }
+        }
+    }
+
+    let mut subscription_inputs = Vec::new();
+    for s in &api.subscriptions {
+        if s.args.is_empty() {
+            continue;
+        }
+        let fields: Vec<String> = s.args.iter().map(|a| format!("  {}: {}", a.name, api_field_type(model, a, true))).collect();
+        subscription_inputs.push(format!("input {}SubscriptionInput {{\n{}\n}}", pascal(&s.name), fields.join("\n")));
+        for a in &s.args {
+            if a.is_ref && !scalars.contains(&a.ty) {
+                visit_inputs(model, &a.ty, "entities.yaml", &mut needed, &mut visited);
+            }
+        }
+    }
+
+    let mut emitted: HashSet<String> = HashSet::new();
+    let mut object_inputs = Vec::new();
+    for (name, file) in &needed {
+        if emitted.contains(name) {
+            continue;
+        }
+        emitted.insert(name.clone());
+        if let Some(def) = model.defs.get(file).and_then(|d| d.get(name)) {
+            object_inputs.push(format!("input {}Input {{\n{}\n}}", name, object_fields(model, def, file, true).join("\n")));
+        }
+    }
+
+    let mut all = command_inputs;
+    all.extend(query_inputs);
+    all.extend(subscription_inputs);
+    all.extend(object_inputs);
+    all.join("\n\n")
+}
+
+fn payloads_block(model: &Model, api: &Api) -> String {
+    api.mutations
+        .iter()
+        .map(|m| {
+            let mut fields = vec!["  correlationId: CorrelationId!".to_string()];
+            for f in &m.payload {
+                fields.push(format!("  {}: {}", f.name, api_field_type(model, f, false)));
+            }
+            format!("type {}Payload {{\n{}\n}}", pascal(&m.name), fields.join("\n"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn auth_directive(roles: &[String]) -> String {
+    if roles.iter().any(|r| r == "PUBLIC") {
+        "@public".to_string()
+    } else {
+        format!("@auth(requires: [{}])", roles.join(", "))
+    }
+}
+
+fn query_block(api: &Api) -> String {
+    let fields: Vec<String> = api
+        .queries
+        .iter()
+        .map(|q| {
+            let arg_str = if q.args.is_empty() {
+                String::new()
+            } else {
+                format!("(input: {}QueryInput{})", pascal(&q.name), if q.args.iter().any(|a| a.required) { "!" } else { "" })
+            };
+            let inner = if q.returns_list { format!("[{}!]", q.returns_type) } else { q.returns_type.clone() };
+            let ret = format!("{}{}", inner, if q.returns_nullable { "" } else { "!" });
+            let reads = if q.reads.is_empty() {
+                String::new()
+            } else {
+                format!(" @reads(views: [{}])", q.reads.iter().map(|v| format!("\"{}\"", v)).collect::<Vec<_>>().join(", "))
+            };
+            format!("  {}{}: {} {}{}", q.name, arg_str, ret, auth_directive(&q.roles), reads)
+        })
+        .collect();
+    format!("type Query {{\n{}\n}}", fields.join("\n"))
+}
+
+fn mutation_block(api: &Api) -> String {
+    let fields: Vec<String> = api
+        .mutations
+        .iter()
+        .map(|m| {
+            format!(
+                "  {}(input: {}Input!): {}Payload! {} @command(name: \"{}\")",
+                m.name, m.command, pascal(&m.name), auth_directive(&m.roles), m.command
+            )
+        })
+        .collect();
+    format!("type Mutation {{\n{}\n}}", fields.join("\n"))
+}
+
+fn subscription_block(api: &Api) -> String {
+    let fields: Vec<String> = api
+        .subscriptions
+        .iter()
+        .map(|s| {
+            let arg_str = if s.args.is_empty() {
+                String::new()
+            } else {
+                format!("(input: {}SubscriptionInput{})", pascal(&s.name), if s.args.iter().any(|a| a.required) { "!" } else { "" })
+            };
+            let inner = if s.returns_list { format!("[{}!]", s.returns_type) } else { s.returns_type.clone() };
+            let ret = format!("{}{}", inner, if s.returns_nullable { "" } else { "!" });
+            format!("  {}{}: {} {}", s.name, arg_str, ret, auth_directive(&s.roles))
+        })
+        .collect();
+    format!("type Subscription {{\n{}\n}}", fields.join("\n"))
+}
+
+fn header(title: &str) -> String {
+    let bar = "=".repeat(78);
+    format!("# {}\n# {}\n# {}", bar, title, bar)
+}
+
+fn emit_schema(model: &Model) -> String {
+    let api = parse_api(model);
+    let views = parse_views(model);
+    let mut s = String::new();
+    s.push_str("# GENERATED by tools/codegen from specs/api.yaml (+ scalars/entities/commands/views) — do not edit by hand.\n");
+    s.push_str("# Strong typing: one scalars.yaml type = one GraphQL scalar/enum. Navigation fields on output types\n");
+    s.push_str("# are derived from views.yaml foreign keys. Mutations return <Name>Payload (always carrying correlationId).\n\n");
+    s.push_str(&header("Custom scalars"));
+    s.push('\n');
+    s.push_str(&scalars_block(model));
+    s.push_str("\n\n");
+    s.push_str(&header("Enums"));
+    s.push('\n');
+    s.push_str(&enums_block(model));
+    s.push_str("\n\n");
+    s.push_str(&header("Directives — ACL (@auth/@public) + declared links (@command/@reads)"));
+    s.push('\n');
+    s.push_str(DIRECTIVES);
+    s.push_str("\n\n");
+    s.push_str(&header("Output types (entities.yaml + FK-derived navigation + projections)"));
+    s.push('\n');
+    s.push_str(&output_types_block(model, &views, &api));
+    s.push_str("\n\n");
+    s.push_str(&header("Input types (mutation command payloads + query args)"));
+    s.push('\n');
+    s.push_str(&input_types_block(model, &api));
+    s.push_str("\n\n");
+    s.push_str(&header("Mutation payloads"));
+    s.push('\n');
+    s.push_str(&payloads_block(model, &api));
+    s.push_str("\n\n");
+    s.push_str(&header("Queries — read side"));
+    s.push('\n');
+    s.push_str(&query_block(&api));
+    s.push_str("\n\n");
+    s.push_str(&header("Mutations — write side"));
+    s.push('\n');
+    s.push_str(&mutation_block(&api));
+    if !api.subscriptions.is_empty() {
+        s.push_str("\n\n"); // template line break + the conditional's leading newline
+        s.push_str(&header("Subscriptions — streams"));
+        s.push('\n');
+        s.push_str(&subscription_block(&api));
+        s.push('\n');
+    }
+    s
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let check = args.iter().any(|a| a == "--check");
@@ -921,11 +1528,12 @@ fn main() {
         eprintln!("✗ create {}: {}", out_dir.display(), e);
         std::process::exit(1);
     }
-    let artifacts: [(&str, String); 4] = [
+    let artifacts: [(&str, String); 5] = [
         ("translations.generated.json", emit_translations_json(&model)),
         ("views.generated.sql", emit_views_sql(&model)),
         ("c4.generated.dsl", emit_structurizr(&model)),
         ("c4.generated.md", emit_mermaid(&model)),
+        ("schema.generated.graphql", emit_schema(&model)),
     ];
     for (name, content) in &artifacts {
         let path = out_dir.join(name);
