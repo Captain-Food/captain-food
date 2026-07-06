@@ -19,20 +19,30 @@ generator driven by **declared per-file schemas** rather than baked-in specifics
 ### 1. Organize specs by domain
 ```
 specs/database/
-  tables.yaml        # REAL tables (domain_events + indexes + trigger bindings, domain_stream)
-  views.yaml         # MOVED here — the View_* SQL VIEWS over domain_events (ADR-0035); views, not tables
-  functions/*.sql    # one raw .sql per event-store function (ce_events, et_events, all_events, enforce_max_count)
+  tables/              # REAL tables — one yaml per family, globbed by the codegen
+    eventstore.yaml    #   domain_events (+ indexes + trigger bindings) + domain_stream (retention caps)
+    referential.yaml   #   seed/config tables (View_PhoneCountry/PricingPolicy/Uber*Policy) — configured
+                       #   once by a repo seed script, NOT projected from domain_events; keep View_* names
+                       #   because queries read them (api.yaml `reads`)
+  projection_views.yaml # (was views.yaml) — ONLY the event-fed read models: View_* SQL VIEWS / materialized
+                       #   projections over domain_events (ADR-0005/0035)
+  functions/*.sql      # one raw .sql per event-store function (ce_events, et_events, all_events, enforce_max_count)
 specs/screens/
   {role}_screens.yaml # customer_screens.yaml (already), restaurant_screens.yaml, rider_screens.yaml
 ```
+Naming reflects the reality: `projection_views.yaml` is *derived* (event → column lineage); the `tables/`
+folder is *authoritative state* (event store + seeded reference data). Reference data is a table configured
+once, not a projection — so it lives under `tables/`, not among the views.
 
 ### 2. Generate the database DDL (stop hand-writing it in `database.md`)
-The codegen emits `specs/generated/schema.generated.sql` = `tables.yaml` → `CREATE TABLE` + indexes +
-trigger bindings; `views.yaml` → `CREATE OR REPLACE VIEW … FROM domain_events` (ADR-0035); `functions/*.sql`
-concatenated in order; plus the enum tables (below) and the retention trigger/cron. `database.md` becomes the
-**narrative** that references the generated SQL — the yaml/sql files are the source of truth. `tables.yaml`
-is declarative like `views.yaml` (columns with type/pk/unique/nullable/index, explicit indexes, optional
-`triggers`/`retention`); column types validate against `scalars.yaml`.
+The codegen emits `specs/generated/schema.generated.sql` = every `tables/*.yaml` → `CREATE TABLE` + indexes +
+trigger bindings; `projection_views.yaml` → `CREATE OR REPLACE VIEW … FROM domain_events` (ADR-0035, where a
+`definition:` is given) else materialized `CREATE TABLE`; `functions/*.sql` concatenated in order; plus the
+enum tables (below) and the retention trigger/cron. `database.md` becomes the **narrative** that references
+the generated SQL — the yaml/sql files are the source of truth. `tables/*.yaml` are declarative like the
+views (columns with type/pk/unique/nullable/index, explicit indexes, optional `triggers`/`retention`); column
+types validate against `scalars.yaml`. Referential `View_*` tables are valid `reads` targets: the validator's
+read-binding check accepts a `View_*` from either `projection_views.yaml` or `tables/*.yaml`.
 
 ### 3. Enum-as-table
 For each `scalars.yaml` enum, generate a lookup table `ref_<enum_snake>(value TEXT PRIMARY KEY, sort_order
@@ -65,12 +75,17 @@ emitters converge onto the declarative model over time.
 - Screens handle PUBLIC/CUSTOMER overlap and multi-platform without app duplication.
 - Generator gets progressively more declarative → new spec files need less bespoke code.
 ### Negative / risks
-- `views.yaml` move + rekey touches the codegen broadly (parse/validator/emitters) — do it in one pass.
+- `views.yaml` → `projection_views.yaml` move + the `tables/` glob + rekey touch the codegen broadly
+  (parse/validator/emitters) — done in one pass; the `reads`-binding check had to union projection views
+  with referential-table `View_*`.
 - Enum-table reconciliation must be careful with FKs (delete a value only after dependents migrate).
 ### Follow-up actions
-- ✅ Moved `views.yaml` → `specs/database/`; added `tables.yaml` (real tables, columns may be SQL primitives
-  or scalar `$ref`s), `functions/*.sql`, and the `schema.generated.sql` emitter (real tables + `ref_<enum>`
-  lookup tables + functions + `$maxCount` trigger). `database.md` §1 is now narrative referencing it.
+- ✅ Moved `views.yaml` → `specs/database/projection_views.yaml` (renamed for what it is); the real tables
+  live under a globbed `specs/database/tables/` folder: `eventstore.yaml` (domain_events + domain_stream) and
+  `referential.yaml` (seed/config `View_*` tables — configured once by a repo seed script, not projected).
+  Columns may be SQL primitives or scalar `$ref`s. Added `functions/*.sql` and the `schema.generated.sql`
+  emitter (real tables + `ref_<enum>` lookup tables + functions + `$maxCount` trigger, per-column `index`).
+  `database.md` §1 is now narrative referencing it.
 - ✅ Screens `roles` (⊆ UserType) + `app_types` (⊆ web/ios/android/windows): added to `customer_screens.yaml`
   and validated; §11 is generic over `screens/*.yaml` (no hard-coded `customer_screens`).
 - ✅ Recorded test mode as ADR-0038.

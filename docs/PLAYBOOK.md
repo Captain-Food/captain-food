@@ -67,9 +67,10 @@ tests for business logic must pass with no telemetry stack enabled.
 ```text
 specs/                         # the DSL — source of truth
   scalars.yaml entities.yaml events.yaml commands.yaml errors.yaml
-  actors.yaml views.yaml api.yaml stories.yaml tests.yaml
+  actors.yaml api.yaml stories.yaml tests.yaml rules.yaml
   observability.yaml           # workflow observability contracts
   database.md                  # narrative + (generated) schema section
+  database/                    # DB schema as DSL: tables/*.yaml (event store + referential), projection_views.yaml, functions/*.sql
   generated/                   # GENERATED (committed; CI verifies vs the specs): docs, views.sql, schema.graphql, c4
   architecture/
     c4-l2.yaml c4-l3.yaml       # C4 as source-managed DSL

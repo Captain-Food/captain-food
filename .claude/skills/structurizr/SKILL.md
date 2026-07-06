@@ -27,7 +27,7 @@ make validate && make generate
 
 `make validate` enforces C4 consistency: every aggregate/process-manager is mapped to a bounded context
 (`c4-actor-unmapped`), and every `$ref` (container `realizes`, component `handles`/`updates`) resolves —
-so the diagrams cannot drift from `actors.yaml`/`views.yaml`.
+so the diagrams cannot drift from `actors.yaml`/`projection_views.yaml`.
 
 ## Render the Structurizr DSL
 

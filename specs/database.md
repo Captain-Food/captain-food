@@ -3,7 +3,7 @@
 The store DDL — the `domain_events` log (+ indexes), the `ce_events` / `et_events` / `all_events` helper
 functions, the `domain_stream` retention table and the `$maxCount` trigger — is **GENERATED** to
 [`specs/generated/schema.generated.sql`](generated/schema.generated.sql) from
-[`database/tables.yaml`](database/tables.yaml) and [`database/functions/`](database/functions/) (run
+[`database/tables/`](database/tables/) and [`database/functions/`](database/functions/) (run
 `make generate`). Plus one `ref_<enum>` lookup table per `scalars.yaml` enum. **This section is the
 rationale — the generated SQL is the source of truth; do not hand-write DDL here.**
 
@@ -67,7 +67,7 @@ consume events. These read tables are **"fake" tables** (denormalized, query-sha
 from the log) — to avoid any confusion with a real/normalized table, every one is prefixed
 **`View_`** (`View_{TableName}`).
 
-The read models below are the **source of truth in [views.yaml](database/projection_views.yaml)** and the per-view detail
+The read models below are the **source of truth in [projection_views.yaml](database/projection_views.yaml)** and the per-view detail
 is GENERATED from it (run `make generate`). Each view declares only what is
 intrinsic to the read model: its **source aggregate + events** ([events.yaml](events.yaml) /
 [actors.yaml](actors.yaml)), its **business filters/rules**, and its **columns**. The consumer mapping
