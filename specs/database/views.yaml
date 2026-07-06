@@ -29,6 +29,27 @@ View_RestaurantAccount:
   slice: V0
   internal: true   # admin/back-office + consulted by the RegisterRestaurant handler (account must exist); no public query
   note: "Account read model (HubRise restaurant). Holds account-level facts shared by its locations; locations denormalize default_currency from here."
+  # SQL VIEW over the log (ADR-0035 #2). *Updated carries the full entity (replace semantics), so the
+  # latest Registered-or-Updated event per stream = current state; a Deleted event drops the row.
+  definition: |
+    SELECT
+      (e.payload->>'restaurantAccountId')::uuid AS restaurant_account_id,
+      e.payload->>'ref'                         AS ref,
+      e.payload->>'legalName'                   AS legal_name,
+      e.payload->>'defaultCurrency'             AS default_currency,
+      e.payload->>'timezone'                    AS timezone,
+      e.occurred_at                             AS updated_at
+    FROM (
+      SELECT DISTINCT ON (stream_name) *
+      FROM domain_events
+      WHERE split_part(stream_name, '-', 1) = 'RestaurantAccount'
+        AND event_type IN ('RestaurantAccountRegistered', 'RestaurantAccountUpdated')
+      ORDER BY stream_name, position DESC
+    ) e
+    WHERE NOT EXISTS (
+      SELECT 1 FROM domain_events d
+      WHERE d.stream_name = e.stream_name AND d.event_type = 'RestaurantAccountDeleted'
+    )
   fedBy:
     - { $ref: 'events.yaml#/RestaurantAccountRegistered' }
     - { $ref: 'events.yaml#/RestaurantAccountUpdated' }
