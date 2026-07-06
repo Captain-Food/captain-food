@@ -5472,7 +5472,7 @@ _⚙️ process manager_ — Dispatches and tracks deliveries (bounded context: 
 | `estimated_dropoff_at` | `timestamptz` | [⚡ `DeliveryAcceptedByPartner`.`estimatedDropoffAt`](#event-deliveryacceptedbypartner--estimateddropoffat) | nullable |  |
 | `requested_at` | `timestamptz` | [⚡ `DeliveryRequested`](#event-deliveryrequested) | — | DeliveryRequested occurrence time. |
 | `picked_up_at` | `timestamptz` | [⚡ `DeliveryPickedUp`](#event-deliverypickedup) | nullable |  |
-| `delivered_at` | `timestamptz` | [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED. |
+| `delivered_at` | `timestamptz` | [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED (conditional occurrence). |
 | `last_partner_rejection` | `text` | [⚡ `DeliveryRejectedByPartner`.`reason`](#event-deliveryrejectedbypartner--reason) | nullable | Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected. |
 | `updated_at` | `timestamptz` | [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner), [⚡ `DeliveryPickedUp`](#event-deliverypickedup), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryCancelled`](#event-deliverycancelled) | — | Row write time, stamped on each event. |
 

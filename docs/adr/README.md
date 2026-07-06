@@ -69,6 +69,7 @@ Concrete architecture/domain-model decisions taken while building the specs (Acc
 | [0036](0036-domain-topology-single-origin-identity.md) | Domain topology (`{slug}.captain.food` wildcard + `restos/riders/system/api` hosts) & single-origin identity — passkey RP-ID is `captain.food`, so checkout redirects there from restaurant subdomains (extracted from the retired ARCHITECTURE_OVERVIEW.md) |
 | [0037](0037-spec-organization-schema-driven-codegen.md) | Specs organized by domain (`specs/database/` = tables/views/functions; `specs/screens/{role}_screens.yaml` with `roles`+`appTypes`); DB DDL generated (not hand-written); enum-as-table `ref_*` lookups reconciled by migration; admin via impersonation; schema-driven codegen as the north star |
 | [0038](0038-test-mode-non-production-entities.md) | Test mode — `mode: LIVE\|TEST` on Restaurant/Customer/Order/DeliveryJob; test↔test isolation, excluded from payouts/analytics/notifications; TEST order allowed on a LIVE restaurant (marked, no charge/payout) to validate receipt; test rider runs the real flow safely (Stripe/Uber/HubRise/Deliveroo convention) |
+| [0039](0039-projection-views-generated-from-lineage.md) | Projection views generated from event lineage — each view declares `strategy: fold\|materialized`; fold views' `CREATE VIEW` is GENERATED per-column from `from` (scalar-latest / occurrence / occurredWhen / derive + tombstone), killing the set-once hazard by construction; computed views stay materialized with a reason; validator-enforced |
 
 ## Proposed (deferred until app/runtime code exists)
 

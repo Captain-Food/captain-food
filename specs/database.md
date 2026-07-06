@@ -266,7 +266,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `estimated_dropoff_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
 | `requested_at` | `timestamptz` | `TIMESTAMPTZ` | — | DeliveryRequested occurrence time. |
 | `picked_up_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
-| `delivered_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED. |
+| `delivered_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED (conditional occurrence). |
 | `last_partner_rejection` | `text` | `TEXT` | nullable | Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected. |
 | `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
 

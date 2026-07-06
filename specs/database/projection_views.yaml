@@ -12,6 +12,11 @@ description: >
                   never a normalized table).
     - aggregate : primary source aggregate; a projection may fold extra sources (see `note`).
     - slice     : V0 | V1 (release slice).
+    - strategy  : how the read model is produced (ADR-0039). `fold` (DEFAULT) → the codegen GENERATES a
+                  `CREATE OR REPLACE VIEW` state-fold over domain_events from the per-column `from` lineage
+                  + the modes below (correct-by-construction). `materialized` → a `CREATE TABLE` fed by a
+                  projector; requires `materializedReason` (why it is computed, not a plain fold).
+    - tombstone : (fold) `$ref` to the event whose presence drops the row (soft delete).
     - fedBy     : events consumed by the projection (`$ref` into events.yaml).
     - filters / rules : business filters scoping the rows / derivation rules.
     - columns   : a MAP keyed by column name → { type, pk?, unique?, index?, nullable?, fk?, note? }.
@@ -23,32 +28,30 @@ description: >
     - fk        : a `$ref` binding to the target column — `{ $ref: '#/View_Name/columns/column' }` —
                   declaring the read-navigation graph (FK → GraphQL relation field). Never a bare string.
     - indexes   : secondary indexes (beyond the PK), each a list of column names.
+    Fold column modes (strategy: fold) — how the generator sources each column, inferred from `from`
+    unless a mode is declared:
+    - scalar-latest (default): the newest event (by position) that carries the column's property, scoped
+                  to the declared carrying event types. Set-once fields (property only on the creation
+                  event) fall out automatically — no latest-wins hazard.
+    - occurrence : a `timestamptz` column whose `from` are whole events (no `/properties/`) →
+                  `max(occurred_at)` over them.
+    - occurredWhen : conditional occurrence — a list of `{ event, whenPayload?: { key: value } }`;
+                  `max(occurred_at)` over events matching any clause (e.g. delivered_at only when
+                  DeliveryStatusUpdated=DELIVERED).
+    - derive    : status-from-event-type — a map `{ event_type: VALUE | { from: payloadProp } }`; the
+                  latest matching lifecycle event decides the value (literal or payload-extracted).
 
 View_RestaurantAccount:
   aggregate: RestaurantAccount
   slice: V0
   internal: true   # admin/back-office + consulted by the RegisterRestaurant handler (account must exist); no public query
   note: "Account read model (HubRise restaurant). Holds account-level facts shared by its locations; locations denormalize default_currency from here."
-  # SQL VIEW over the log (ADR-0035 #2). Each column is sourced from ITS declared `from` events (below):
-  # set-once fields (ref, default_currency — Registered only) come from the Registered event even if a
-  # later Updated exists; updatable fields (legal_name, timezone) take the latest event that carries them.
-  # A Deleted event drops the row. (See #TODO lesson: never assume latest-event-wins for set-once fields.)
-  definition: |
-    SELECT
-      (reg.payload->>'restaurantAccountId')::uuid AS restaurant_account_id,
-      reg.payload->>'ref'                         AS ref,               -- set once at registration
-      reg.payload->>'defaultCurrency'             AS default_currency,  -- set once at registration
-      (SELECT u.payload->>'legalName' FROM domain_events u
-         WHERE u.stream_name = reg.stream_name AND u.payload ? 'legalName'
-         ORDER BY u.position DESC LIMIT 1)         AS legal_name,        -- latest carrying event
-      (SELECT u.payload->>'timezone' FROM domain_events u
-         WHERE u.stream_name = reg.stream_name AND u.payload ? 'timezone'
-         ORDER BY u.position DESC LIMIT 1)         AS timezone,
-      (SELECT max(w.occurred_at) FROM domain_events w WHERE w.stream_name = reg.stream_name) AS updated_at
-    FROM domain_events reg
-    WHERE reg.event_type = 'RestaurantAccountRegistered'
-      AND NOT EXISTS (SELECT 1 FROM domain_events d
-                      WHERE d.stream_name = reg.stream_name AND d.event_type = 'RestaurantAccountDeleted')
+  # strategy: fold (default) — the codegen GENERATES the CREATE VIEW from the per-column `from` lineage
+  # (ADR-0035 #2). Set-once fields (ref, default_currency — Registered only) fall out of the per-column
+  # "latest carrying event" rule automatically; updatable fields (legal_name, timezone) take their latest
+  # carrying event; updated_at = max(occurred_at). A Deleted event drops the row (tombstone below). This is
+  # the exemplar of correct-by-construction folds — the #TODO set-once hazard is now impossible by design.
+  tombstone: { $ref: 'events.yaml#/RestaurantAccountDeleted' }
   fedBy:
     - { $ref: 'events.yaml#/RestaurantAccountRegistered' }
     - { $ref: 'events.yaml#/RestaurantAccountUpdated' }
@@ -81,6 +84,11 @@ View_RestaurantAccount:
 View_Restaurant:
   aggregate: Restaurant
   slice: V0
+  strategy: materialized
+  materializedReason: >
+    Foldable in principle, but `default_currency` is a CROSS-STREAM fold (from the account's
+    RestaurantAccountRegistered, keyed by accountId) — pending the generator's cross-stream lookup mode
+    (Stage B). Materialized until then.
   fedBy:
     - { $ref: 'events.yaml#/RestaurantRegistered' }
     - { $ref: 'events.yaml#/RestaurantUpdated' }
@@ -244,6 +252,8 @@ View_Restaurant:
 View_ProspectionPipeline:
   aggregate: Prospect
   slice: V1
+  strategy: materialized
+  materializedReason: "`score` is a weighted 0–10 formula COMPUTED by the projector from listing facts (never stored in an event) — application logic, not a SQL fold."
   note: "B2B prospection pipeline (ADR-0020): one row per worked listing, with the COMPUTED score and outreach state. Read by the admin prospectionPipeline query."
   fedBy:
     - { $ref: 'events.yaml#/RestaurantRegistered' }
@@ -303,6 +313,10 @@ nonProjectedEvents:
 View_Customer:
   aggregate: Customer
   slice: V0
+  strategy: materialized
+  materializedReason: >
+    Scalar columns are foldable, but `favorite_restaurant_ids`/`addresses`/`ratings` are jsonb ACCUMULATIONS
+    with add/remove semantics — pending the generator's accumulate mode (Stage C). Materialized until then.
   note: "Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs VerifyPhone idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts. The stored `locale` localizes authenticated SMS/email sends."
   fedBy:
     - { $ref: 'events.yaml#/CustomerRegistered' }
@@ -393,6 +407,8 @@ View_Customer:
 View_Catalog:
   aggregate: Catalog
   slice: V0
+  strategy: materialized
+  materializedReason: "`catalog` is a nested category→product→offer TREE assembled by the projector from an add/update/remove event stream, plus derived stock_status and per-offer uberPrice — not a SQL fold."
   fedBy:
     - { $ref: 'events.yaml#/CatalogCreated' }
     - { $ref: 'events.yaml#/CatalogCategoryAdded' }
@@ -448,6 +464,8 @@ View_Catalog:
 View_Cart:
   aggregate: Cart
   slice: V0
+  strategy: materialized
+  materializedReason: "Prices/`estimated_breakdown`/`uber_comparison` are COMPUTED by the projector from the live catalog + pricing policies (service-fee split, clamping) — business arithmetic, not a SQL fold."
   note: "Joined with the catalog for pricing (secondary source)."
   fedBy:
     - { $ref: 'events.yaml#/CartStarted' }
@@ -528,6 +546,8 @@ View_Cart:
 View_OrderTracking:
   aggregate: Order
   slice: V0
+  strategy: materialized
+  materializedReason: "Folds order + Stripe + delivery, but `*_tip_cents` (Σ by recipient over a jsonb tips array) and the `uber_*` comparison are COMPUTED by the projector — application logic, not a SQL fold."
   note: >
     The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary
     source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status
@@ -764,6 +784,16 @@ View_DeliveryJob:
       fk: { $ref: '#/View_Restaurant/columns/restaurant_id' }
     status:
       type: { $ref: 'scalars.yaml#/DeliveryStatus' }
+      # status-from-event-type: the latest lifecycle event decides the status. DeliveryStatusUpdated carries
+      # the concrete status in its payload; the others map by type.
+      derive:
+        DeliveryRequested: PENDING
+        DeliveryAcceptedByRider: ASSIGNED
+        DeliveryAcceptedByPartner: ASSIGNED
+        DeliveryPickedUp: PICKED_UP
+        DeliveryStatusUpdated: { from: status }
+        DeliveryCompleted: DELIVERED
+        DeliveryCancelled: CANCELLED
       from:
         - { $ref: 'events.yaml#/DeliveryRequested' }
         - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
@@ -775,6 +805,9 @@ View_DeliveryJob:
       note: "Derived from the lifecycle event type / DeliveryStatusUpdated.status."
     provider:
       type: { $ref: 'scalars.yaml#/DeliveryProvider' }
+      derive:
+        DeliveryAcceptedByRider: INDEPENDENT
+        DeliveryAcceptedByPartner: PARTNER
       from:
         - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
         - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
@@ -821,11 +854,14 @@ View_DeliveryJob:
       nullable: true
     delivered_at:
       type: timestamptz
+      occurredWhen:
+        - { event: DeliveryCompleted }
+        - { event: DeliveryStatusUpdated, whenPayload: { status: DELIVERED } }
       from:
         - { $ref: 'events.yaml#/DeliveryCompleted' }
         - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
       nullable: true
-      note: "Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED."
+      note: "Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED (conditional occurrence)."
     last_partner_rejection:
       type: text
       from: [{ $ref: 'events.yaml#/DeliveryRejectedByPartner/properties/reason' }]

@@ -713,6 +713,36 @@ fn validate(model: &Model) -> Report {
         }
     }
 
+    // 5b-bis. Per-view read-model strategy (ADR-0035 #2): a fold view must be generatable from its
+    // column lineage; a materialized view must say why it is projector-fed (not just unfinished).
+    for view in &views {
+        if view.reference {
+            continue;
+        }
+        match view.strategy {
+            ViewStrategy::Fold => {
+                if view.definition.is_none() {
+                    if let Err(e) = generate_fold_sql(view, model) {
+                        issues.push(err(
+                            "view-fold-ungeneratable",
+                            format!("projection_views.yaml/{}", view.name),
+                            format!("strategy: fold but the SQL cannot be generated: {}", e),
+                        ));
+                    }
+                }
+            }
+            ViewStrategy::Materialized => {
+                if view.materialized_reason.as_deref().unwrap_or("").trim().is_empty() {
+                    issues.push(warn(
+                        "view-materialized-no-reason",
+                        format!("projection_views.yaml/{}", view.name),
+                        "strategy: materialized should declare `materializedReason` (why it is projector-fed).".into(),
+                    ));
+                }
+            }
+        }
+    }
+
     // 5c. type `reads` (api.yaml) bind output types to views.
     {
         // Valid read targets = projection views (projection_views.yaml) PLUS reference/config tables
@@ -1465,6 +1495,13 @@ fn emit_translations_json(model: &Model) -> String {
 // ─── views.generated.sql (port of emit/database.ts `emitViewsSql`) ──────────────────────────────
 // Byte-identical CREATE TABLE + index DDL for every View_* (aggregate-fed or `source: reference`).
 
+/// One arm of a `status-from-event-type` derivation: for a given event type, the column's value is
+/// either a literal enum value (`Lit`) or extracted from that event's payload (`Payload(prop)`).
+#[derive(Clone)]
+enum DeriveVal {
+    Lit(String),
+    Payload(String),
+}
 struct SqlColumn {
     name: String,
     ty: String,
@@ -1476,6 +1513,21 @@ struct SqlColumn {
     note: Option<String>,
     from: Vec<String>,   // event/property $ref strings that populate the column
     type_derived: bool,  // type was derived from `from` (not declared explicitly)
+    /// `status-from-event-type` derivation map (event_type → value), in declared order. Empty = none.
+    derive: Vec<(String, DeriveVal)>,
+    /// Conditional occurrence-time: `max(occurred_at)` over events matching any (event_type [+ payload
+    /// equalities]) clause — e.g. delivered_at = when DeliveryCompleted OR DeliveryStatusUpdated=DELIVERED.
+    occurred_when: Vec<(String, Vec<(String, String)>)>,
+}
+/// How a projection view's read model is produced (ADR-0035 #2 / ADR-0037).
+#[derive(Clone, PartialEq)]
+enum ViewStrategy {
+    /// A pure state fold over `domain_events` — the codegen emits a `CREATE OR REPLACE VIEW` from the
+    /// per-column `from` lineage + derivation modes (correct-by-construction).
+    Fold,
+    /// Computed by a projector (pricing/tree/score/…) or a fold not yet expressible — a materialized
+    /// `CREATE TABLE` fed by application code; `materialized_reason` says why.
+    Materialized,
 }
 struct SqlView {
     name: String,
@@ -1489,8 +1541,12 @@ struct SqlView {
     fedby: Vec<String>,
     columns: Vec<SqlColumn>,
     indexes: Vec<Vec<String>>,
-    /// Optional SQL projection (ADR-0035 #2): when set, the view is emitted as a
-    /// `CREATE OR REPLACE VIEW … AS <definition>` over `domain_events` instead of a `CREATE TABLE`.
+    strategy: ViewStrategy,
+    /// Why the view is materialized (required when strategy = Materialized).
+    materialized_reason: Option<String>,
+    /// Event type whose presence in the stream drops the row (soft-delete tombstone), if any.
+    tombstone: Option<String>,
+    /// Hand-written SQL override (escape hatch): when set, used verbatim instead of the generated fold.
     definition: Option<String>,
 }
 
@@ -1614,6 +1670,41 @@ fn parse_col(name: String, col: &Value, events: &Value) -> SqlColumn {
     };
     let type_derived = !has_explicit && !ty.is_empty();
     let flag = |k: &str| col.get(k).and_then(|x| x.as_bool()) == Some(true);
+    // `derive:` — an event_type → value map for status-from-event-type columns. A string value is a
+    // literal enum value; `{ from: prop }` extracts the value from that event's payload.
+    let mut derive = Vec::new();
+    if let Some(dm) = col.get("derive").and_then(|d| d.as_mapping()) {
+        for (dk, dv) in dm {
+            if let Some(evt) = dk.as_str() {
+                let val = match dv {
+                    Value::String(s) => DeriveVal::Lit(s.clone()),
+                    v => match v.get("from").and_then(|x| x.as_str()) {
+                        Some(p) => DeriveVal::Payload(p.to_string()),
+                        None => continue,
+                    },
+                };
+                derive.push((evt.to_string(), val));
+            }
+        }
+    }
+    // `occurredWhen:` — a list of { event, whenPayload?: { key: value } } clauses; the column is the
+    // max(occurred_at) over events matching any clause (conditional occurrence time).
+    let mut occurred_when = Vec::new();
+    if let Some(seq) = col.get("occurredWhen").and_then(|d| d.as_sequence()) {
+        for clause in seq {
+            if let Some(evt) = clause.get("event").and_then(|x| x.as_str()) {
+                let mut conds = Vec::new();
+                if let Some(wp) = clause.get("whenPayload").and_then(|x| x.as_mapping()) {
+                    for (pk, pv) in wp {
+                        if let (Some(k), Some(v)) = (pk.as_str(), pv.as_str()) {
+                            conds.push((k.to_string(), v.to_string()));
+                        }
+                    }
+                }
+                occurred_when.push((evt.to_string(), conds));
+            }
+        }
+    }
     SqlColumn {
         name,
         ty,
@@ -1625,6 +1716,8 @@ fn parse_col(name: String, col: &Value, events: &Value) -> SqlColumn {
         note: col.get("note").and_then(|x| x.as_str()).map(|s| s.to_string()),
         from,
         type_derived,
+        derive,
+        occurred_when,
     }
 }
 
@@ -1666,6 +1759,14 @@ fn parse_views(model: &Model) -> Vec<SqlView> {
                 }
             }
             let aggregate = node.get("aggregate").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let strategy = match node.get("strategy").and_then(|x| x.as_str()) {
+                Some("materialized") => ViewStrategy::Materialized,
+                _ => ViewStrategy::Fold, // default: generate the fold from lineage
+            };
+            let tombstone = node
+                .get("tombstone")
+                .and_then(|t| t.get("$ref").and_then(|r| r.as_str()))
+                .and_then(ref_name);
             out.push(SqlView {
                 name: name.to_string(),
                 aggregate,
@@ -1678,6 +1779,9 @@ fn parse_views(model: &Model) -> Vec<SqlView> {
                 fedby: ref_names(node.get("fedBy")),
                 columns,
                 indexes,
+                strategy,
+                materialized_reason: node.get("materializedReason").and_then(|x| x.as_str()).map(|s| s.to_string()),
+                tombstone,
                 definition: node.get("definition").and_then(|x| x.as_str()).map(|s| s.trim_end().to_string()),
             });
         }
@@ -1685,14 +1789,165 @@ fn parse_views(model: &Model) -> Vec<SqlView> {
     out
 }
 
+/// Split an event/property `$ref` into (event_type, Option<property>). A whole-event ref has no property.
+fn event_and_prop(r: &str) -> (String, Option<String>) {
+    let ptr = r.splitn(2, "#/").nth(1).unwrap_or("");
+    let segs: Vec<&str> = ptr.split('/').filter(|s| !s.is_empty()).collect();
+    let evt = segs.first().copied().unwrap_or("").to_string();
+    let prop = if segs.len() >= 3 && segs[1] == "properties" { Some(segs[2].to_string()) } else { None };
+    (evt, prop)
+}
+
+/// Postgres cast suffix for a resolved SQL type (JSONB reads via `->` and needs no cast → "").
+fn pg_cast(pgty: &str) -> &'static str {
+    match pgty {
+        "UUID" => "::uuid",
+        "INTEGER" => "::int",
+        "BIGINT" => "::bigint",
+        "NUMERIC" => "::numeric",
+        "BOOLEAN" => "::boolean",
+        "TIMESTAMPTZ" => "::timestamptz",
+        _ => "",
+    }
+}
+
+/// A payload extraction expression for `<alias>.payload`'s `prop`, typed to `pgty`.
+fn payload_extract(alias: &str, prop: &str, pgty: &str) -> String {
+    if pgty == "JSONB" {
+        format!("{}.payload->'{}'", alias, prop)
+    } else {
+        let c = pg_cast(pgty);
+        if c.is_empty() {
+            format!("{}.payload->>'{}'", alias, prop)
+        } else {
+            format!("({}.payload->>'{}'){}", alias, prop, c)
+        }
+    }
+}
+
+/// Generate a `SELECT … FROM domain_events` state-fold body for a foldable view (ADR-0035 #2), sourcing
+/// each column from its declared `from` lineage + derivation mode. Correct-by-construction: set-once
+/// fields fall out of the per-column "latest carrying event" rule, so there is no latest-wins hazard.
+fn generate_fold_sql(v: &SqlView, model: &Model) -> Result<String, String> {
+    // The creation event = the event carrying the PK column; it defines row existence (one row per stream).
+    let pk = v.columns.iter().find(|c| c.pk).ok_or_else(|| "no PK column".to_string())?;
+    let creation = pk
+        .from
+        .iter()
+        .filter_map(|r| { let (e, p) = event_and_prop(r); p.map(|_| e) })
+        .next()
+        .ok_or_else(|| format!("PK column '{}' has no property `from` to anchor the creation event", pk.name))?;
+
+    let mut selects: Vec<String> = Vec::new();
+    for c in &v.columns {
+        let pgty = sql_type(&c.ty, model);
+        let expr = if !c.occurred_when.is_empty() {
+            // conditional occurrence: max(occurred_at) over events matching any (type [+ payload =]) clause.
+            let clauses: Vec<String> = c
+                .occurred_when
+                .iter()
+                .map(|(evt, conds)| {
+                    let mut parts = vec![format!("e.event_type = '{}'", evt)];
+                    for (k, val) in conds {
+                        parts.push(format!("e.payload->>'{}' = '{}'", k, val));
+                    }
+                    if parts.len() == 1 { parts.remove(0) } else { format!("({})", parts.join(" AND ")) }
+                })
+                .collect();
+            format!(
+                "(SELECT max(e.occurred_at) FROM domain_events e\n     WHERE e.stream_name = c.stream_name AND ({}))",
+                clauses.join(" OR ")
+            )
+        } else if !c.derive.is_empty() {
+            // status-from-event-type: CASE over the latest matching lifecycle event.
+            let arms: Vec<String> = c
+                .derive
+                .iter()
+                .map(|(evt, val)| match val {
+                    DeriveVal::Lit(s) => format!("WHEN '{}' THEN '{}'", evt, s),
+                    DeriveVal::Payload(p) => format!("WHEN '{}' THEN e.payload->>'{}'", evt, p),
+                })
+                .collect();
+            let types: Vec<String> = c.derive.iter().map(|(e, _)| format!("'{}'", e)).collect();
+            format!(
+                "(SELECT CASE e.event_type {} END FROM domain_events e\n     WHERE e.stream_name = c.stream_name AND e.event_type IN ({})\n     ORDER BY e.position DESC LIMIT 1)",
+                arms.join(" "),
+                types.join(", ")
+            )
+        } else {
+            let carrying: Vec<(String, String)> = c
+                .from
+                .iter()
+                .filter_map(|r| { let (e, p) = event_and_prop(r); p.map(|p| (e, p)) })
+                .collect();
+            let whole: Vec<String> =
+                c.from.iter().filter_map(|r| { let (e, p) = event_and_prop(r); if p.is_none() { Some(e) } else { None } }).collect();
+            if c.ty == "timestamptz" && carrying.is_empty() && !whole.is_empty() {
+                // occurrence time: max(occurred_at) over the contributing event types.
+                if whole.len() == 1 && whole[0] == creation {
+                    "c.occurred_at".to_string()
+                } else {
+                    let types: Vec<String> = whole.iter().map(|e| format!("'{}'", e)).collect();
+                    format!(
+                        "(SELECT max(e.occurred_at) FROM domain_events e\n     WHERE e.stream_name = c.stream_name AND e.event_type IN ({}))",
+                        types.join(", ")
+                    )
+                }
+            } else if let Some((_, prop)) = carrying.first() {
+                // scalar "latest carrying event": the newest event whose payload holds this property.
+                let only_creation = carrying.iter().all(|(e, _)| e == &creation);
+                if only_creation {
+                    payload_extract("c", prop, &pgty)
+                } else {
+                    // Scope by the declared carrying event types AND the property key — so a JSON key shared
+                    // by an unrelated event type can never win over the intended source.
+                    let mut types: Vec<String> = Vec::new();
+                    for (e, _) in &carrying {
+                        let q = format!("'{}'", e);
+                        if !types.contains(&q) {
+                            types.push(q);
+                        }
+                    }
+                    format!(
+                        "(SELECT {} FROM domain_events e\n     WHERE e.stream_name = c.stream_name AND e.event_type IN ({}) AND e.payload ? '{}'\n     ORDER BY e.position DESC LIMIT 1)",
+                        payload_extract("e", prop, &pgty),
+                        types.join(", "),
+                        prop
+                    )
+                }
+            } else {
+                return Err(format!(
+                    "column '{}' is not foldable (no property `from`, not a timestamp occurrence, no `derive`) — declare `strategy: materialized` or add a mode",
+                    c.name
+                ));
+            }
+        };
+        selects.push(format!("  {} AS {}", expr, c.name));
+    }
+
+    let mut sql = format!("SELECT\n{}\nFROM domain_events c\nWHERE c.event_type = '{}'", selects.join(",\n"), creation);
+    if let Some(tomb) = &v.tombstone {
+        sql.push_str(&format!(
+            "\n  AND NOT EXISTS (SELECT 1 FROM domain_events d\n                  WHERE d.stream_name = c.stream_name AND d.event_type = '{}')",
+            tomb
+        ));
+    }
+    Ok(sql)
+}
+
 fn emit_views_sql(model: &Model) -> String {
     let mut blocks = Vec::new();
     for v in parse_views(model) {
-        // A view with a `definition` is a real SQL VIEW over domain_events (ADR-0035 #2). Plain views
-        // take no explicit column DDL or indexes (the SELECT defines the shape; the base domain_events
-        // carries the indexes). Views without a definition — and reference/seed views — stay CREATE TABLE.
-        if let Some(def) = &v.definition {
-            blocks.push(format!("CREATE OR REPLACE VIEW {} AS\n{};", v.name, def));
+        // Fold views (ADR-0035 #2) → CREATE OR REPLACE VIEW over domain_events, from a hand-written
+        // `definition` override if present, else generated from the column `from` lineage. Materialized
+        // views (computed/projector-fed) and reference/seed views → CREATE TABLE.
+        if v.strategy == ViewStrategy::Fold {
+            let body = match &v.definition {
+                Some(def) => def.clone(),
+                None => generate_fold_sql(&v, model)
+                    .unwrap_or_else(|e| panic!("projection_views.yaml#/{}: cannot generate fold: {}", v.name, e)),
+            };
+            blocks.push(format!("CREATE OR REPLACE VIEW {} AS\n{};", v.name, body));
             continue;
         }
         let mut cols = Vec::new();
@@ -1723,7 +1978,7 @@ fn emit_views_sql(model: &Model) -> String {
         blocks.push(if idx.is_empty() { ddl } else { format!("{}\n{}", ddl, idx.join("\n")) });
     }
     format!(
-        "-- GENERATED by tools/codegen from specs/database/projection_views.yaml — do not edit by hand.\n-- Read models (View_*): SQL VIEWS over domain_events where a `definition` is declared (ADR-0035 #2);\n-- reference/seed views and not-yet-defined ones are CREATE TABLE (materialized, projector-fed).\n\n{}\n",
+        "-- GENERATED by tools/codegen from specs/database/projection_views.yaml — do not edit by hand.\n-- Read models (View_*): `strategy: fold` → a CREATE OR REPLACE VIEW state-fold over domain_events,\n-- generated from each column's `from` lineage (ADR-0035 #2); `strategy: materialized` → a CREATE TABLE\n-- fed by a projector (computed columns: pricing/tree/score/…).\n\n{}\n",
         blocks.join("\n\n")
     )
 }
