@@ -64,5 +64,16 @@ consistency with zero extra infrastructure — but **rejected**:
   acceptable for V0; a hot read model can be revisited later.
 - The projector is a deferred contract — the tables are declared but unfilled until `crates/` exists.
 
+## Implementation (generated, incremental)
+The projectors are themselves generated from the specs (spec-driven), landing in slices:
+- **Slice 1 (done):** a typed `DomainEvent` enum in `crates/domain/src/generated/events.rs` (adjacently
+  tagged `{eventType, payload}`) for dispatch, and the `<Table>Row` structs in
+  `crates/application/src/generated/rows.rs` (one per projection table; scalars → newtypes, jsonb/entity
+  columns → `serde_json::Value`, timestamps → `chrono`).
+- **Slice 2 (next):** per-table `apply(state, envelope) -> Option<Row>` folds — the mechanical columns
+  (scalar-latest / derive / occurrence / tombstone) generated from the `from` lineage, the computed /
+  cross-stream / accumulate columns delegated to a generated per-table `Compute` hook trait the
+  application implements by hand (business logic stays hand-written and tested).
+
 ## References
 Extends ADR-0039; refines ADR-0005/0035 #2. Builds on the `tables/` folder from ADR-0037.
