@@ -193,7 +193,7 @@ types:
       timezone: { $ref: 'scalars.yaml#/TimeZone', nullable: true }
   PhoneCountry:
     description: "A selectable phone country for the dialing-code picker (static reference data)."
-    reads: [{ $ref: 'database/tables/referential.yaml#/View_PhoneCountry' }]
+    reads: [{ $ref: 'database/tables/referential.yaml#/PhoneCountry' }]
     properties:
       country: { $ref: 'scalars.yaml#/CountryCode' }
       dialingCode: { $ref: 'scalars.yaml#/DialingCode' }
@@ -246,7 +246,7 @@ types:
       repliedAt: { type: string, format: date-time, nullable: true }
   PricingPolicy:
     description: "The calibratable Captain service-fee policy (ADR-0016/0017); admin/transparency."
-    reads: [{ $ref: 'database/tables/referential.yaml#/View_PricingPolicy' }]
+    reads: [{ $ref: 'database/tables/referential.yaml#/PricingPolicy' }]
     properties:
       currency: { $ref: 'scalars.yaml#/CurrencyCode' }
       feeRate: { type: number }
@@ -256,14 +256,14 @@ types:
       effectiveFrom: { type: string, format: date-time }
   UberEstimationPolicy:
     description: "Calibratable per-cuisine Uber Eats mark-up coefficient (ADR-0024/0030); admin/transparency."
-    reads: [{ $ref: 'database/tables/referential.yaml#/View_UberEstimationPolicy' }]
+    reads: [{ $ref: 'database/tables/referential.yaml#/UberEstimationPolicy' }]
     properties:
       cuisineCategory: { $ref: 'scalars.yaml#/CuisineCategory' }
       priceCoefficient: { type: number }
       effectiveFrom: { type: string, format: date-time }
   UberSplitPolicy:
     description: "Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025/0030); admin/transparency."
-    reads: [{ $ref: 'database/tables/referential.yaml#/View_UberSplitPolicy' }]
+    reads: [{ $ref: 'database/tables/referential.yaml#/UberSplitPolicy' }]
     properties:
       currency: { $ref: 'scalars.yaml#/CurrencyCode' }
       uberCommissionPct: { type: number }

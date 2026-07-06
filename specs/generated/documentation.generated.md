@@ -4339,7 +4339,7 @@ _Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favo
 Selectable phone countries for the dialing-code picker (static reference data; the picker sends back the dialingCode '+33').
 
 - **Input**: _(none)_
-- **Returns**: [🧩 `PhoneCountry`](#type-phonecountry) (list) · **reads** [🗄️ `View_PhoneCountry`](#view-view_phonecountry)
+- **Returns**: [🧩 `PhoneCountry`](#type-phonecountry) (list) · **reads** [🗄️ `PhoneCountry`](#view-phonecountry)
 - **Roles**: PUBLIC · **slice** V0
 
 <a id="query-me"></a>
@@ -5867,7 +5867,7 @@ Poll a command/operation's status by its correlationId (the pull counterpart of 
 The active Captain service-fee policy (admin; calibration/transparency).
 
 - **Input**: _(none)_
-- **Returns**: [🧩 `PricingPolicy`](#type-pricingpolicy) (list) · **reads** [🗄️ `View_PricingPolicy`](#view-view_pricingpolicy)
+- **Returns**: [🧩 `PricingPolicy`](#type-pricingpolicy) (list) · **reads** [🗄️ `PricingPolicy`](#view-pricingpolicy)
 - **Roles**: ADMIN · **slice** V1
 
 <a id="query-uberestimationpolicy"></a>
@@ -5876,7 +5876,7 @@ The active Captain service-fee policy (admin; calibration/transparency).
 The active per-cuisine Uber Eats mark-up coefficients (admin; calibration/transparency).
 
 - **Input**: _(none)_
-- **Returns**: [🧩 `UberEstimationPolicy`](#type-uberestimationpolicy) (list) · **reads** [🗄️ `View_UberEstimationPolicy`](#view-view_uberestimationpolicy)
+- **Returns**: [🧩 `UberEstimationPolicy`](#type-uberestimationpolicy) (list) · **reads** [🗄️ `UberEstimationPolicy`](#view-uberestimationpolicy)
 - **Roles**: ADMIN · **slice** V1
 
 <a id="query-ubersplitpolicy"></a>
@@ -5885,7 +5885,7 @@ The active per-cuisine Uber Eats mark-up coefficients (admin; calibration/transp
 The active Uber Eats split/fee assumptions for the estimated comparison (admin; calibration/transparency).
 
 - **Input**: _(none)_
-- **Returns**: [🧩 `UberSplitPolicy`](#type-ubersplitpolicy) (list) · **reads** [🗄️ `View_UberSplitPolicy`](#view-view_ubersplitpolicy)
+- **Returns**: [🧩 `UberSplitPolicy`](#type-ubersplitpolicy) (list) · **reads** [🗄️ `UberSplitPolicy`](#view-ubersplitpolicy)
 - **Roles**: ADMIN · **slice** V1
 
 <a id="subscription-operationstatuschanged"></a>
@@ -5972,7 +5972,7 @@ A selectable option within an option list.
 
 A selectable phone country for the dialing-code picker (static reference data).
 
-- **Read model**: [🗄️ `View_PhoneCountry`](#view-view_phonecountry)
+- **Read model**: [🗄️ `PhoneCountry`](#view-phonecountry)
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -6015,7 +6015,7 @@ Live status of a command/operation, streamed by the `operationStatusChanged` sub
 
 The calibratable Captain service-fee policy (ADR-0016/0017); admin/transparency.
 
-- **Read model**: [🗄️ `View_PricingPolicy`](#view-view_pricingpolicy)
+- **Read model**: [🗄️ `PricingPolicy`](#view-pricingpolicy)
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -6031,7 +6031,7 @@ The calibratable Captain service-fee policy (ADR-0016/0017); admin/transparency.
 
 Calibratable per-cuisine Uber Eats mark-up coefficient (ADR-0024/0030); admin/transparency.
 
-- **Read model**: [🗄️ `View_UberEstimationPolicy`](#view-view_uberestimationpolicy)
+- **Read model**: [🗄️ `UberEstimationPolicy`](#view-uberestimationpolicy)
 
 | Field | Type | Required |
 | --- | --- | --- |
@@ -6044,7 +6044,7 @@ Calibratable per-cuisine Uber Eats mark-up coefficient (ADR-0024/0030); admin/tr
 
 Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025/0030); admin/transparency.
 
-- **Read model**: [🗄️ `View_UberSplitPolicy`](#view-view_ubersplitpolicy)
+- **Read model**: [🗄️ `UberSplitPolicy`](#view-ubersplitpolicy)
 
 | Field | Type | Required |
 | --- | --- | --- |

@@ -716,14 +716,14 @@ fn validate(model: &Model) -> Report {
     // 5c. type `reads` (api.yaml) bind output types to views.
     {
         // Valid read targets = projection views (projection_views.yaml) PLUS reference/config tables
-        // named View_* under database/tables/*.yaml (referential.yaml) — both back queries via `reads`.
+        // under database/tables/*.yaml that opt in with `reference: true` (referential.yaml) — both back
+        // queries via `reads`. The event-store tables (domain_events/domain_stream) are NOT read targets.
         let mut view_names: BTreeSet<String> = views.iter().map(|v| v.name.clone()).collect();
-        for (k, val) in model.defs.iter().filter(|(k, _)| k.starts_with("database/tables/")) {
-            let _ = k;
+        for (_k, val) in model.defs.iter().filter(|(k, _)| k.starts_with("database/tables/")) {
             if let Value::Mapping(m) = val {
-                for (tk, _) in m {
+                for (tk, tv) in m {
                     if let Some(n) = tk.as_str() {
-                        if n.starts_with("View_") {
+                        if tv.get("reference").and_then(|b| b.as_bool()) == Some(true) {
                             view_names.insert(n.to_string());
                         }
                     }

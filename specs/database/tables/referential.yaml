@@ -1,11 +1,14 @@
 version: 1
 description: >
   Reference / configuration tables (ADR-0037) — seeded once by a repo script, NOT projected from
-  domain_events. They keep the `View_*` names because queries read them (api.yaml `reads`). The codegen
-  emits their structure (CREATE TABLE + indexes); the seed rows are applied by a separate migration/seed
-  script. Column `type` is a scalars.yaml `$ref` or an inline SQL primitive, like tables/eventstore.yaml.
+  domain_events. Plain tables (no `View_` prefix — they are authoritative seeded data, not projections),
+  each marked `reference: true` so the validator accepts them as query `reads` targets alongside the
+  event-fed projection views. The codegen emits their structure (CREATE TABLE + indexes); the seed rows
+  are applied by a separate migration/seed script. Column `type` is a scalars.yaml `$ref` or an inline SQL
+  primitive, like tables/eventstore.yaml.
 
-View_PhoneCountry:
+PhoneCountry:
+  reference: true
   description: "Phone-country reference for the dialing-code picker. Serves the phoneCountries query; the picker emits dialing_code ('+33')."
   columns:
     country:        { type: { $ref: 'scalars.yaml#/CountryCode' }, pk: true }
@@ -13,7 +16,8 @@ View_PhoneCountry:
     name:           { type: text }
     default_locale: { type: { $ref: 'scalars.yaml#/Locale' } }
 
-View_PricingPolicy:
+PricingPolicy:
+  reference: true
   description: >
     Calibratable Captain service-fee policy (ADR-0016/0017); one active row per currency. Seeded with the
     ADR-0017 indicative values: fee_rate 5.0, buyer_share 60.0, margin_low 55.0, margin_high 70.0.
@@ -25,7 +29,8 @@ View_PricingPolicy:
     margin_high:    { type: numeric }
     effective_from: { type: timestamptz }
 
-View_UberEstimationPolicy:
+UberEstimationPolicy:
+  reference: true
   description: >
     Per-cuisine Uber Eats price mark-up coefficient (ADR-0024); one row per CuisineCategory. Seeded:
     FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40, BISTRONOMIC 1.45, FOOD_TRUCK 1.35.
@@ -34,7 +39,8 @@ View_UberEstimationPolicy:
     price_coefficient: { type: numeric }
     effective_from:    { type: timestamptz }
 
-View_UberSplitPolicy:
+UberSplitPolicy:
+  reference: true
   description: >
     Calibratable Uber Eats split/fee assumptions for the estimated comparison (ADR-0024/0025); one row per
     currency. Seeded: uber_commission_pct 30.0, rider_base_cents 285, rider_per_km_cents 80,

@@ -126,15 +126,15 @@ CREATE TABLE domain_stream (
   max_count INTEGER NULL
 );
 
-CREATE TABLE View_PhoneCountry (
+CREATE TABLE PhoneCountry (
   country TEXT PRIMARY KEY,
   dialing_code TEXT NOT NULL,
   name TEXT NOT NULL,
   default_locale TEXT NOT NULL
 );
-CREATE INDEX ON View_PhoneCountry (dialing_code);
+CREATE INDEX ON PhoneCountry (dialing_code);
 
-CREATE TABLE View_PricingPolicy (
+CREATE TABLE PricingPolicy (
   currency TEXT PRIMARY KEY,
   fee_rate NUMERIC NOT NULL,
   buyer_share NUMERIC NOT NULL,
@@ -143,13 +143,13 @@ CREATE TABLE View_PricingPolicy (
   effective_from TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE View_UberEstimationPolicy (
+CREATE TABLE UberEstimationPolicy (
   cuisine_category TEXT PRIMARY KEY,
   price_coefficient NUMERIC NOT NULL,
   effective_from TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE View_UberSplitPolicy (
+CREATE TABLE UberSplitPolicy (
   currency TEXT PRIMARY KEY,
   uber_commission_pct NUMERIC NOT NULL,
   rider_base_cents INTEGER NOT NULL,
