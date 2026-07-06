@@ -126,6 +126,39 @@ CREATE TABLE domain_stream (
   max_count INTEGER NULL
 );
 
+CREATE TABLE View_PhoneCountry (
+  country TEXT PRIMARY KEY,
+  dialing_code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  default_locale TEXT NOT NULL
+);
+CREATE INDEX ON View_PhoneCountry (dialing_code);
+
+CREATE TABLE View_PricingPolicy (
+  currency TEXT PRIMARY KEY,
+  fee_rate NUMERIC NOT NULL,
+  buyer_share NUMERIC NOT NULL,
+  margin_low NUMERIC NOT NULL,
+  margin_high NUMERIC NOT NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE View_UberEstimationPolicy (
+  cuisine_category TEXT PRIMARY KEY,
+  price_coefficient NUMERIC NOT NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE View_UberSplitPolicy (
+  currency TEXT PRIMARY KEY,
+  uber_commission_pct NUMERIC NOT NULL,
+  rider_base_cents INTEGER NOT NULL,
+  rider_per_km_cents INTEGER NOT NULL,
+  avg_delivery_fee_cents INTEGER NOT NULL,
+  platform_fee_pct NUMERIC NOT NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+
 -- all_events(): the entire log in global order — the SQL equivalent of EventStoreDB's $all stream.
 -- Inspection/replay only (projections track a checkpoint on position); never a read path.
 -- all_events()  ==  SELECT * FROM domain_events ORDER BY position

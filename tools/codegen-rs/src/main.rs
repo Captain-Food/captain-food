@@ -715,7 +715,21 @@ fn validate(model: &Model) -> Report {
 
     // 5c. type `reads` (api.yaml) bind output types to views.
     {
-        let view_names: BTreeSet<&str> = views.iter().map(|v| v.name.as_str()).collect();
+        // Valid read targets = projection views (projection_views.yaml) PLUS reference/config tables
+        // named View_* under database/tables/*.yaml (referential.yaml) — both back queries via `reads`.
+        let mut view_names: BTreeSet<String> = views.iter().map(|v| v.name.clone()).collect();
+        for (k, val) in model.defs.iter().filter(|(k, _)| k.starts_with("database/tables/")) {
+            let _ = k;
+            if let Value::Mapping(m) = val {
+                for (tk, _) in m {
+                    if let Some(n) = tk.as_str() {
+                        if n.starts_with("View_") {
+                            view_names.insert(n.to_string());
+                        }
+                    }
+                }
+            }
+        }
         let internal_views: BTreeSet<&str> = views.iter().filter(|v| v.internal).map(|v| v.name.as_str()).collect();
         let mut bound_views: BTreeSet<String> = BTreeSet::new();
         for t in &api.types {
@@ -1835,6 +1849,15 @@ fn emit_schema_sql(model: &Model, specs: &std::path::Path) -> String {
                 }
             }
             let mut block = format!("CREATE TABLE {} (\n{}\n);", name, lines.join(",\n"));
+            // per-column `index: true` (non-pk) → a single-column index (e.g. referential dialing_code).
+            for (ck, cv) in cols {
+                if let Some(cn) = ck.as_str() {
+                    let f = |x: &str| cv.get(x).and_then(|b| b.as_bool()) == Some(true);
+                    if f("index") && !f("pk") {
+                        block.push_str(&format!("\nCREATE INDEX ON {} ({});", name, cn));
+                    }
+                }
+            }
             if let Some(seq) = node.get("indexes").and_then(|x| x.as_sequence()) {
                 for ix in seq {
                     if let Some(cols) = ix.as_sequence() {

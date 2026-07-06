@@ -79,39 +79,6 @@ CREATE TABLE View_Customer (
 );
 CREATE INDEX ON View_Customer (auth_ref);
 
-CREATE TABLE View_PhoneCountry (
-  country TEXT PRIMARY KEY,
-  dialing_code TEXT NOT NULL,
-  name TEXT NOT NULL,
-  default_locale TEXT NOT NULL
-);
-CREATE INDEX ON View_PhoneCountry (dialing_code);
-
-CREATE TABLE View_PricingPolicy (
-  currency TEXT PRIMARY KEY,
-  fee_rate NUMERIC NOT NULL,
-  buyer_share NUMERIC NOT NULL,
-  margin_low NUMERIC NOT NULL,
-  margin_high NUMERIC NOT NULL,
-  effective_from TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE View_UberEstimationPolicy (
-  cuisine_category TEXT PRIMARY KEY,
-  price_coefficient NUMERIC NOT NULL,
-  effective_from TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE View_UberSplitPolicy (
-  currency TEXT PRIMARY KEY,
-  uber_commission_pct NUMERIC NOT NULL,
-  rider_base_cents INTEGER NOT NULL,
-  rider_per_km_cents INTEGER NOT NULL,
-  avg_delivery_fee_cents INTEGER NOT NULL,
-  platform_fee_pct NUMERIC NOT NULL,
-  effective_from TIMESTAMPTZ NOT NULL
-);
-
 CREATE TABLE View_Catalog (
   catalog_id UUID PRIMARY KEY,
   restaurant_id UUID NOT NULL,
