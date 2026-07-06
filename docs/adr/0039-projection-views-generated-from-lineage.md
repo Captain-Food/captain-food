@@ -48,9 +48,9 @@ drops the row.
   (`View_Cart`, `View_OrderTracking`, `View_Catalog`, `View_ProspectionPipeline`) → `materialized` with a
   reason; `View_Restaurant`/`View_Customer` → `materialized` pending the modes below.
 - **Stage B/C (superseded by ADR-0040):** `Restaurant` (cross-stream currency) and `Customer` (jsonb
-  accumulate) turned out cleaner as **incremental materialized tables** than as read-time views — so they
-  moved to `tables/projection_tables.yaml` with `projector: trigger` (generated write-time fold) rather
-  than extending the read-time fold generator. See ADR-0040.
+  accumulate) moved to `tables/projection_tables.yaml` as materialized tables fed by the application-layer
+  Rust projector (`projector: app`), rather than extending the read-time fold generator. SQL triggers were
+  considered and rejected — all projection logic stays in the tested application layer. See ADR-0040.
 
 ## Alternatives considered
 - **Hand-write every fold**: rejected — repeats the set-once hazard once per view; the lineage already

@@ -724,13 +724,12 @@ fn validate(model: &Model) -> Report {
             continue;
         }
         if view.is_table {
-            match view.projector.as_deref() {
-                Some("trigger") | Some("app") => {}
-                _ => issues.push(err(
+            if view.projector.as_deref() != Some("app") {
+                issues.push(err(
                     "projection-table-no-projector",
                     format!("projection_tables.yaml/{}", view.name),
-                    "a materialized read-model table must declare `projector: trigger | app`.".into(),
-                )),
+                    "a materialized read-model table must declare `projector: app` (application-layer Rust projector; no SQL triggers — ADR-0040).".into(),
+                ));
             }
         } else if view.definition.is_none() {
             if let Err(e) = generate_fold_sql(view, model) {
@@ -1534,7 +1533,8 @@ struct SqlView {
     /// true → a materialized read-model TABLE (projection_tables.yaml, fed by a projector); false → a
     /// generated fold VIEW (projection_views.yaml).
     is_table: bool,
-    /// (table) how the table is maintained: "trigger" (generated SQL) | "app" (deferred Rust projector).
+    /// (table) how the table is maintained — always "app": an application-layer (Rust) projector,
+    /// deferred until crates/ exists. No SQL triggers (ADR-0040).
     projector: Option<String>,
     /// Event type whose presence in the stream drops the row (soft-delete tombstone), if any.
     tombstone: Option<String>,
@@ -2160,8 +2160,8 @@ fn emit_schema_sql(model: &Model, specs: &std::path::Path) -> String {
     }
 
     // 2b. Materialized read-model tables (database/tables/projection_tables.yaml) — column types resolved
-    // from event lineage. Fed by a projector (trigger/app); the projection trigger DDL is generated in a
-    // later stage. Emitted here so the read-model tables sit alongside the store tables.
+    // from event lineage. Filled by an application-layer (Rust) projector, not SQL (ADR-0040). Emitted
+    // here so the read-model tables sit alongside the store tables.
     let ptables = emit_projection_tables_sql(model);
     if !ptables.trim().is_empty() {
         sections.push(ptables);

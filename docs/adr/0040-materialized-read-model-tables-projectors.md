@@ -26,44 +26,43 @@ Naming convention, now an invariant: **`View_*` = a database VIEW; an unprefixed
 codegen emits fold views into `views.generated.sql` and projection tables into `schema.generated.sql`
 (column types resolved from the `from` lineage). The validator enforces it (`view-naming`).
 
-### 2. `projector: trigger | app` — how a table is maintained
-Business logic must not leak into the database, and the append to `domain_events` (the source of truth)
-must never be blocked by a read-model projection. So the mechanism is split by the nature of the columns:
+### 2. `projector: app` — a Rust projector, no SQL triggers
+Every materialized read-model table is maintained by an **application-layer (Rust) projector** that
+subscribes to `domain_events` (in `crates/application`/`infrastructure`), declared as a **deferred runtime
+contract** until `crates/` lands. `projector: app` is the only value.
 
-- **`trigger`** — the projection is a **mechanical** incremental fold (scalar-latest / status-from-type /
-  jsonb accumulate / cross-stream lookup). The codegen GENERATES an `AFTER INSERT` trigger on
-  `domain_events` (UPSERT keyed by PK, `DELETE` on tombstone) **plus a `rebuild_<table>()` function** that
-  replays the log in `position` order through the same body (schema/logic changes → rebuild). No
-  hand-written SQL, so no business logic and low failure risk. Applies to `Restaurant`, `Customer`.
-- **`app`** — columns are **COMPUTED** by business rules (pricing split with clamping, category-tree
-  assembly, weighted score, Uber/tip comparison) that must stay in the tested domain/application layer
-  (`crates/application`), not in plpgsql. Declared as a **deferred runtime contract** (the projector is
-  built when `crates/` lands). Applies to `Cart`, `Catalog`, `OrderTracking`, `ProspectionPipeline`.
+SQL triggers on `domain_events` (one per table) were considered — they would give strong read-your-write
+consistency with zero extra infrastructure — but **rejected**:
+- Business rules (pricing split with clamping, category-tree assembly, weighted score, Uber/tip
+  comparison) would leak into plpgsql, where they are untestable with the behaviour harness and duplicate
+  the domain logic (`PlaceOrder` already computes the authoritative breakdown) → drift.
+- A synchronous projection error would **abort the event append** — a read-model bug must never block
+  recording a fact that already happened.
+- Even the *mechanical* folds (`Restaurant`, `Customer`) go through the projector, for **one uniform
+  mechanism** rather than a trigger/app split — simpler to reason about and test.
 
 ### 3. Guardrails
-- No business logic in a write-path trigger; a projection error must never abort the event append.
-- Every `trigger` table also gets a rebuild function (triggers only cover new inserts).
-- N per-table triggers on `domain_events` is fine for a handful of read models; revisit with a single
-  dispatch trigger if the count grows.
+- All projection logic lives in the tested application layer; none in the database.
+- The event-store append is never coupled to a read-model projection.
+- The projector owns rebuild/backfill (replay from `position` 0) — no separate SQL path.
 
 ## Alternatives considered
-- **plpgsql triggers for ALL read models** (fully DB-resident V0): rejected for the computed ones —
-  untestable with the behaviour harness, duplicates domain logic (drift), violates the dependency rule,
-  and couples the event-store write to projection correctness.
-- **A Rust projector for everything, no triggers**: viable but throws away the strong-consistency,
-  zero-infra win for the mechanical folds, which the generator can produce correctly for free.
+- **SQL triggers on `domain_events` (one per table), mechanical folds generated**: rejected (see §2) —
+  business logic in the DB, and a projection error aborting the event append. The strong-consistency /
+  zero-infra upside didn't outweigh keeping logic testable and the write path uncoupled.
+- **plpgsql triggers for ALL read models** (fully DB-resident V0): rejected, same reasons, more so.
 - **Keep materialized read models in `projection_views.yaml`**: rejected — a "views" file emitting tables
   is misleading; file = physical form is clearer.
 
 ## Consequences
 ### Positive
 - Each generated artifact matches its file; the `View_*`/unprefixed convention is unambiguous.
-- Mechanical projections are generated, strongly consistent, and need no separate process.
-- Business logic stays testable and in the domain; the event-store write path stays uncoupled.
+- One uniform projection mechanism (Rust projector); all logic testable and in the application layer.
+- The event-store write path stays uncoupled from read-model maintenance.
 ### Negative / risks
-- The trigger generator (Stage 2) must cover cross-stream + jsonb-accumulate to actually fill
-  `Restaurant`/`Customer`; until then those tables are declared but unfilled.
-- Generated trigger SQL isn't executed against a real Postgres by the validator (deferred with `crates/`).
+- Read models are eventually consistent (projector lag) rather than updated in the append transaction —
+  acceptable for V0; a hot read model can be revisited later.
+- The projector is a deferred contract — the tables are declared but unfilled until `crates/` exists.
 
 ## References
 Extends ADR-0039; refines ADR-0005/0035 #2. Builds on the `tables/` folder from ADR-0037.

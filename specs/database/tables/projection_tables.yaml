@@ -7,17 +7,16 @@ description: >
   (aggregate/slice/fedBy/rules/columns with `from` lineage) so the validator still proves API↔read-model.
 
   Conventions (in addition to a view's):
-    - projector : how the table is maintained from domain_events.
-        `trigger` → the codegen GENERATES an AFTER-INSERT trigger on domain_events + a rebuild function
-                    (the projection is a MECHANICAL incremental fold — scalar-latest / status / accumulate).
-        `app`     → maintained by an application-layer (Rust) projector — the columns are COMPUTED by
-                    business logic (pricing/tree/score/comparison) that must stay tested and out of the DB;
-                    a deferred runtime contract until crates/ exists.
+    - projector : how the table is maintained from domain_events. Always `app` — an application-layer
+                  (Rust) projector subscribing to domain_events, in crates/application/infrastructure
+                  (ADR-0040). Projection logic stays in the tested application layer, NOT in SQL triggers,
+                  so business rules never leak into the DB and the event-store append is never coupled to a
+                  read-model projection. A deferred runtime contract until crates/ exists.
     - name      : the table name (top-level key), NOT prefixed `View_` — it is a real table, not a view.
 
 
 Restaurant:
-  projector: trigger   # foldable except default_currency is a CROSS-STREAM fold (account stream) — incremental trigger
+  projector: app   # mechanically foldable (+ a cross-stream default_currency lookup from the account stream), but maintained by the app-layer projector for uniformity
   aggregate: Restaurant
   slice: V0
   fedBy:
@@ -235,7 +234,7 @@ ProspectionPipeline:
       nullable: true
 
 Customer:
-  projector: trigger   # scalar folds + jsonb ACCUMULATIONS (favorites/addresses/ratings) — incremental trigger
+  projector: app   # scalar folds + jsonb ACCUMULATIONS (favorites/addresses/ratings) — maintained by the app-layer projector
   aggregate: Customer
   slice: V0
   note: "Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs VerifyPhone idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts. The stored `locale` localizes authenticated SMS/email sends."
