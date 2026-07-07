@@ -70,10 +70,16 @@ The projectors are themselves generated from the specs (spec-driven), landing in
   tagged `{eventType, payload}`) for dispatch, and the `<Table>Row` structs in
   `crates/application/src/generated/rows.rs` (one per projection table; scalars → newtypes, jsonb/entity
   columns → `serde_json::Value`, timestamps → `chrono`).
-- **Slice 2 (next):** per-table `apply(state, envelope) -> Option<Row>` folds — the mechanical columns
-  (scalar-latest / derive / occurrence / tombstone) generated from the `from` lineage, the computed /
-  cross-stream / accumulate columns delegated to a generated per-table `Compute` hook trait the
-  application implements by hand (business logic stays hand-written and tested).
+- **Slice 2 (done — option A):** the projector **wiring** is generated in
+  `crates/application/src/generated/projectors.rs` — per table a `<Table>Handlers` trait (one
+  `on_<event>` method per `fedBy` event) and a `project_<table>(h, state, &Envelope)` dispatch that routes
+  each event to its handler, stays exhaustive/in-sync with `fedBy`, stamps `updated_at` from the event
+  time, deletes on a declared `tombstone`, and passes unrelated events through untouched. The fold LOGIC
+  is the hand-written `…Handlers` impl (tested app code) — generation owns only the structure, keeping
+  projection/business logic out of generated code (consistent with §2). `Envelope` is hand-written glue
+  in `crates/application/src/projections.rs`. All 6 tables wired; dispatch usability is unit-tested.
+  Considered and rejected: auto-generating the mechanical folds (option B) — it would re-introduce
+  projection logic into generated code and needs several new column modes for modest gain.
 
 ## References
 Extends ADR-0039; refines ADR-0005/0035 #2. Builds on the `tables/` folder from ADR-0037.
