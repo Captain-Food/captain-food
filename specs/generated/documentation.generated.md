@@ -463,7 +463,8 @@ _🧩 aggregate_ — Sales/CRM state of a NON_PARTNER restaurant listing worked 
 | `legal_name` | [🔤 `RestaurantLegalName`](#scalar-restaurantlegalname) _(derived)_ | [⚡ `RestaurantAccountRegistered`.`legalName`](#event-restaurantaccountregistered--legalname), [⚡ `RestaurantAccountUpdated`.`legalName`](#event-restaurantaccountupdated--legalname) | — |  |
 | `default_currency` | [🔤 `CurrencyCode`](#scalar-currencycode) _(derived)_ | [⚡ `RestaurantAccountRegistered`.`defaultCurrency`](#event-restaurantaccountregistered--defaultcurrency) | — |  |
 | `timezone` | [🔤 `TimeZone`](#scalar-timezone) _(derived)_ | [⚡ `RestaurantAccountRegistered`.`timezone`](#event-restaurantaccountregistered--timezone), [⚡ `RestaurantAccountUpdated`.`timezone`](#event-restaurantaccountupdated--timezone) | nullable |  |
-| `updated_at` | `timestamptz` | [⚡ `RestaurantAccountRegistered`](#event-restaurantaccountregistered), [⚡ `RestaurantAccountUpdated`](#event-restaurantaccountupdated) | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 <a id="view-restaurant"></a>
 #### 🗄️ View: `Restaurant`
@@ -498,7 +499,8 @@ _🧩 aggregate_ — Sales/CRM state of a NON_PARTNER restaurant listing worked 
 | `default_currency` | [🔤 `CurrencyCode`](#scalar-currencycode) _(derived)_ | [⚡ `RestaurantAccountRegistered`.`defaultCurrency`](#event-restaurantaccountregistered--defaultcurrency) | — |  |
 | `timezone` | [🔤 `TimeZone`](#scalar-timezone) _(derived)_ | [⚡ `RestaurantRegistered`.`timezone`](#event-restaurantregistered--timezone), [⚡ `RestaurantUpdated`.`timezone`](#event-restaurantupdated--timezone) | nullable | Location timezone; falls back to the account's when null. |
 | `preparation_time_minutes` | `integer` _(derived)_ | [⚡ `RestaurantRegistered`.`preparationTimeMinutes`](#event-restaurantregistered--preparationtimeminutes), [⚡ `RestaurantUpdated`.`preparationTimeMinutes`](#event-restaurantupdated--preparationtimeminutes) | nullable |  |
-| `updated_at` | `timestamptz` | [⚡ `RestaurantRegistered`](#event-restaurantregistered), [⚡ `RestaurantUpdated`](#event-restaurantupdated), [⚡ `RestaurantActivated`](#event-restaurantactivated), [⚡ `RestaurantDeactivated`](#event-restaurantdeactivated), [⚡ `RestaurantAcceptanceModeChanged`](#event-restaurantacceptancemodechanged), [⚡ `RestaurantGoogleBusinessProfileUpdated`](#event-restaurantgooglebusinessprofileupdated), [⚡ `RestaurantListingClaimed`](#event-restaurantlistingclaimed), [⚡ `RestaurantListingOptedOut`](#event-restaurantlistingoptedout), [⚡ `RestaurantMarkedClosed`](#event-restaurantmarkedclosed), [⚡ `RestaurantListingStatusChanged`](#event-restaurantlistingstatuschanged), [⚡ `RestaurantGoogleBusinessProfileOrderLinkConfigured`](#event-restaurantgooglebusinessprofileorderlinkconfigured), [⚡ `RestaurantGoogleBusinessProfileOrderLinkVerified`](#event-restaurantgooglebusinessprofileorderlinkverified) | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 <a id="view-prospectionpipeline"></a>
 #### 🗄️ View: `ProspectionPipeline`
@@ -517,6 +519,8 @@ _🧩 aggregate_ — Sales/CRM state of a NON_PARTNER restaurant listing worked 
 | `contacts_count` | `integer` | [⚡ `ProspectContacted`](#event-prospectcontacted) | — | Count of ProspectContacted; drives the anti-spam ≤3 rule. |
 | `last_contacted_at` | `timestamptz` | [⚡ `ProspectContacted`](#event-prospectcontacted) | nullable |  |
 | `replied_at` | `timestamptz` | [⚡ `ProspectReplied`](#event-prospectreplied) | nullable |  |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### 📩 Commands _(19)_
 
@@ -1957,7 +1961,8 @@ _🧩 aggregate_ — A restaurant catalog: catalog, category tree, products, off
 | `slug` | [🔤 `Slug`](#scalar-slug) | ⚠️ _(none)_ | — | ⚠️ HOLE: CatalogCreated carries no slug — nothing populates this column (drop it or add slug to the event). |
 | `name` | [🔤 `CatalogName`](#scalar-catalogname) _(derived)_ | [⚡ `CatalogCreated`.`name`](#event-catalogcreated--name) | — |  |
 | `tree` | `jsonb` | [⚡ `CatalogCategoryAdded`](#event-catalogcategoryadded), [⚡ `CatalogCategoryUpdated`](#event-catalogcategoryupdated), [⚡ `CatalogCategoryRemoved`](#event-catalogcategoryremoved), [⚡ `ProductAdded`](#event-productadded), [⚡ `ProductUpdated`](#event-productupdated), [⚡ `ProductRemoved`](#event-productremoved), [⚡ `OptionListAdded`](#event-optionlistadded), [⚡ `OptionListUpdated`](#event-optionlistupdated), [⚡ `OptionListRemoved`](#event-optionlistremoved), [⚡ `OfferStockUpdated`](#event-offerstockupdated), [⚡ `CatalogImported`](#event-catalogimported) | — | Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status, uberPrice?, uberPriceBasis? } + option lists. See rules for how uberPrice is derived (ADR-0022/0024). |
-| `updated_at` | `timestamptz` | [⚡ `CatalogCreated`](#event-catalogcreated), [⚡ `CatalogImported`](#event-catalogimported) | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### 📩 Commands _(12)_
 
@@ -3046,7 +3051,8 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `currency` | [🔤 `CurrencyCode`](#scalar-currencycode) | [⚡ `CartLineAdded`](#event-cartlineadded) | — | From the catalog currency at pricing time (the restaurant's default_currency). |
 | `estimated_breakdown` | `jsonb` | [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved) | nullable | ESTIMATED PaymentBreakdown for the checkout display (ADR-0018), COMPUTED by the projection from the cart food total + PricingPolicy + the restaurant margin_rate. Same shape as OrderPlaced.breakdown; recomputed on the final order. |
 | `uber_comparison` | `jsonb` | [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved) | nullable | UberComparison for the cart-level comparison (ADR-0022/0025), COMPUTED by the projection (see rules). Null when the restaurant has no cuisine_category. |
-| `updated_at` | `timestamptz` | [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved), [⚡ `CartCheckedOut`](#event-cartcheckedout) | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 <a id="view-ordertracking"></a>
 #### 🗄️ View: `OrderTracking`
@@ -3093,6 +3099,8 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `delivery_status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryCompleted`](#event-deliverycompleted) | nullable | Mirror of the order's DeliveryJob status (correlated by order_id); null for COLLECTION / before dispatch. |
 | `courier` | `jsonb` | [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider) | nullable | Assigned Courier { displayName, phone?, riderId? } once accepted; null before. |
 | `estimated_dropoff_at` | `timestamptz` | [⚡ `DeliveryAcceptedByPartner`.`estimatedDropoffAt`](#event-deliveryacceptedbypartner--estimateddropoffat) | nullable | Partner-reported ETA to the customer; null when unknown. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### 📩 Commands _(15)_
 
@@ -4586,7 +4594,8 @@ _⚙️ process manager_ — Binds a returning visitor's OPEN guest carts to the
 | `preferences` | `jsonb` | [⚡ `CustomerPreferencesSet`](#event-customerpreferencesset) | nullable | { dietary_tags: [...], favorite_cuisines: [...] } from CustomerPreferencesSet. |
 | `addresses` | `jsonb` | [⚡ `CustomerAddressSet`](#event-customeraddressset), [⚡ `CustomerAddressRemoved`](#event-customeraddressremoved) | — | Saved address book: [{ address_id, label, address }] from CustomerAddressSet/Removed. |
 | `payment_method_id` | [🔤 `PaymentMethodId`](#scalar-paymentmethodid) _(derived)_ | [⚡ `CustomerPaymentMethodSet`.`paymentMethodId`](#event-customerpaymentmethodset--paymentmethodid) | nullable |  |
-| `updated_at` | `timestamptz` | [⚡ `CustomerRegistered`](#event-customerregistered), [⚡ `CustomerInfoUpdated`](#event-customerinfoupdated) | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### 📩 Commands _(14)_
 
@@ -5467,7 +5476,8 @@ _⚙️ process manager_ — Dispatches and tracks deliveries (bounded context: 
 | `picked_up_at` | `timestamptz` | [⚡ `DeliveryPickedUp`](#event-deliverypickedup) | nullable |  |
 | `delivered_at` | `timestamptz` | [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED (conditional occurrence). |
 | `last_partner_rejection` | `text` | [⚡ `DeliveryRejectedByPartner`.`reason`](#event-deliveryrejectedbypartner--reason) | nullable | Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected. |
-| `updated_at` | `timestamptz` | [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner), [⚡ `DeliveryPickedUp`](#event-deliverypickedup), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated), [⚡ `DeliveryCompleted`](#event-deliverycompleted), [⚡ `DeliveryCancelled`](#event-deliverycancelled) | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### 📩 Commands _(4)_
 

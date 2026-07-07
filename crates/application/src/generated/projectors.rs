@@ -25,6 +25,7 @@ pub trait RestaurantHandlers {
 }
 
 pub fn project_restaurant<H: RestaurantHandlers>(h: &H, state: Option<RestaurantRow>, env: &Envelope) -> Option<RestaurantRow> {
+    let created = state.as_ref().map(|r| r.created_at);
     let next = match &env.event {
         DomainEvent::RestaurantRegistered(e) => h.on_restaurant_registered(state, e, env),
         DomainEvent::RestaurantUpdated(e) => h.on_restaurant_updated(state, e, env),
@@ -43,6 +44,7 @@ pub fn project_restaurant<H: RestaurantHandlers>(h: &H, state: Option<Restaurant
         _ => return state,
     };
     next.map(|mut row| {
+        row.created_at = created.unwrap_or(env.occurred_at);
         row.updated_at = env.occurred_at;
         row
     })
@@ -59,6 +61,7 @@ pub trait ProspectionPipelineHandlers {
 }
 
 pub fn project_prospection_pipeline<H: ProspectionPipelineHandlers>(h: &H, state: Option<ProspectionPipelineRow>, env: &Envelope) -> Option<ProspectionPipelineRow> {
+    let created = state.as_ref().map(|r| r.created_at);
     let next = match &env.event {
         DomainEvent::RestaurantRegistered(e) => h.on_restaurant_registered(state, e, env),
         DomainEvent::RestaurantGoogleBusinessProfileUpdated(e) => h.on_restaurant_google_business_profile_updated(state, e, env),
@@ -68,7 +71,11 @@ pub fn project_prospection_pipeline<H: ProspectionPipelineHandlers>(h: &H, state
         DomainEvent::ProspectReplied(e) => h.on_prospect_replied(state, e, env),
         _ => return state,
     };
-    next
+    next.map(|mut row| {
+        row.created_at = created.unwrap_or(env.occurred_at);
+        row.updated_at = env.occurred_at;
+        row
+    })
 }
 
 /// Hand-written fold for `Customer` — implement each event's effect on the read-model row.
@@ -88,6 +95,7 @@ pub trait CustomerHandlers {
 }
 
 pub fn project_customer<H: CustomerHandlers>(h: &H, state: Option<CustomerRow>, env: &Envelope) -> Option<CustomerRow> {
+    let created = state.as_ref().map(|r| r.created_at);
     let next = match &env.event {
         DomainEvent::CustomerRegistered(e) => h.on_customer_registered(state, e, env),
         DomainEvent::RestaurantRated(e) => h.on_restaurant_rated(state, e, env),
@@ -104,6 +112,7 @@ pub fn project_customer<H: CustomerHandlers>(h: &H, state: Option<CustomerRow>, 
         _ => return state,
     };
     next.map(|mut row| {
+        row.created_at = created.unwrap_or(env.occurred_at);
         row.updated_at = env.occurred_at;
         row
     })
@@ -126,6 +135,7 @@ pub trait CatalogHandlers {
 }
 
 pub fn project_catalog<H: CatalogHandlers>(h: &H, state: Option<CatalogRow>, env: &Envelope) -> Option<CatalogRow> {
+    let created = state.as_ref().map(|r| r.created_at);
     let next = match &env.event {
         DomainEvent::CatalogCreated(e) => h.on_catalog_created(state, e, env),
         DomainEvent::CatalogCategoryAdded(e) => h.on_catalog_category_added(state, e, env),
@@ -142,6 +152,7 @@ pub fn project_catalog<H: CatalogHandlers>(h: &H, state: Option<CatalogRow>, env
         _ => return state,
     };
     next.map(|mut row| {
+        row.created_at = created.unwrap_or(env.occurred_at);
         row.updated_at = env.occurred_at;
         row
     })
@@ -158,6 +169,7 @@ pub trait CartHandlers {
 }
 
 pub fn project_cart<H: CartHandlers>(h: &H, state: Option<CartRow>, env: &Envelope) -> Option<CartRow> {
+    let created = state.as_ref().map(|r| r.created_at);
     let next = match &env.event {
         DomainEvent::CartStarted(e) => h.on_cart_started(state, e, env),
         DomainEvent::CartLineAdded(e) => h.on_cart_line_added(state, e, env),
@@ -168,6 +180,7 @@ pub fn project_cart<H: CartHandlers>(h: &H, state: Option<CartRow>, env: &Envelo
         _ => return state,
     };
     next.map(|mut row| {
+        row.created_at = created.unwrap_or(env.occurred_at);
         row.updated_at = env.occurred_at;
         row
     })
@@ -195,6 +208,7 @@ pub trait OrderTrackingHandlers {
 }
 
 pub fn project_order_tracking<H: OrderTrackingHandlers>(h: &H, state: Option<OrderTrackingRow>, env: &Envelope) -> Option<OrderTrackingRow> {
+    let created = state.as_ref().map(|r| r.created_at);
     let next = match &env.event {
         DomainEvent::OrderPlaced(e) => h.on_order_placed(state, e, env),
         DomainEvent::OrderAcceptedByRestaurant(e) => h.on_order_accepted_by_restaurant(state, e, env),
@@ -215,5 +229,9 @@ pub fn project_order_tracking<H: OrderTrackingHandlers>(h: &H, state: Option<Ord
         DomainEvent::DeliveryCompleted(e) => h.on_delivery_completed(state, e, env),
         _ => return state,
     };
-    next
+    next.map(|mut row| {
+        row.created_at = created.unwrap_or(env.occurred_at);
+        row.updated_at = env.occurred_at;
+        row
+    })
 }

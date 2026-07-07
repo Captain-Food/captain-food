@@ -31,6 +31,7 @@ pub struct RestaurantRow {
     pub default_currency: CurrencyCode,
     pub timezone: Option<TimeZone>,
     pub preparation_time_minutes: Option<i64>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -43,6 +44,8 @@ pub struct ProspectionPipelineRow {
     pub contacts_count: i64,
     pub last_contacted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub replied_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Identity/lookup read model: resolves a returning phone (or auth_ref) to an existing Customer, backs VerifyPhone idempotency + auth resolution, and serves the `me` query (CustomerProfile). Also bound when CustomerIdentified stamps carts. The stored `locale` localizes authenticated SMS/email sends.
@@ -61,6 +64,7 @@ pub struct CustomerRow {
     pub preferences: Option<serde_json::Value>,
     pub addresses: serde_json::Value,
     pub payment_method_id: Option<PaymentMethodId>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -71,6 +75,7 @@ pub struct CatalogRow {
     pub slug: Slug,
     pub name: CatalogName,
     pub tree: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -86,6 +91,7 @@ pub struct CartRow {
     pub currency: CurrencyCode,
     pub estimated_breakdown: Option<serde_json::Value>,
     pub uber_comparison: Option<serde_json::Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -127,4 +133,6 @@ pub struct OrderTrackingRow {
     pub delivery_status: Option<DeliveryStatus>,
     pub courier: Option<serde_json::Value>,
     pub estimated_dropoff_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }

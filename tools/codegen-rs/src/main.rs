@@ -611,8 +611,11 @@ fn validate(model: &Model) -> Report {
                     format!("type '{}' is neither a SQL primitive nor a scalars.yaml type.", col.ty),
                 ));
             }
+            // created_at/updated_at are IMPLICIT technical columns (stamped from event.occurred_at,
+            // ADR-0040) — no `from`, and not a design hole.
+            let is_technical_ts = col.name == "created_at" || col.name == "updated_at";
             if col.from.is_empty() {
-                if !view.reference {
+                if !view.reference && !is_technical_ts {
                     issues.push(warn(
                         "view-column-no-source",
                         format!("{}.{}", at, col.name),
@@ -1761,6 +1764,27 @@ fn parse_views(model: &Model) -> Vec<SqlView> {
                     }
                 }
             }
+            // Technical audit timestamps are IMPLICIT on every read model — not declared per table
+            // (ADR-0040). created_at = the creation event's occurred_at; updated_at = the latest applied
+            // event's occurred_at. Handled by name in generate_fold_sql (views) / the dispatch (tables).
+            if node.get("aggregate").and_then(|x| x.as_str()).is_some() {
+                for tech in ["created_at", "updated_at"] {
+                    columns.push(SqlColumn {
+                        name: tech.to_string(),
+                        ty: "timestamptz".to_string(),
+                        pk: false,
+                        unique: false,
+                        index: false,
+                        nullable: false,
+                        fk: None,
+                        note: Some("technical — stamped from event.occurred_at (implicit on every read model)".to_string()),
+                        from: Vec::new(),
+                        type_derived: false,
+                        derive: Vec::new(),
+                        occurred_when: Vec::new(),
+                    });
+                }
+            }
             let aggregate = node.get("aggregate").and_then(|x| x.as_str()).unwrap_or("").to_string();
             let tombstone = node
                 .get("tombstone")
@@ -1862,7 +1886,17 @@ fn generate_fold_sql(v: &SqlView, model: &Model) -> Result<String, String> {
         // Enum columns are stored as their INTEGER ordinal (by principle) — the payload holds the TEXT
         // value, so enum expressions are wrapped in a value→ordinal CASE.
         let enum_vals = enum_values(model, &c.ty);
-        let expr = if !c.occurred_when.is_empty() {
+        let expr = if c.name == "created_at" {
+            // implicit technical column: the creation event's occurrence time.
+            "c.occurred_at".to_string()
+        } else if c.name == "updated_at" {
+            // implicit technical column: the latest applied event's occurrence time.
+            let types: Vec<String> = v.fedby.iter().map(|e| format!("'{}'", e)).collect();
+            format!(
+                "(SELECT max(e.occurred_at) FROM domain_events e\n     WHERE e.stream_name = c.stream_name AND e.event_type IN ({}))",
+                types.join(", ")
+            )
+        } else if !c.occurred_when.is_empty() {
             // conditional occurrence: max(occurred_at) over events matching any (type [+ payload =]) clause.
             let clauses: Vec<String> = c
                 .occurred_when
@@ -5350,7 +5384,6 @@ fn emit_projectors(model: &Model) -> String {
     for v in parse_views(model).iter().filter(|v| v.is_table) {
         let row = format!("{}Row", v.name);
         let fnname = snake_type(&v.name);
-        let has_updated = v.columns.iter().any(|c| c.name == "updated_at" && c.ty == "timestamptz");
         // Handler trait: one method per fed event (skip the tombstone event — the dispatch deletes on it).
         out.push_str(&format!(
             "\n/// Hand-written fold for `{}` — implement each event's effect on the read-model row.\npub trait {}Handlers {{\n",
@@ -5367,8 +5400,10 @@ fn emit_projectors(model: &Model) -> String {
         }
         out.push_str("}\n");
         // Dispatch: route the envelope's event to the handler; unrelated events leave the row untouched.
+        // The implicit technical timestamps are stamped here, not by the hand-written handler: created_at
+        // is preserved once set (or the event time on the first event), updated_at is always the event time.
         out.push_str(&format!(
-            "\npub fn project_{}<H: {}Handlers>(h: &H, state: Option<{}>, env: &Envelope) -> Option<{}> {{\n    let next = match &env.event {{\n",
+            "\npub fn project_{}<H: {}Handlers>(h: &H, state: Option<{}>, env: &Envelope) -> Option<{}> {{\n    let created = state.as_ref().map(|r| r.created_at);\n    let next = match &env.event {{\n",
             fnname, v.name, row, row
         ));
         for ev in &v.fedby {
@@ -5379,11 +5414,7 @@ fn emit_projectors(model: &Model) -> String {
             }
         }
         out.push_str("        _ => return state,\n    };\n");
-        if has_updated {
-            out.push_str("    next.map(|mut row| {\n        row.updated_at = env.occurred_at;\n        row\n    })\n");
-        } else {
-            out.push_str("    next\n");
-        }
+        out.push_str("    next.map(|mut row| {\n        row.created_at = created.unwrap_or(env.occurred_at);\n        row.updated_at = env.occurred_at;\n        row\n    })\n");
         out.push_str("}\n");
     }
     out

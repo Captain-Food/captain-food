@@ -185,6 +185,7 @@ CREATE TABLE Restaurant (
   default_currency TEXT NOT NULL,
   timezone TEXT,
   preparation_time_minutes INTEGER,
+  created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX ON Restaurant (restaurant_account_id);
@@ -196,7 +197,9 @@ CREATE TABLE ProspectionPipeline (
   pipeline_status INTEGER NOT NULL,
   contacts_count INTEGER NOT NULL,
   last_contacted_at TIMESTAMPTZ,
-  replied_at TIMESTAMPTZ
+  replied_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX ON ProspectionPipeline (score);
 CREATE INDEX ON ProspectionPipeline (pipeline_status);
@@ -215,6 +218,7 @@ CREATE TABLE Customer (
   preferences JSONB,
   addresses JSONB NOT NULL,
   payment_method_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX ON Customer (auth_ref);
@@ -225,6 +229,7 @@ CREATE TABLE Catalog (
   slug TEXT NOT NULL,
   name TEXT NOT NULL,
   tree JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX ON Catalog (restaurant_id);
@@ -239,6 +244,7 @@ CREATE TABLE Cart (
   currency TEXT NOT NULL,
   estimated_breakdown JSONB,
   uber_comparison JSONB,
+  created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
 
@@ -277,7 +283,9 @@ CREATE TABLE OrderTracking (
   rated_at TIMESTAMPTZ,
   delivery_status INTEGER,
   courier JSONB,
-  estimated_dropoff_at TIMESTAMPTZ
+  estimated_dropoff_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX ON OrderTracking (customer_id);
 CREATE INDEX ON OrderTracking (restaurant_id, status, placed_at);

@@ -162,23 +162,6 @@ Restaurant:
         - { $ref: 'events.yaml#/RestaurantRegistered/properties/preparationTimeMinutes' }
         - { $ref: 'events.yaml#/RestaurantUpdated/properties/preparationTimeMinutes' }
       nullable: true
-    updated_at:
-      type: timestamptz
-      from:
-        - { $ref: 'events.yaml#/RestaurantRegistered' }
-        - { $ref: 'events.yaml#/RestaurantUpdated' }
-        - { $ref: 'events.yaml#/RestaurantActivated' }
-        - { $ref: 'events.yaml#/RestaurantDeactivated' }
-        - { $ref: 'events.yaml#/RestaurantAcceptanceModeChanged' }
-        - { $ref: 'events.yaml#/RestaurantGoogleBusinessProfileUpdated' }
-        - { $ref: 'events.yaml#/RestaurantListingClaimed' }
-        - { $ref: 'events.yaml#/RestaurantListingOptedOut' }
-        - { $ref: 'events.yaml#/RestaurantMarkedClosed' }
-        - { $ref: 'events.yaml#/RestaurantListingStatusChanged' }
-        - { $ref: 'events.yaml#/RestaurantGoogleBusinessProfileOrderLinkConfigured' }
-        - { $ref: 'events.yaml#/RestaurantGoogleBusinessProfileOrderLinkVerified' }
-      note: "Row write time, stamped on each event."
-
 ProspectionPipeline:
   projector: app   # weighted 0–10 score COMPUTED from listing facts (never in an event) — application logic
   aggregate: Prospect
@@ -317,13 +300,6 @@ Customer:
     payment_method_id:
       from: [{ $ref: 'events.yaml#/CustomerPaymentMethodSet/properties/paymentMethodId' }]
       nullable: true
-    updated_at:
-      type: timestamptz
-      from:
-        - { $ref: 'events.yaml#/CustomerRegistered' }
-        - { $ref: 'events.yaml#/CustomerInfoUpdated' }
-      note: "Row write time, stamped on each event."
-
 Catalog:
   projector: app   # nested category→product→offer TREE assembled from an event stream — application logic
   aggregate: Catalog
@@ -373,13 +349,6 @@ Catalog:
         - { $ref: 'events.yaml#/OfferStockUpdated' }
         - { $ref: 'events.yaml#/CatalogImported' }
       note: "Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status, uberPrice?, uberPriceBasis? } + option lists. See rules for how uberPrice is derived (ADR-0022/0024)."
-    updated_at:
-      type: timestamptz
-      from:
-        - { $ref: 'events.yaml#/CatalogCreated' }
-        - { $ref: 'events.yaml#/CatalogImported' }
-      note: "Row write time, stamped on each event."
-
 Cart:
   projector: app   # prices/breakdown/uber_comparison COMPUTED from live catalog + policies — application logic
   aggregate: Cart
@@ -451,16 +420,6 @@ Cart:
         - { $ref: 'events.yaml#/CartLineRemoved' }
       nullable: true
       note: "UberComparison for the cart-level comparison (ADR-0022/0025), COMPUTED by the projection (see rules). Null when the restaurant has no cuisine_category."
-    updated_at:
-      type: timestamptz
-      from:
-        - { $ref: 'events.yaml#/CartStarted' }
-        - { $ref: 'events.yaml#/CartLineAdded' }
-        - { $ref: 'events.yaml#/CartLineQuantityChanged' }
-        - { $ref: 'events.yaml#/CartLineRemoved' }
-        - { $ref: 'events.yaml#/CartCheckedOut' }
-      note: "Row write time, stamped on each event."
-
 OrderTracking:
   projector: app   # tip Σ-by-recipient + uber_* comparison COMPUTED by the projector — application logic
   aggregate: Order

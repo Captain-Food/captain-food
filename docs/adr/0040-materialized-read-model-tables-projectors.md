@@ -26,6 +26,13 @@ Naming convention, now an invariant: **`View_*` = a database VIEW; an unprefixed
 codegen emits fold views into `views.generated.sql` and projection tables into `schema.generated.sql`
 (column types resolved from the `from` lineage). The validator enforces it (`view-naming`).
 
+Every read model additionally gets two **implicit technical timestamps** — `created_at` and `updated_at`
+(`timestamptz`) — **not declared per table** (removed from the specs; the generator injects them for easier
+maintenance). Both are stamped from `event.occurred_at`: `created_at` = the creation event's time (kept
+stable after), `updated_at` = the latest applied event's time. Fold views emit `c.occurred_at` /
+`max(occurred_at)`; the projector dispatch stamps them (not the hand-written handler). They are exempt from
+the `view-column-no-source` design-hole check.
+
 ### 2. `projector: app` — a Rust projector, no SQL triggers
 Every materialized read-model table is maintained by an **application-layer (Rust) projector** that
 subscribes to `domain_events` (in `crates/application`/`infrastructure`), declared as a **deferred runtime

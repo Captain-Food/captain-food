@@ -53,7 +53,8 @@ mod projector_dispatch_tests {
             currency: CurrencyCode("EUR".into()),
             estimated_breakdown: None,
             uber_comparison: None,
-            updated_at: ts(0), // placeholder — the dispatch overwrites it with the event time
+            created_at: ts(0), // placeholder — the dispatch manages the technical timestamps
+            updated_at: ts(0),
         }
     }
     fn env(event: DomainEvent, at: i64) -> Envelope {
@@ -81,8 +82,10 @@ mod projector_dispatch_tests {
             customer_id: None,
         });
         let out = project_cart(&Handlers, None, &env(started, 1_700_000_000)).unwrap();
-        // routed to on_cart_started (row built) AND updated_at stamped from the envelope, not the placeholder
+        // routed to on_cart_started (row built); both technical timestamps stamped from the envelope
+        // (first event → created_at = updated_at = occurred_at), not the placeholder.
         assert_eq!(out.updated_at, ts(1_700_000_000));
+        assert_eq!(out.created_at, ts(1_700_000_000));
     }
 
     #[test]

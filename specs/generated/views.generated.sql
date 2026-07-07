@@ -14,8 +14,9 @@ SELECT
   (SELECT e.payload->>'timezone' FROM domain_events e
      WHERE e.stream_name = c.stream_name AND e.event_type IN ('RestaurantAccountRegistered', 'RestaurantAccountUpdated') AND e.payload ? 'timezone'
      ORDER BY e.position DESC LIMIT 1) AS timezone,
+  c.occurred_at AS created_at,
   (SELECT max(e.occurred_at) FROM domain_events e
-     WHERE e.stream_name = c.stream_name AND e.event_type IN ('RestaurantAccountRegistered', 'RestaurantAccountUpdated')) AS updated_at
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('RestaurantAccountRegistered', 'RestaurantAccountUpdated', 'RestaurantAccountDeleted')) AS updated_at
 FROM domain_events c
 WHERE c.event_type = 'RestaurantAccountRegistered'
   AND NOT EXISTS (SELECT 1 FROM domain_events d
@@ -57,7 +58,8 @@ SELECT
   (SELECT e.payload->>'reason' FROM domain_events e
      WHERE e.stream_name = c.stream_name AND e.event_type IN ('DeliveryRejectedByPartner') AND e.payload ? 'reason'
      ORDER BY e.position DESC LIMIT 1) AS last_partner_rejection,
+  c.occurred_at AS created_at,
   (SELECT max(e.occurred_at) FROM domain_events e
-     WHERE e.stream_name = c.stream_name AND e.event_type IN ('DeliveryRequested', 'DeliveryAcceptedByRider', 'DeliveryAcceptedByPartner', 'DeliveryRejectedByPartner', 'DeliveryPickedUp', 'DeliveryStatusUpdated', 'DeliveryCompleted', 'DeliveryCancelled')) AS updated_at
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('DeliveryRequested', 'DeliveryAcceptedByPartner', 'DeliveryRejectedByPartner', 'DeliveryStatusUpdated', 'DeliveryAcceptedByRider', 'DeliveryPickedUp', 'DeliveryCompleted', 'DeliveryCancelled')) AS updated_at
 FROM domain_events c
 WHERE c.event_type = 'DeliveryRequested';

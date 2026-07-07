@@ -71,13 +71,6 @@ View_RestaurantAccount:
         - { $ref: 'events.yaml#/RestaurantAccountRegistered/properties/timezone' }
         - { $ref: 'events.yaml#/RestaurantAccountUpdated/properties/timezone' }
       nullable: true
-    updated_at:
-      type: timestamptz
-      from:
-        - { $ref: 'events.yaml#/RestaurantAccountRegistered' }
-        - { $ref: 'events.yaml#/RestaurantAccountUpdated' }
-      note: "Row write time, stamped on each event."
-
 # Events deliberately NOT projected into any View_* — transient / saga-internal facts whose data is
 # returned synchronously via the mutation payload, never read through a projection.
 nonProjectedEvents:
@@ -204,15 +197,3 @@ View_DeliveryJob:
       from: [{ $ref: 'events.yaml#/DeliveryRejectedByPartner/properties/reason' }]
       nullable: true
       note: "Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected."
-    updated_at:
-      type: timestamptz
-      from:
-        - { $ref: 'events.yaml#/DeliveryRequested' }
-        - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
-        - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
-        - { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
-        - { $ref: 'events.yaml#/DeliveryPickedUp' }
-        - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
-        - { $ref: 'events.yaml#/DeliveryCompleted' }
-        - { $ref: 'events.yaml#/DeliveryCancelled' }
-      note: "Row write time, stamped on each event."

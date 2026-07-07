@@ -91,7 +91,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `legal_name` | `RestaurantLegalName` | `TEXT` | — |  |
 | `default_currency` | `CurrencyCode` | `TEXT` | — |  |
 | `timezone` | `TimeZone` | `TEXT` | nullable |  |
-| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### `View_DeliveryJob` · 🛶 V0 · source aggregate `DeliveryJob`
 
@@ -117,7 +118,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `picked_up_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
 | `delivered_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED (conditional occurrence). |
 | `last_partner_rejection` | `text` | `TEXT` | nullable | Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected. |
-| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### `Restaurant` · 🛶 V0 · source aggregate `Restaurant`
 
@@ -150,7 +152,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `default_currency` | `CurrencyCode` | `TEXT` | — |  |
 | `timezone` | `TimeZone` | `TEXT` | nullable | Location timezone; falls back to the account's when null. |
 | `preparation_time_minutes` | `integer` | `INTEGER` | nullable |  |
-| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### `ProspectionPipeline` · 🔭 V1 · source aggregate `Prospect`
 
@@ -167,6 +170,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `contacts_count` | `integer` | `INTEGER` | — | Count of ProspectContacted; drives the anti-spam ≤3 rule. |
 | `last_contacted_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
 | `replied_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### `Customer` · 🛶 V0 · source aggregate `Customer`
 
@@ -189,7 +194,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `preferences` | `jsonb` | `JSONB` | nullable | { dietary_tags: [...], favorite_cuisines: [...] } from CustomerPreferencesSet. |
 | `addresses` | `jsonb` | `JSONB` | — | Saved address book: [{ address_id, label, address }] from CustomerAddressSet/Removed. |
 | `payment_method_id` | `PaymentMethodId` | `TEXT` | nullable |  |
-| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### `Catalog` · 🛶 V0 · source aggregate `Catalog`
 
@@ -203,7 +209,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `slug` | `Slug` | `TEXT` | — | ⚠️ HOLE: CatalogCreated carries no slug — nothing populates this column (drop it or add slug to the event). |
 | `name` | `CatalogName` | `TEXT` | — |  |
 | `tree` | `jsonb` | `JSONB` | — | Assembled tree: categories -> products -> offers { price_cents, currency, availability, stock_status, uberPrice?, uberPriceBasis? } + option lists. See rules for how uberPrice is derived (ADR-0022/0024). |
-| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### `Cart` · 🛶 V0 · source aggregate `Cart`
 
@@ -222,7 +229,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `currency` | `CurrencyCode` | `TEXT` | — | From the catalog currency at pricing time (the restaurant's default_currency). |
 | `estimated_breakdown` | `jsonb` | `JSONB` | nullable | ESTIMATED PaymentBreakdown for the checkout display (ADR-0018), COMPUTED by the projection from the cart food total + PricingPolicy + the restaurant margin_rate. Same shape as OrderPlaced.breakdown; recomputed on the final order. |
 | `uber_comparison` | `jsonb` | `JSONB` | nullable | UberComparison for the cart-level comparison (ADR-0022/0025), COMPUTED by the projection (see rules). Null when the restaurant has no cuisine_category. |
-| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | Row write time, stamped on each event. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 ### `OrderTracking` · 🛶 V0 · source aggregate `Order`
 
@@ -269,5 +277,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `delivery_status` | `DeliveryStatus` | `INTEGER` | nullable | Mirror of the order's DeliveryJob status (correlated by order_id); null for COLLECTION / before dispatch. |
 | `courier` | `jsonb` | `JSONB` | nullable | Assigned Courier { displayName, phone?, riderId? } once accepted; null before. |
 | `estimated_dropoff_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Partner-reported ETA to the customer; null when unknown. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 <!-- GENERATED:views END -->
