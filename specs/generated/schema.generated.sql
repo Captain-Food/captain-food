@@ -106,7 +106,7 @@ CREATE TABLE domain_events (
   stream_name TEXT NOT NULL,
   version INTEGER NOT NULL,
   user_id UUID NOT NULL,
-  user_type INTEGER NOT NULL,
+  user_type TEXT NOT NULL,
   correlation_id UUID NOT NULL,
   cause_id UUID NULL,
   event_type TEXT NOT NULL,
