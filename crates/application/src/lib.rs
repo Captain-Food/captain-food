@@ -8,4 +8,5 @@
 
 pub mod generated;
 pub mod projections;
+pub mod projectors;
 pub mod ports;
