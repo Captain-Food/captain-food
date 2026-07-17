@@ -4,10 +4,11 @@
 //! `persistence/` (the `PgEventStore` write adapter appending to `domain_events`, plus sqlx read-model
 //! repos over the materialized projection tables, ADR-0040) and
 //! `projection/` (the app-layer projection worker that folds `domain_events` into those tables via the
-//! hand-written `…Compute` projectors). Later: `integrations/` (the Anti-Corruption Layer for
-//! HubRise/Stripe/delivery, incl. recording inbound facts). Depends on `application` + `domain`;
-//! referencing both proves the infrastructure → application, domain edges.
+//! hand-written `…Compute` projectors) and `integrations/` (the Anti-Corruption Layer — today the
+//! SIRENE prospect sync; later HubRise/Stripe/delivery, incl. recording inbound facts). Depends on
+//! `application` + `domain`; referencing both proves the infrastructure → application, domain edges.
 
+pub mod integrations;
 pub mod persistence;
 pub mod projection;
 

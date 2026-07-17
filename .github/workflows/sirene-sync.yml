@@ -1,0 +1,45 @@
+# SIRENE prospect sync (ADR-0019/0020/0027) — scheduled pull of food-service établissements
+# (NAF 56.10A/B/C + 56.30Z, Tours / dept 37) from the INSEE Sirene API, registered as NON_PARTNER
+# prospects through the NORMAL write path (`register_restaurant` → `domain_events`).
+#
+# Independent of db-migrate: this only APPENDS events; the projection worker (in-process on the web
+# service, or the `projector` bin) folds them into the `restaurant` table on its own schedule.
+# Idempotent by construction (restaurantId = UUIDv5 of the SIRET), so re-runs are safe.
+#
+# Requires repo secrets:
+# - DATABASE_URL     — the same Supabase Session-pooler string db-migrate uses.
+# - INSEE_API_TOKEN  — API key from the INSEE portal (portail-api.insee.fr), sent as the
+#                      X-INSEE-Api-Key-Integration header by the client.
+name: sirene-sync
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # weekly, Monday 03:00 UTC — the ADR-0020 Sirene-sync cadence
+  workflow_dispatch: {} # manual runs for the first import / debugging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sirene-sync
+  cancel-in-progress: false # never interrupt a half-finished sync; runs are idempotent anyway
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # Same cache strategy as codegen-consistency: repeat runs only rebuild what changed.
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the synchronizer
+        run: cargo build --release -p server --bin sirene_sync
+
+      - name: Run the SIRENE sync (--once)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          INSEE_API_TOKEN: ${{ secrets.INSEE_API_TOKEN }}
+          # Default scope is Tours (code commune 37261); uncomment to widen to the department.
+          # SIRENE_DEPARTMENT: "37"
+        run: ./target/release/sirene_sync --once

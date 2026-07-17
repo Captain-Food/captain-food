@@ -13,7 +13,9 @@ async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
-uuid = { workspace = true }
+# `v5` on top of the workspace features: the SIRENE ACL derives DETERMINISTIC restaurant ids
+# (UUIDv5 of the SIRET) so re-running the sync is idempotent across runs (integrations/sirene).
+uuid = { workspace = true, features = ["v5"] }
 # `chrono`/`uuid`/`json` bind the RestaurantRow column types (TIMESTAMPTZ/UUID/JSONB) on top of the
 # workspace-pinned runtime/tls/postgres features (queries run over the session pooler, so plain
 # prepared statements are fine).
@@ -21,3 +23,7 @@ sqlx = { workspace = true, features = ["chrono", "uuid", "json"] }
 # Only the timer is needed at runtime (the projection worker's polling loop); the workspace feature set
 # also carries rt/macros used by the integration test.
 tokio = { workspace = true }
+# HTTP client for the SIRENE ACL (integrations/sirene). default-features off + native-tls for the same
+# reason as the workspace sqlx TLS choice: SChannel on Windows dev boxes (no C toolchain), OpenSSL on
+# the Linux CI/Render images (libssl is present).
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
