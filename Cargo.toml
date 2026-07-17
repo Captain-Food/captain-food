@@ -22,6 +22,18 @@ members = [
 edition = "2021"
 license-file = "LICENSE.md"
 
+# Optimized release profile for the deployed `server` binary. This tunes the RUNTIME performance of the
+# generated code and is independent of the build method (Docker vs native cargo) — the binary runs the same
+# either way; these flags are what actually make it faster. `panic = "abort"` is deliberately NOT set: the
+# server relies on per-request panic isolation (a panicking handler must not take down the whole process),
+# which needs unwinding. `target-cpu` is left generic — Render's build and run hosts are not guaranteed to
+# share a CPU, so a `native`-tuned binary could target the wrong chip. The extra compile cost of `lto` +
+# `codegen-units = 1` is absorbed by the cargo-chef dependency-layer cache (ADR-0042).
+[profile.release]
+lto = "thin"          # cross-crate inlining — the main throughput/latency win
+codegen-units = 1     # maximize optimization within each crate (slower build, faster binary)
+strip = true          # drop symbols — smaller binary, faster load, no runtime-speed change
+
 # Centralized versions for the light, host-buildable deps used by the skeleton. Heavier framework deps
 # (axum/tokio/async-graphql, sqlx, leptos, tauri, crux, uniffi, reqwest) are added per crate when that
 # layer's real code lands — kept out of the scaffold so `cargo build` stays fast and green everywhere.
