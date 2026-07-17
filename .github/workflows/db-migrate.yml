@@ -1,20 +1,22 @@
-# Apply database migrations with sqlx-cli (ADR-0043).
+# Apply database migrations with sqlx-cli (ADR-0043) — GATED on a green CI run.
 #
-# This is the single migration authority: apps never embed or run migrations — they only check the schema
-# version at /health. Runs on push to main whenever a migration changes. Requires repo secret DATABASE_URL
-# = the Supabase Session-pooler string (port 5432, ?sslmode=require).
+# Runs ONLY after `codegen-consistency` succeeds on main (build + tests + spec validation + no drift), so we
+# never deploy SQL to Supabase for a commit that doesn't compile, fails tests, or is out of sync with the
+# specs. `sqlx migrate run` is idempotent (applies only pending migrations), so running it after every green
+# build is safe. Requires repo secret DATABASE_URL = the Supabase Session-pooler string (5432, ?sslmode=require).
 #
-# Ordering vs Render: Render auto-deploys in parallel; the app's /health version gate holds the new deploy
-# back (503) until this job has applied the pending migrations, so ordering is self-correcting.
+# Ordering vs Render: Render auto-deploys in parallel; the app's /health version gate holds a new deploy back
+# (503) until this job has applied pending migrations, so ordering is self-correcting.
 name: db-migrate
 
 on:
-  push:
+  workflow_run:
+    workflows: ["codegen-consistency"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "migrations/**"
-      - ".github/workflows/db-migrate.yml"
-  workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 concurrency:
   group: db-migrate
@@ -22,21 +24,16 @@ concurrency:
 
 jobs:
   migrate:
+    # Only proceed when the gating CI run passed.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache sqlx-cli
-        id: cache-sqlx
-        uses: actions/cache@v4
+      - uses: actions/checkout@v5
         with:
-          path: ~/.cargo/bin/sqlx
-          key: sqlx-cli-0.8-postgres
-
-      - name: Install sqlx-cli
-        if: steps.cache-sqlx.outputs.cache-hit != 'true'
-        run: cargo install sqlx-cli --version ^0.8 --no-default-features --features native-tls,postgres --locked
-
+          ref: ${{ github.event.workflow_run.head_sha }} # the exact commit that passed CI
+      - uses: taiki-e/install-action@v2 # Node 24; installs a prebuilt sqlx-cli in seconds (no toolchain/cargo-install)
+        with:
+          tool: sqlx-cli
       - name: Apply migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

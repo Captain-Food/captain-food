@@ -19,7 +19,7 @@ jobs:
   codegen:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build the workspace (codegen + all layer crates — enforces the ADR-0035 dependency graph)
