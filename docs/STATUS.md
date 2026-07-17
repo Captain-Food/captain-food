@@ -51,12 +51,11 @@
 | `external_sirene_restaurants` staging table | ✅ | Migration applied by CI |
 | Thin CI ingestion (fetch → UPSERT raw rows, nationwide) | 🚧 | ADR-0045 — in progress |
 | On-app `sync_sirene_worker` (ACL on deployed version) + deletion | 🚧 | ADR-0045 — in progress |
-| `INSEE_API_TOKEN` repo secret (to go live) | ⏳ | User action |
+| `INSEE_API_TOKEN` repo secret | ✅ | Added; SIRENE can run live once the ingestion + worker deploy |
 
 ## 👤 Pending user actions
 
-- ⏳ Rotate the earlier leaked `SUPABASE_SECRET_KEY` + DB password.
-- ⏳ Add `INSEE_API_TOKEN` repo secret to run SIRENE live.
+- ✅ None outstanding.
 
 ## 🧭 Architecture decisions
 See [`docs/adr/`](adr/) — latest: 0042 (hosting), 0043 (migrations), 0044 (license), 0045 (SIRENE redesign), 0046 (write side).
