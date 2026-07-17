@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use application::queries::RestaurantReadRepository;
+use application::queries::{ProspectionReadRepository, RestaurantReadRepository};
 
 use super::generated::query::QueryRoot;
 
@@ -16,6 +16,7 @@ pub type CaptainSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 /// more read models are wired.
 pub struct ReadDeps {
     pub restaurants: Arc<dyn RestaurantReadRepository>,
+    pub prospection: Arc<dyn ProspectionReadRepository>,
 }
 
 /// Build the master schema served under every role path. With `Some(deps)` the read-model repos are
@@ -25,6 +26,7 @@ pub fn build_schema(deps: Option<ReadDeps>) -> CaptainSchema {
     let mut builder = Schema::build(QueryRoot, EmptyMutation, EmptySubscription);
     if let Some(d) = deps {
         builder = builder.data(d.restaurants);
+        builder = builder.data(d.prospection);
     }
     builder.finish()
 }

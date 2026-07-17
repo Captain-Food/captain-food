@@ -15,12 +15,13 @@ use domain::generated::scalars::*;
 use infrastructure::{PgEventStore, ProjectionWorker};
 use sqlx::PgPool;
 
-/// Fresh copies of the three tables the slice touches (mirrors migrations/20260717120000 + …170000 and
-/// the read-side test's DDL).
+/// Fresh copies of the four tables the slice touches (mirrors migrations/20260717120000 + …170000 and
+/// the read-side test's DDL; the worker folds every Restaurant-stream event into `prospectionpipeline`
+/// too, so it must exist).
 async fn reset_schema(pool: &PgPool) {
     sqlx::raw_sql(
         r#"
-        DROP TABLE IF EXISTS domain_events, restaurant, projection_checkpoint CASCADE;
+        DROP TABLE IF EXISTS domain_events, restaurant, prospectionpipeline, projection_checkpoint CASCADE;
         CREATE TABLE domain_events (
           position BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           id UUID NOT NULL UNIQUE,
@@ -63,6 +64,16 @@ async fn reset_schema(pool: &PgPool) {
           default_currency TEXT NOT NULL,
           timezone TEXT,
           preparation_time_minutes INTEGER,
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE TABLE prospectionpipeline (
+          restaurant_id UUID PRIMARY KEY,
+          score INTEGER NOT NULL,
+          pipeline_status INTEGER NOT NULL,
+          contacts_count INTEGER NOT NULL,
+          last_contacted_at TIMESTAMPTZ,
+          replied_at TIMESTAMPTZ,
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL
         );

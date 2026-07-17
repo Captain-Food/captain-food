@@ -101,8 +101,29 @@ impl QueryRoot {
     }
     /// B2B prospection pipeline (admin): scored prospects, optionally filtered by minimum score / pipeline status.
     #[graphql(name = "prospectionPipeline")]
-    async fn prospection_pipeline(&self, input: Option<ProspectionPipelineQueryInput>) -> async_graphql::Result<Vec<Prospect>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn prospection_pipeline(&self, ctx: &async_graphql::Context<'_>, input: Option<ProspectionPipelineQueryInput>) -> async_graphql::Result<Vec<Prospect>> {
+        let repo = ctx.data::<std::sync::Arc<dyn application::queries::ProspectionReadRepository>>()?;
+        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;
+        let filter = input
+            .map(|i| application::queries::ProspectFilter {
+                min_score: i.min_score.map(|s| s.0 as i32),
+                status: i.status.map(Into::into),
+            })
+            .unwrap_or_default();
+        let rows = repo.list(filter).await.map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        // The non-null `restaurant` navigation field: join against the Restaurant read model in memory
+        // (both rows are folded from the same Restaurant-stream events, so a match always exists).
+        let by_id: std::collections::HashMap<_, _> = restaurants
+            .list(application::queries::RestaurantFilter::default())
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?
+            .into_iter()
+            .map(|r| (r.restaurant_id.0, r))
+            .collect();
+        Ok(rows
+            .into_iter()
+            .filter_map(|p| by_id.get(&p.restaurant_id.0).cloned().map(|r| Prospect::from((p, r))))
+            .collect())
     }
     /// The active Captain service-fee policy (admin; calibration/transparency).
     #[graphql(name = "pricingPolicy")]

@@ -1,19 +1,21 @@
-//! Integration test for the SIRENE sync slice: a Sirene établissement JSON → ACL mapping →
-//! `register_restaurant` + `PgEventStore` (a `domain_events` row) → `ProjectionWorker` (a
-//! `restaurant` row) → idempotent re-run. Needs a real Postgres: set `DATABASE_URL` (see
-//! restaurant_write_path.rs for a throwaway docker one-liner). Without it the test SKIPS so
-//! `cargo test` stays green offline.
+//! Integration test for the prospection read-model slice: a SIRENE-mapped `register_restaurant`
+//! (a `domain_events` row) → `ProjectionWorker` (the SAME Restaurant-stream event folds into BOTH the
+//! `restaurant` and `prospectionpipeline` rows) → `PgProspectionRepository::list` filters. Needs a real
+//! Postgres: set `DATABASE_URL` (see restaurant_write_path.rs for a throwaway docker one-liner). Without
+//! it the test SKIPS so `cargo test` stays green offline.
 
 use application::commands::register_restaurant;
 use application::ports::Actor;
+use application::queries::{ProspectFilter, ProspectionReadRepository};
+use domain::generated::scalars::ProspectPipelineStatus;
 use infrastructure::integrations::sirene::{
     etablissement_to_command, restaurant_id_for_siret, sirene_system_user_id, Etablissement,
 };
-use infrastructure::{PgEventStore, ProjectionWorker};
+use infrastructure::{PgEventStore, PgProspectionRepository, ProjectionWorker};
 use sqlx::PgPool;
 
-/// Fresh copies of the four tables the slice touches (mirrors restaurant_write_path.rs; the worker folds
-/// every Restaurant-stream event into `prospectionpipeline` too, so it must exist).
+/// Fresh copies of the four tables the slice touches (mirrors sirene_registration.rs, plus the
+/// `prospectionpipeline` projection table this test asserts on).
 async fn reset_schema(pool: &PgPool) {
     sqlx::raw_sql(
         r#"
@@ -114,11 +116,9 @@ fn sample_etablissement() -> Etablissement {
 }
 
 #[tokio::test]
-async fn sirene_mapped_command_flows_through_the_write_path_idempotently() {
+async fn registered_prospect_is_folded_and_served_by_the_read_repository() {
     let Ok(url) = std::env::var("DATABASE_URL") else {
-        eprintln!(
-            "SKIP sirene_mapped_command_flows_through_the_write_path_idempotently: DATABASE_URL not set"
-        );
+        eprintln!("SKIP registered_prospect_is_folded_and_served_by_the_read_repository: DATABASE_URL not set");
         return;
     };
     let pool = PgPool::connect(&url).await.expect("connect Postgres");
@@ -133,45 +133,39 @@ async fn sirene_mapped_command_flows_through_the_write_path_idempotently() {
     };
     let restaurant_id = restaurant_id_for_siret("85242109900021").0;
 
-    // 1) ACL mapping → the ordinary write path appends one RestaurantRegistered.
+    // 1) SIRENE ACL mapping → one RestaurantRegistered on the Restaurant stream.
     let cmd = etablissement_to_command(&sample_etablissement()).expect("mapping");
     register_restaurant(&store, cmd, &actor).await.expect("register_restaurant");
 
-    let (stream, event_type, user_type, payload): (String, String, i32, serde_json::Value) =
-        sqlx::query_as("SELECT stream_name, event_type, user_type, payload FROM domain_events")
-            .fetch_one(&pool)
-            .await
-            .expect("one event row");
-    assert_eq!(stream, format!("Restaurant-{restaurant_id}"));
-    assert_eq!(event_type, "RestaurantRegistered");
-    assert_eq!(user_type, 6); // EXTERNAL envelope stamp (ADR-0041)
-    assert_eq!(payload["ref"], serde_json::json!("85242109900021"));
-    assert_eq!(payload["listingStatus"], serde_json::json!("NON_PARTNER"));
-
-    // 2) The EXISTING projection worker materializes the prospect row.
+    // 2) One worker pass folds the event into the prospect row: NEW, unscored, never contacted.
     ProjectionWorker::new(pool.clone()).run_once().await.expect("run_once");
-    let (slug, display_name, listing_status): (String, String, i32) = sqlx::query_as(
-        "SELECT slug, display_name, listing_status FROM restaurant WHERE restaurant_id = $1",
+    let (score, pipeline_status, contacts_count): (i32, i32, i32) = sqlx::query_as(
+        "SELECT score, pipeline_status, contacts_count FROM prospectionpipeline WHERE restaurant_id = $1",
     )
     .bind(restaurant_id)
     .fetch_one(&pool)
     .await
-    .expect("projected restaurant row");
-    assert_eq!(slug, "chez-marco-00021");
-    assert_eq!(display_name, "CHEZ MARCO");
-    assert_eq!(listing_status, 0); // RestaurantListingStatus::NON_PARTNER ordinal
+    .expect("projected prospect row");
+    assert_eq!(pipeline_status, 0); // ProspectPipelineStatus::NEW ordinal
+    assert_eq!(score, 0); // TODO(runtime) weighted score — 0 until the lookup ports land
+    assert_eq!(contacts_count, 0);
 
-    // 3) Re-run the sync for the same SIRET → deterministic id → absorbed as a no-op.
-    let replay = etablissement_to_command(&sample_etablissement()).expect("mapping (replay)");
-    register_restaurant(&store, replay, &actor).await.expect("idempotent replay");
-    let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domain_events")
-        .fetch_one(&pool)
+    // 3) The read repository serves it — and the status filter binds the right ordinal.
+    let repo = PgProspectionRepository::new(pool.clone());
+    let all = repo.list(ProspectFilter::default()).await.expect("list all");
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].restaurant_id.0, restaurant_id);
+    assert_eq!(all[0].pipeline_status, ProspectPipelineStatus::NEW);
+
+    let contacted = repo
+        .list(ProspectFilter { status: Some(ProspectPipelineStatus::CONTACTED), ..Default::default() })
         .await
-        .expect("count events");
-    assert_eq!(events, 1);
-    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM restaurant")
-        .fetch_one(&pool)
+        .expect("list CONTACTED");
+    assert!(contacted.is_empty());
+
+    let new = repo
+        .list(ProspectFilter { status: Some(ProspectPipelineStatus::NEW), ..Default::default() })
         .await
-        .expect("count restaurant rows");
-    assert_eq!(rows, 1);
+        .expect("list NEW");
+    assert_eq!(new.len(), 1);
 }

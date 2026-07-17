@@ -1,12 +1,13 @@
 //! Enum ↔ INTEGER ordinal mapping (ADR-0037): enum columns are stored as the DECLARATION-ORDER ordinal
-//! (= `ref_<enum>.sort_order`). One impl per enum the `Restaurant` projection table needs; shared by the
-//! read repository (row → `RestaurantRow`) and the projection upsert (row → SQL).
+//! (= `ref_<enum>.sort_order`). One impl per enum the `Restaurant`/`ProspectionPipeline` projection
+//! tables need; shared by the read repositories (row → `…Row`) and the projection upserts (row → SQL).
 //!
 //! The declaration order below MUST match `domain::generated::scalars` (which is generated from
 //! `specs/scalars.yaml`, the same source the `ref_*` seed rows come from).
 
 use domain::generated::scalars::{
-    CuisineCategory, GbpLinkStatus, OrderAcceptanceMode, RestaurantListingStatus, RestaurantStatus,
+    CuisineCategory, GbpLinkStatus, OrderAcceptanceMode, ProspectPipelineStatus,
+    RestaurantListingStatus, RestaurantStatus,
 };
 use domain::shared::errors::DomainError;
 
@@ -45,6 +46,13 @@ enum_ord!(CuisineCategory {
     BISTRONOMIC => 3,
     FOOD_TRUCK => 4,
 });
+enum_ord!(ProspectPipelineStatus {
+    NEW => 0,
+    CONTACTED => 1,
+    COLD => 2,
+    REPLIED => 3,
+    CONVERTED => 4,
+});
 
 /// `to_ord` through an `Option` (nullable enum column).
 pub fn opt_to_ord<E: EnumOrd>(v: &Option<E>) -> Option<i32> {
@@ -74,6 +82,8 @@ mod tests {
         assert_eq!(OrderAcceptanceMode::PAUSED.to_ord(), 2);
         assert_eq!(CuisineCategory::FOOD_TRUCK.to_ord(), 4);
         assert_eq!(GbpLinkStatus::BROKEN.to_ord(), 3);
+        assert_eq!(ProspectPipelineStatus::CONVERTED.to_ord(), 4);
+        assert_eq!(ProspectPipelineStatus::from_ord(1).unwrap(), ProspectPipelineStatus::CONTACTED);
         assert!(RestaurantStatus::from_ord(99).is_err());
     }
 }

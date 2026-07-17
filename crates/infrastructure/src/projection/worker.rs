@@ -1,17 +1,23 @@
-//! The Restaurant projection worker (ADR-0040): polls `domain_events` past the `'Restaurant'`
-//! checkpoint, folds each Restaurant-stream event through the generated `project_restaurant` dispatch +
-//! the hand-written `RestaurantProjector` compute hooks, upserts the `restaurant` row, and advances
-//! `projection_checkpoint`. Idempotent on restart: replaying an event over the current row state is a
+//! The Restaurant-stream projection worker (ADR-0040): polls `domain_events` past the `'Restaurant'`
+//! checkpoint and folds each Restaurant-stream event into BOTH read models fed by that stream — the
+//! `restaurant` row (generated `project_restaurant` dispatch + hand-written `RestaurantProjector` hooks)
+//! and the `prospectionpipeline` row (`project_prospection_pipeline` + `ProspectionPipelineProjector`) —
+//! then advances the shared `projection_checkpoint` (one checkpoint covers both folds, since both consume
+//! the same stream). Idempotent on restart: replaying an event over the current row state is a
 //! deterministic fold (`*Updated` events carry replace semantics).
 //!
 //! Scope note: only `Restaurant-%` streams are folded, so the cross-stream `default_currency` hole
 //! (owning account's currency, set on the account stream) stays preserved by `RestaurantProjector` —
-//! exactly the documented TODO(runtime) in `application::projectors::restaurant`.
+//! exactly the documented TODO(runtime) in `application::projectors::restaurant`. Likewise the
+//! ProspectionPipeline outreach columns fed by `Prospect-%` streams (ProspectContacted / ProspectMarkedCold
+//! / ProspectReplied) are TODO(runtime), deferred until those mutations exist — the projector already
+//! handles the events; the worker just does not scan their stream yet.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use application::projections::{project_restaurant, Envelope};
+use application::projections::{project_prospection_pipeline, project_restaurant, Envelope};
+use application::projectors::prospection_pipeline::ProspectionPipelineProjector;
 use application::projectors::restaurant::RestaurantProjector;
 use chrono::Utc;
 use domain::generated::events::DomainEvent;
@@ -19,7 +25,7 @@ use domain::generated::scalars::RestaurantId;
 use domain::shared::errors::DomainError;
 use sqlx::{PgPool, Row};
 
-use crate::persistence::{db_err, restaurant_store};
+use crate::persistence::{db_err, prospection_store, restaurant_store};
 use crate::projection::ProjectionStatus;
 
 const PROJECTOR: &str = "Restaurant";
@@ -113,10 +119,16 @@ impl ProjectionWorker {
             .map_err(|e| db_err(format!("position {position} ({event_type}): {e}")))?;
 
             let restaurant_id = restaurant_id_of(&stream_name, &event)?;
-            let state = restaurant_store::load(&self.pool, restaurant_id).await?;
             let env = Envelope { stream_name, position, occurred_at, event };
+            let state = restaurant_store::load(&self.pool, restaurant_id).await?;
             if let Some(next) = project_restaurant(&RestaurantProjector, state, &env) {
                 restaurant_store::upsert(&self.pool, &next).await?;
+            }
+            // Second fold of the same event: the ProspectionPipeline read model is also fed by the
+            // Restaurant stream (RestaurantRegistered creates the prospect row; listing changes move it).
+            let prospect = prospection_store::load(&self.pool, restaurant_id).await?;
+            if let Some(next) = project_prospection_pipeline(&ProspectionPipelineProjector, prospect, &env) {
+                prospection_store::upsert(&self.pool, &next).await?;
             }
 
             self.commit_checkpoint(position).await?;

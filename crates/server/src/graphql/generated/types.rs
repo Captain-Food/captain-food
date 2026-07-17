@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
-use application::projections::RestaurantRow;
+use application::projections::{ProspectionPipelineRow, RestaurantRow};
 use domain::generated::scalars as ds;
 
 use super::scalars::*;
@@ -789,6 +789,23 @@ impl From<RestaurantRow> for Restaurant {
             catalogs: Vec::new(),
             carts: Vec::new(),
             orders: Vec::new(),
+        }
+    }
+}
+
+/// Read-model rows → API type: the ProspectionPipeline row plus the joined Restaurant row (the
+/// FK-derived `restaurant` navigation field is non-null, so the resolver hydrates it from the
+/// Restaurant read model).
+impl From<(ProspectionPipelineRow, RestaurantRow)> for Prospect {
+    fn from((row, restaurant): (ProspectionPipelineRow, RestaurantRow)) -> Self {
+        Self {
+            restaurant_id: row.restaurant_id.into(),
+            score: row.score.into(),
+            pipeline_status: row.pipeline_status.into(),
+            contacts_count: row.contacts_count,
+            last_contacted_at: row.last_contacted_at,
+            replied_at: row.replied_at,
+            restaurant: restaurant.into(),
         }
     }
 }

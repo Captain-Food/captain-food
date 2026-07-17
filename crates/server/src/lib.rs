@@ -28,8 +28,8 @@ use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-use application::queries::RestaurantReadRepository;
-use infrastructure::{PgRestaurantRepository, ProjectionStatus, ProjectionWorker};
+use application::queries::{ProspectionReadRepository, RestaurantReadRepository};
+use infrastructure::{PgProspectionRepository, PgRestaurantRepository, ProjectionStatus, ProjectionWorker};
 use shared_types::HealthDto;
 
 use graphql::schema::ReadDeps;
@@ -99,10 +99,12 @@ pub fn router() -> Router {
                 snap.lock().expect("health snapshot mutex").state = db_state::DOWN;
                 spawn_heartbeat(pool.clone(), snap.clone());
 
-                // Read-model repository injected into GraphQL resolvers (ADR-0035 composition root).
+                // Read-model repositories injected into GraphQL resolvers (ADR-0035 composition root).
                 let restaurants: Arc<dyn RestaurantReadRepository> =
                     Arc::new(PgRestaurantRepository::new(pool.clone()));
-                read_deps = Some(ReadDeps { restaurants });
+                let prospection: Arc<dyn ProspectionReadRepository> =
+                    Arc::new(PgProspectionRepository::new(pool.clone()));
+                read_deps = Some(ReadDeps { restaurants, prospection });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.
                 if std::env::var("RUN_PROJECTOR").map(|v| v != "false").unwrap_or(true) {

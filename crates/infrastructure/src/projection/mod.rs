@@ -1,6 +1,7 @@
 //! App-layer projection runtime (ADR-0040): the worker that folds `domain_events` into the materialized
 //! read-model tables using the hand-written `…Compute` projectors, checkpointed in
-//! `projection_checkpoint`. V0 covers the Restaurant slice.
+//! `projection_checkpoint`. V0 covers the Restaurant-stream slice: the `restaurant` and
+//! `prospectionpipeline` read models.
 
 pub mod worker;
 
