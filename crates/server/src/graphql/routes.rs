@@ -81,17 +81,19 @@ const VOYAGER_HTML: &str = r#"<!DOCTYPE html>
 <body>
   <div id="voyager">Loading GraphQL Voyager…</div>
   <script src="https://cdn.jsdelivr.net/npm/graphql-voyager@2.1.0/dist/voyager.standalone.js"></script>
-  <script>
-    GraphQLVoyager.renderVoyager(document.getElementById('voyager'), {
-      introspection: function (query) {
-        // Absolute URL from the current origin (equivalent to the relative path, but explicit).
-        return fetch(window.location.origin + '__ENDPOINT__', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ query: query })
-        }).then(function (r) { return r.json(); });
-      }
+  <script type="module">
+    // Matches the official graphql-voyager v2 CDN example: fetch introspection HERE and pass the RESULT
+    // to renderVoyager. The standalone build expects introspection DATA, not a query-taking function
+    // (the function form never fires the request — Voyager just stays on "Transmitting…").
+    const { voyagerIntrospectionQuery: query } = GraphQLVoyager;
+    const response = await fetch(window.location.origin + '__ENDPOINT__', {
+      method: 'post',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+      credentials: 'omit',
     });
+    const introspection = await response.json();
+    GraphQLVoyager.renderVoyager(document.getElementById('voyager'), { introspection });
   </script>
 </body>
 </html>
