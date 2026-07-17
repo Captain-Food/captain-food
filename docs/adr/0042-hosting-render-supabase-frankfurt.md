@@ -74,7 +74,15 @@ and data inside the EU**.
   - Every push to `main` re-syncs the Blueprint automatically; "Manual sync" in the dashboard only forces
     one. Secrets stay dashboard-managed via `sync: false` and are never committed.
   - Linked 2026-07-17; first sync at commit `5a9e2f5` switched the service from a manually-configured
-    native `cargo build` to this Docker runtime, resolving the prior dashboard↔blueprint drift.
+    native `cargo build` to this Docker runtime, resolving the prior dashboard↔blueprint drift. First
+    Docker build + deploy verified live 2026-07-17 (`/health` → `db:up`, schema gate satisfied).
+- **Build tuning.** The workspace `[profile.release]` (root `Cargo.toml`) sets `lto = "thin"`,
+  `codegen-units = 1`, `strip = true` for the deployed binary — runtime-perf tuning, independent of the
+  Docker-vs-native build method; `panic = "abort"` deliberately NOT set (keeps per-request panic isolation),
+  `target-cpu` left generic (Render build/run hosts may differ). The Dockerfile uses cargo-chef so this
+  slower optimized compile is cached. **Open optimization**: the Dockerfile's `cargo chef cook` is not
+  scoped to `-p server`, so it currently cooks the whole workspace (incl. `web`/`desktop`/`codegen`);
+  scoping it to `-p server` would shrink the cached layer and speed cold builds (no behaviour change).
 - **Supabase Data API (PostgREST) is intentionally DISABLED** — all access is via the BFF + direct sqlx
   (ADR-0006), so PostgREST is unused and its REST surface is not exposed. Known, benign side effect: with
   the Data API off, PostgREST still runs and logs `schema "pg_pgrst_no_exposed_schemas" does not exist`
