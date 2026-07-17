@@ -14,3 +14,7 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 # The Actor envelope (ADR-0041) carries raw uuid ids; the typed domain ids wrap the same type.
 uuid = { workspace = true }
+
+[dev-dependencies]
+# Async runtime for the behaviour tests (tests.yaml Given/When/Then over the command handlers).
+tokio = { workspace = true }

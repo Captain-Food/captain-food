@@ -4,6 +4,9 @@
 //!
 //! - [`sirene`] — INSEE Sirene pull sync: food-service établissements → `RegisterRestaurant`
 //!   prospects (ADR-0019/0020/0027).
+//! - [`google`] — Google Business Profile seams (ownership proof + order-link probe, ADR-0019/0021);
+//!   fail-closed stand-ins until the real Google adapters land.
 //! - Later: HubRise (catalog import, inventory), Stripe (payment facts), delivery partner.
 
+pub mod google;
 pub mod sirene;

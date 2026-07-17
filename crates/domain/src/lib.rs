@@ -10,6 +10,7 @@
 //! model is generated/implemented from the specs. Only the `shared` vocabulary is scaffolded for now.
 
 pub mod generated;
+pub mod restaurant;
 pub mod shared;
 
 #[cfg(test)]

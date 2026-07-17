@@ -11,7 +11,7 @@ use domain::generated::scalars::ProspectPipelineStatus;
 use infrastructure::integrations::sirene::{
     etablissement_to_command, restaurant_id_for_siret, sirene_system_user_id, Etablissement,
 };
-use infrastructure::{PgEventStore, PgProspectionRepository, ProjectionWorker};
+use infrastructure::{PgEventStore, PgProspectionRepository, PgRestaurantRepository, ProjectionWorker};
 use sqlx::PgPool;
 
 /// Fresh copies of the four tables the slice touches (mirrors sirene_registration.rs, plus the
@@ -133,9 +133,11 @@ async fn registered_prospect_is_folded_and_served_by_the_read_repository() {
     };
     let restaurant_id = restaurant_id_for_siret("85242109900021").0;
 
+    let restaurants = PgRestaurantRepository::new(pool.clone()); // backs the SlugAlreadyTaken check
+
     // 1) SIRENE ACL mapping → one RestaurantRegistered on the Restaurant stream.
     let cmd = etablissement_to_command(&sample_etablissement()).expect("mapping");
-    register_restaurant(&store, cmd, &actor).await.expect("register_restaurant");
+    register_restaurant(&store, &restaurants, cmd, &actor).await.expect("register_restaurant");
 
     // 2) One worker pass folds the event into the prospect row: NEW, unscored, never contacted.
     ProjectionWorker::new(pool.clone()).run_once().await.expect("run_once");

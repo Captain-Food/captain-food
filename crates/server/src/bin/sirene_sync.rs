@@ -26,7 +26,7 @@ use infrastructure::integrations::sirene::{
     etablissement_to_command, restauration_query, sirene_system_user_id, SireneClient, SireneScope,
     TOURS_CODE_COMMUNE,
 };
-use infrastructure::PgEventStore;
+use infrastructure::{PgEventStore, PgRestaurantRepository};
 
 /// The new INSEE portal's public quota is ~30 requests/minute — pace page fetches accordingly.
 const PAGE_PAUSE: std::time::Duration = std::time::Duration::from_millis(2100);
@@ -46,7 +46,10 @@ async fn main() {
         .connect(&url)
         .await
         .expect("connect to DATABASE_URL");
-    let store = PgEventStore::new(pool);
+    let store = PgEventStore::new(pool.clone());
+    // Backs register_restaurant's SlugAlreadyTaken check; a re-synced SIRET matches its own row (same
+    // deterministic id) and stays an idempotent no-op.
+    let restaurants = PgRestaurantRepository::new(pool);
 
     let client = SireneClient::from_env().unwrap_or_else(|e| {
         eprintln!("sirene_sync: {e}");
@@ -94,7 +97,7 @@ async fn main() {
 
         for etablissement in &page.etablissements {
             match etablissement_to_command(etablissement) {
-                Ok(cmd) => match register_restaurant(&store, cmd, &actor).await {
+                Ok(cmd) => match register_restaurant(&store, &restaurants, cmd, &actor).await {
                     // Ok covers BOTH a new registration and an idempotent replay of a known SIRET.
                     Ok(()) => registered += 1,
                     Err(e) => {

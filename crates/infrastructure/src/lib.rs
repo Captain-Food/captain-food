@@ -12,6 +12,7 @@ pub mod integrations;
 pub mod persistence;
 pub mod projection;
 
+pub use integrations::google::{FailClosedGoogleOwnershipVerifier, UnverifiedGbpOrderLinkProbe};
 pub use persistence::{
     PgCartRepository, PgCatalogRepository, PgEventStore, PgOrderRepository,
     PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,

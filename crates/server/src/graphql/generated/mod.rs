@@ -3,3 +3,4 @@ pub mod scalars;
 pub mod types;
 pub mod inputs;
 pub mod query;
+pub mod mutation;

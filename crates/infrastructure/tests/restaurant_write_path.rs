@@ -12,7 +12,7 @@ use domain::generated::commands::{RegisterRestaurant, RegisterRestaurantAccount}
 use domain::generated::entities::{Address, OpeningHoursSlot, TaxRate};
 use domain::generated::events::{DomainEvent, RestaurantActivated};
 use domain::generated::scalars::*;
-use infrastructure::{PgEventStore, ProjectionWorker};
+use infrastructure::{PgEventStore, PgRestaurantRepository, ProjectionWorker};
 use sqlx::PgPool;
 
 /// Fresh copies of the four tables the slice touches (mirrors migrations/20260717120000 + …170000 and
@@ -142,6 +142,7 @@ async fn command_appends_event_and_projects_the_restaurant_row() {
     reset_schema(&pool).await;
 
     let store = PgEventStore::new(pool.clone());
+    let restaurants = PgRestaurantRepository::new(pool.clone()); // backs the SlugAlreadyTaken check
     let actor = admin_actor();
     let restaurant_id = uuid::Uuid::new_v4();
     let account_id = uuid::Uuid::new_v4();
@@ -178,7 +179,7 @@ async fn command_appends_event_and_projects_the_restaurant_row() {
     assert_eq!(account_event_type, "RestaurantAccountRegistered");
 
     // 2) RegisterRestaurant → one RestaurantRegistered at version 1, business payload + envelope split.
-    register_restaurant(&store, register_restaurant_cmd(restaurant_id), &actor)
+    register_restaurant(&store, &restaurants, register_restaurant_cmd(restaurant_id), &actor)
         .await
         .expect("register_restaurant");
 
@@ -222,7 +223,9 @@ async fn command_appends_event_and_projects_the_restaurant_row() {
     assert_eq!(listing_status, 0); // RestaurantListingStatus::NON_PARTNER
 
     // 4) Idempotent replay: same client-generated id → version clash absorbed as Ok, no duplicate fact.
-    register_restaurant(&store, register_restaurant_cmd(restaurant_id), &actor)
+    //    The slug row projected in (3) belongs to the SAME restaurant id, so the SlugAlreadyTaken check
+    //    lets the replay through instead of rejecting it.
+    register_restaurant(&store, &restaurants, register_restaurant_cmd(restaurant_id), &actor)
         .await
         .expect("register_restaurant replay is idempotent");
     let events_in_stream: i64 =

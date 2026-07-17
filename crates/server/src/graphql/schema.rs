@@ -1,20 +1,23 @@
 //! The GraphQL master schema (ADR-0006), built over the GENERATED type layer (`generated/` — wrapper
-//! scalars, SimpleObject output types, InputObject inputs, and the QueryRoot exposing every api.yaml
-//! query). Read-model repositories are injected via `.data(...)` so the wired resolvers (e.g. `restaurants`)
-//! resolve them from `ctx`; unwired queries still stub `not implemented`.
+//! scalars, SimpleObject output types, InputObject inputs, the QueryRoot exposing every api.yaml
+//! query, and the MutationRoot exposing every api.yaml mutation). Read-model repositories and the
+//! write-side ports are injected via `.data(...)` so the wired resolvers (e.g. `restaurants`,
+//! `registerRestaurant`) resolve them from `ctx`; unwired operations still stub `not implemented`.
 
 use std::sync::Arc;
 
-use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use async_graphql::{EmptySubscription, Schema};
+use application::ports::{EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
 use application::queries::{
     CartReadRepository, CatalogReadRepository, OrderReadRepository, PricingPolicyReadRepository,
     ProspectionReadRepository, RestaurantReadRepository, UberEstimationPolicyReadRepository,
     UberSplitPolicyReadRepository,
 };
 
+use super::generated::mutation::MutationRoot;
 use super::generated::query::QueryRoot;
 
-pub type CaptainSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
+pub type CaptainSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
 
 /// Read-model repositories injected into every resolver's context (ADR-0035 composition root). Grows as
 /// more read models are wired.
@@ -29,11 +32,20 @@ pub struct ReadDeps {
     pub orders: Arc<dyn OrderReadRepository>,
 }
 
-/// Build the master schema served under every role path. With `Some(deps)` the read-model repos are
-/// attached, so wired resolvers return data; with `None` (no DB) the schema still builds/introspects and
-/// those resolvers error at runtime.
-pub fn build_schema(deps: Option<ReadDeps>) -> CaptainSchema {
-    let mut builder = Schema::build(QueryRoot, EmptyMutation, EmptySubscription);
+/// Write-side ports injected into the mutation resolvers' context (ADR-0035 composition root): the
+/// event store the command handlers append to, plus the Google seams the listing commands need
+/// (ownership proof, ADR-0019; order-link probe, ADR-0021).
+pub struct WriteDeps {
+    pub event_store: Arc<dyn EventStore>,
+    pub ownership: Arc<dyn GoogleOwnershipVerifier>,
+    pub gbp_probe: Arc<dyn GbpOrderLinkProbe>,
+}
+
+/// Build the master schema served under every role path. With `Some(deps)`/`Some(writes)` the
+/// read-model repos and write-side ports are attached, so wired resolvers work; with `None` (no DB)
+/// the schema still builds/introspects and those resolvers error at runtime.
+pub fn build_schema(deps: Option<ReadDeps>, writes: Option<WriteDeps>) -> CaptainSchema {
+    let mut builder = Schema::build(QueryRoot, MutationRoot, EmptySubscription);
     if let Some(d) = deps {
         builder = builder.data(d.restaurants);
         builder = builder.data(d.prospection);
@@ -43,6 +55,11 @@ pub fn build_schema(deps: Option<ReadDeps>) -> CaptainSchema {
         builder = builder.data(d.catalogs);
         builder = builder.data(d.carts);
         builder = builder.data(d.orders);
+    }
+    if let Some(w) = writes {
+        builder = builder.data(w.event_store);
+        builder = builder.data(w.ownership);
+        builder = builder.data(w.gbp_probe);
     }
     builder.finish()
 }
@@ -54,7 +71,7 @@ mod tests {
     /// wrapper scalars, mirror enums, the sanitized `Option` type, FK-nav fields and every query field.
     #[test]
     fn schema_builds_and_matches_generated_sdl_shape() {
-        let sdl = super::build_schema(None).sdl();
+        let sdl = super::build_schema(None, None).sdl();
         for expected in [
             "scalar RestaurantId",
             "scalar MoneyCents",
@@ -68,6 +85,11 @@ mod tests {
             "phoneCountries: [PhoneCountry!]!",
             "restaurantLocationsByAccount(input: RestaurantLocationsByAccountQueryInput!): [Restaurant!]!",
             "operation(input: OperationQueryInput!): Operation\n",
+            // Write side (mutation_block/payloads_block runtime mirror).
+            "type Mutation {",
+            "registerRestaurant(input: RegisterRestaurantInput!): RegisterRestaurantPayload!",
+            "correlationId: CorrelationId!",
+            "verifyPhone(input: VerifyPhoneInput!): VerifyPhonePayload!",
         ] {
             assert!(sdl.contains(expected), "runtime SDL missing `{}`:\n{}", expected, sdl);
         }

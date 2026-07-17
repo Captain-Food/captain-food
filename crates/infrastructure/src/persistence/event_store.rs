@@ -8,7 +8,7 @@ use application::ports::{version_conflict, Actor, EventStore};
 use async_trait::async_trait;
 use domain::generated::events::DomainEvent;
 use domain::shared::errors::DomainError;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 use crate::persistence::db_err;
 
@@ -69,6 +69,35 @@ impl EventStore for PgEventStore {
 
         tx.commit().await.map_err(db_err)?;
         Ok(expected_version + events.len() as i64)
+    }
+
+    async fn load(&self, stream_name: &str) -> Result<(Vec<DomainEvent>, i64), DomainError> {
+        let rows = sqlx::query(
+            "SELECT event_type, payload, version FROM domain_events \
+             WHERE stream_name = $1 ORDER BY version",
+        )
+        .bind(stream_name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+
+        let mut events = Vec::with_capacity(rows.len());
+        let mut version: i64 = 0;
+        for row in rows {
+            let event_type: String = row.try_get("event_type").map_err(db_err)?;
+            let payload: serde_json::Value = row.try_get("payload").map_err(db_err)?;
+            let row_version: i32 = row.try_get("version").map_err(db_err)?;
+            version = version.max(i64::from(row_version));
+            // Rebuild the typed event from the (event_type, payload) columns via the adjacent tag —
+            // the same envelope-join the projection worker uses.
+            let event: DomainEvent = serde_json::from_value(serde_json::json!({
+                "eventType": event_type,
+                "payload": payload,
+            }))
+            .map_err(|e| db_err(format!("{stream_name} v{row_version} ({event_type}): {e}")))?;
+            events.push(event);
+        }
+        Ok((events, version))
     }
 }
 

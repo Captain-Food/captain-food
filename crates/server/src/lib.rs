@@ -34,16 +34,21 @@ use application::queries::{
     UberSplitPolicyReadRepository,
 };
 use infrastructure::{
-    PgCartRepository, PgCatalogRepository, PgOrderRepository, PgPricingPolicyRepository,
-    PgProspectionRepository, PgRestaurantRepository, PgUberEstimationPolicyRepository,
-    PgUberSplitPolicyRepository, ProjectionStatus, ProjectionWorker,
+    FailClosedGoogleOwnershipVerifier, PgCartRepository, PgCatalogRepository, PgEventStore,
+    PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
+    PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProjectionStatus, ProjectionWorker,
+    UnverifiedGbpOrderLinkProbe,
 };
 use shared_types::HealthDto;
 
-use graphql::schema::ReadDeps;
+use graphql::schema::{ReadDeps, WriteDeps};
 
 mod graphql;
 mod hosts;
+
+/// The schema composition surface (build_schema/ReadDeps/WriteDeps), re-exported so integration tests
+/// (and the embedding `desktop` shell) can build the master schema over their own adapters.
+pub use graphql::schema as graphql_schema;
 
 /// Minimal health/edge-proof: lets the `desktop` (Tauri) shell embed the server in-process and proves the
 /// server → shared_types edge (ADR-0035). The real DI graph is built in `router()`.
@@ -92,6 +97,7 @@ pub struct AppState {
 pub fn router() -> Router {
     let snap = Arc::new(Mutex::new(Snapshot::default()));
     let mut read_deps: Option<ReadDeps> = None;
+    let mut write_deps: Option<WriteDeps> = None;
     let mut projector_status: Option<Arc<Mutex<ProjectionStatus>>> = None;
 
     match std::env::var("DATABASE_URL") {
@@ -136,6 +142,14 @@ pub fn router() -> Router {
                     orders,
                 });
 
+                // Write side (CQRS commands): the event store behind the mutation resolvers, plus the
+                // Google seam adapters (fail-closed stand-ins until the real integration lands).
+                write_deps = Some(WriteDeps {
+                    event_store: Arc::new(PgEventStore::new(pool.clone())),
+                    ownership: Arc::new(FailClosedGoogleOwnershipVerifier),
+                    gbp_probe: Arc::new(UnverifiedGbpOrderLinkProbe),
+                });
+
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.
                 if std::env::var("RUN_PROJECTOR").map(|v| v != "false").unwrap_or(true) {
                     let worker = ProjectionWorker::new(pool.clone());
@@ -157,7 +171,7 @@ pub fn router() -> Router {
         .route("/projector", get(projector))
         .with_state(AppState { snap, projector_status });
 
-    base.merge(graphql::routes::graphql_routes(graphql::schema::build_schema(read_deps)))
+    base.merge(graphql::routes::graphql_routes(graphql::schema::build_schema(read_deps, write_deps)))
         // Host-based landing (ADR-0036): any path not matched above is dispatched by the request `Host`
         // to its per-audience/tenant placeholder. Explicit routes (/health, /ping, /{role}/graphql) win,
         // so Render's health check (internal *.onrender.com host) is unaffected. Covers `/` too.

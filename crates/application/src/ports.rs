@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use domain::generated::events::DomainEvent;
+use domain::generated::scalars::{GbpLinkStatus, WebUrl};
 use domain::shared::{errors::DomainError, identifiers::RestaurantId};
 
 /// Acting user + correlation for the event envelope (ADR-0041). The actor who performed a change is
@@ -50,6 +51,31 @@ pub trait EventStore: Send + Sync {
         events: &[DomainEvent],
         actor: &Actor,
     ) -> Result<i64, DomainError>;
+
+    /// Load a stream's events in version order plus its current version (`0` for an empty/unknown
+    /// stream). Command handlers rehydrate the aggregate state from this (write-side fold), then append
+    /// at the returned version so a concurrent writer conflicts instead of double-applying.
+    async fn load(&self, stream_name: &str) -> Result<(Vec<DomainEvent>, i64), DomainError>;
+}
+
+/// Google Business Profile ownership-proof verification (ADR-0019: "delegate ownership proof to
+/// Google"). `ClaimRestaurantListing` / `OptOutRestaurantListing` carry a `googleOwnershipProof`; the
+/// backend must validate it server-side before accepting — a `false` maps to
+/// `errors.yaml#/ListingOwnershipNotVerified`. The real adapter calls Google; until it lands the
+/// composition root injects a fail-closed stand-in (never silently accepts).
+#[async_trait]
+pub trait GoogleOwnershipVerifier: Send + Sync {
+    /// Whether `proof` establishes that the caller owns `restaurant_id`'s Google Business Profile.
+    async fn verify(&self, restaurant_id: RestaurantId, proof: &str) -> Result<bool, DomainError>;
+}
+
+/// GBP 'Order online' link probe (ADR-0021): `VerifyGoogleBusinessProfileOrderLink` pings the
+/// configured `{slug}.captain.food` link and RECORDS the observed status. The adapter owns the ping;
+/// the handler only records the reported fact.
+#[async_trait]
+pub trait GbpOrderLinkProbe: Send + Sync {
+    /// Observe the live state of the configured link (`VERIFIED` when it answers as expected).
+    async fn probe(&self, url: &WebUrl) -> Result<GbpLinkStatus, DomainError>;
 }
 
 /// Read-side port: the query handlers resolve restaurants through this. In V0 the adapter reads the

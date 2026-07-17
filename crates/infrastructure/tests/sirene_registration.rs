@@ -9,7 +9,7 @@ use application::ports::Actor;
 use infrastructure::integrations::sirene::{
     etablissement_to_command, restaurant_id_for_siret, sirene_system_user_id, Etablissement,
 };
-use infrastructure::{PgEventStore, ProjectionWorker};
+use infrastructure::{PgEventStore, PgRestaurantRepository, ProjectionWorker};
 use sqlx::PgPool;
 
 /// Fresh copies of the four tables the slice touches (mirrors restaurant_write_path.rs; the worker folds
@@ -133,9 +133,11 @@ async fn sirene_mapped_command_flows_through_the_write_path_idempotently() {
     };
     let restaurant_id = restaurant_id_for_siret("85242109900021").0;
 
+    let restaurants = PgRestaurantRepository::new(pool.clone()); // backs the SlugAlreadyTaken check
+
     // 1) ACL mapping → the ordinary write path appends one RestaurantRegistered.
     let cmd = etablissement_to_command(&sample_etablissement()).expect("mapping");
-    register_restaurant(&store, cmd, &actor).await.expect("register_restaurant");
+    register_restaurant(&store, &restaurants, cmd, &actor).await.expect("register_restaurant");
 
     let (stream, event_type, user_type, payload): (String, String, i32, serde_json::Value) =
         sqlx::query_as("SELECT stream_name, event_type, user_type, payload FROM domain_events")
@@ -163,7 +165,7 @@ async fn sirene_mapped_command_flows_through_the_write_path_idempotently() {
 
     // 3) Re-run the sync for the same SIRET → deterministic id → absorbed as a no-op.
     let replay = etablissement_to_command(&sample_etablissement()).expect("mapping (replay)");
-    register_restaurant(&store, replay, &actor).await.expect("idempotent replay");
+    register_restaurant(&store, &restaurants, replay, &actor).await.expect("idempotent replay");
     let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domain_events")
         .fetch_one(&pool)
         .await
