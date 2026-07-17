@@ -39,3 +39,6 @@ async-trait = "0.1"
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-native-tls", "postgres", "migrate", "macros"] }
+# GraphQL BFF (ADR-0006 role-as-path). async-graphql 7.x targets axum 0.8.
+async-graphql = "7"
+async-graphql-axum = "7"

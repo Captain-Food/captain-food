@@ -26,6 +26,8 @@ use application::ports::RestaurantRepository;
 use infrastructure::PgRestaurantRepository;
 use shared_types::HealthDto;
 
+mod graphql;
+
 /// The migration set this build depends on, embedded at compile time from the repo-root `migrations/`
 /// (ADR-0043). Shared with the `migrate` bin so there is a single source of truth for what must be applied.
 pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
@@ -122,9 +124,13 @@ pub fn router() -> Router {
         _ => eprintln!("DATABASE_URL not set — /health will report not_configured (503)"),
     }
 
-    Router::new()
+    let health_router = Router::new()
         .route("/health", get(health))
-        .with_state(AppState { snap })
+        .with_state(AppState { snap });
+
+    // GraphQL BFF (ADR-0006). The scaffold schema needs no DB, so it mounts regardless of DATABASE_URL;
+    // read resolvers (Stage 2) will require the pool/repos injected into the schema.
+    health_router.merge(graphql::routes::graphql_routes(graphql::schema::build_schema()))
 }
 
 /// Highest version among the embedded migrations.

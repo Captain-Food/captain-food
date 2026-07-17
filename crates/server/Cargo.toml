@@ -11,9 +11,12 @@ application = { path = "../application" }
 infrastructure = { path = "../infrastructure" }
 shared_types = { path = "../shared_types" }
 
-# HTTP surface + DB health probe (ADR-0042 deploy target). GraphQL (async-graphql) and the tenant/auth
-# middleware are added as those layers land; today the server binds $PORT and serves /health.
+# HTTP surface + DB health probe (ADR-0042) + GraphQL BFF (ADR-0006 role-as-path). The tenant/auth
+# middleware and the runtime ACL guard land later; today the server binds $PORT, serves /health, and
+# exposes the GraphQL schema per role path.
 axum = { workspace = true }
 tokio = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }
+async-graphql = { workspace = true }
+async-graphql-axum = { workspace = true }
