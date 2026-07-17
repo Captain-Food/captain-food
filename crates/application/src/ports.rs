@@ -3,7 +3,54 @@
 //! application → domain edge at compile time.
 
 use async_trait::async_trait;
+use domain::generated::events::DomainEvent;
 use domain::shared::{errors::DomainError, identifiers::RestaurantId};
+
+/// Acting user + correlation for the event envelope (ADR-0041). The actor who performed a change is
+/// ENVELOPE metadata on `domain_events` (`user_id`/`user_type`/`correlation_id`/`cause_id`), never a
+/// business-payload field.
+#[derive(Debug, Clone)]
+pub struct Actor {
+    pub user_id: uuid::Uuid,
+    /// `UserType` ordinal (enums are stored as declaration-order integers, ADR-0037).
+    pub user_type: i32,
+    pub correlation_id: uuid::Uuid,
+    pub cause_id: Option<uuid::Uuid>,
+}
+
+/// Message prefix carried by the [`DomainError::Invariant`] an [`EventStore::append`] returns when it
+/// loses the optimistic-concurrency race (UNIQUE(stream_name, version)). Shared between the adapter
+/// (which builds it via [`version_conflict`]) and the command handlers (which recognize it via
+/// [`is_version_conflict`], e.g. to treat a replayed creation command as idempotent).
+pub const VERSION_CONFLICT_PREFIX: &str = "version conflict";
+
+/// Build the canonical optimistic-concurrency failure for `stream_name` at `expected_version`.
+pub fn version_conflict(stream_name: &str, expected_version: i64) -> DomainError {
+    DomainError::Invariant(format!(
+        "{VERSION_CONFLICT_PREFIX}: stream '{stream_name}' is past version {expected_version}"
+    ))
+}
+
+/// Whether `err` is the optimistic-concurrency failure produced by [`version_conflict`].
+pub fn is_version_conflict(err: &DomainError) -> bool {
+    matches!(err, DomainError::Invariant(msg) if msg.starts_with(VERSION_CONFLICT_PREFIX))
+}
+
+/// Write-side port: append business events to the `domain_events` log (CQRS-light, ADR-0035). Command
+/// handlers depend on this trait; the Postgres adapter lives in `infrastructure`.
+#[async_trait]
+pub trait EventStore: Send + Sync {
+    /// Append `events` to `stream_name`, expecting it to currently be at `expected_version`
+    /// (0 = new stream). Optimistic concurrency via UNIQUE(stream_name, version): a version clash →
+    /// Err([`version_conflict`]). Returns the stream's new version.
+    async fn append(
+        &self,
+        stream_name: &str,
+        expected_version: i64,
+        events: &[DomainEvent],
+        actor: &Actor,
+    ) -> Result<i64, DomainError>;
+}
 
 /// Read-side port: the query handlers resolve restaurants through this. In V0 the adapter reads the
 /// `View_Restaurant` SQL view over `domain_events` (ADR-0035, decision 2).

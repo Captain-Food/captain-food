@@ -12,6 +12,5 @@ async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
-
-[dev-dependencies]
+# The Actor envelope (ADR-0041) carries raw uuid ids; the typed domain ids wrap the same type.
 uuid = { workspace = true }

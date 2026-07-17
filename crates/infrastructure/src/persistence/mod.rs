@@ -2,9 +2,11 @@
 //! tables (ADR-0040) plus the shared row↔SQL mapping helpers they and the projection worker reuse.
 
 pub mod enum_sql;
+pub mod event_store;
 pub mod restaurant;
 pub mod restaurant_store;
 
+pub use event_store::PgEventStore;
 pub use restaurant::PgRestaurantRepository;
 
 use domain::shared::errors::DomainError;
