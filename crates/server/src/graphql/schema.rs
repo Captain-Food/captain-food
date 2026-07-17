@@ -6,7 +6,10 @@
 use std::sync::Arc;
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use application::queries::{ProspectionReadRepository, RestaurantReadRepository};
+use application::queries::{
+    PricingPolicyReadRepository, ProspectionReadRepository, RestaurantReadRepository,
+    UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
+};
 
 use super::generated::query::QueryRoot;
 
@@ -17,6 +20,9 @@ pub type CaptainSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 pub struct ReadDeps {
     pub restaurants: Arc<dyn RestaurantReadRepository>,
     pub prospection: Arc<dyn ProspectionReadRepository>,
+    pub pricing_policy: Arc<dyn PricingPolicyReadRepository>,
+    pub uber_estimation_policy: Arc<dyn UberEstimationPolicyReadRepository>,
+    pub uber_split_policy: Arc<dyn UberSplitPolicyReadRepository>,
 }
 
 /// Build the master schema served under every role path. With `Some(deps)` the read-model repos are
@@ -27,6 +33,9 @@ pub fn build_schema(deps: Option<ReadDeps>) -> CaptainSchema {
     if let Some(d) = deps {
         builder = builder.data(d.restaurants);
         builder = builder.data(d.prospection);
+        builder = builder.data(d.pricing_policy);
+        builder = builder.data(d.uber_estimation_policy);
+        builder = builder.data(d.uber_split_policy);
     }
     builder.finish()
 }

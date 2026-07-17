@@ -6,6 +6,7 @@
 #![allow(non_camel_case_types)]
 
 use application::projections::{ProspectionPipelineRow, RestaurantRow};
+use application::queries::{PricingPolicyRow, UberEstimationPolicyRow, UberSplitPolicyRow};
 use domain::generated::scalars as ds;
 
 use super::scalars::*;
@@ -806,6 +807,46 @@ impl From<(ProspectionPipelineRow, RestaurantRow)> for Prospect {
             last_contacted_at: row.last_contacted_at,
             replied_at: row.replied_at,
             restaurant: restaurant.into(),
+        }
+    }
+}
+
+/// Referential row → API type: the seeded `pricingpolicy` table (ADR-0016/0017).
+impl From<PricingPolicyRow> for PricingPolicy {
+    fn from(row: PricingPolicyRow) -> Self {
+        Self {
+            currency: row.currency.into(),
+            fee_rate: row.fee_rate,
+            buyer_share: row.buyer_share,
+            margin_low: row.margin_low,
+            margin_high: row.margin_high,
+            effective_from: row.effective_from,
+        }
+    }
+}
+
+/// Referential row → API type: the seeded `uberestimationpolicy` table (ADR-0024/0030).
+impl From<UberEstimationPolicyRow> for UberEstimationPolicy {
+    fn from(row: UberEstimationPolicyRow) -> Self {
+        Self {
+            cuisine_category: row.cuisine_category.into(),
+            price_coefficient: row.price_coefficient,
+            effective_from: row.effective_from,
+        }
+    }
+}
+
+/// Referential row → API type: the seeded `ubersplitpolicy` table (ADR-0024/0025/0030).
+impl From<UberSplitPolicyRow> for UberSplitPolicy {
+    fn from(row: UberSplitPolicyRow) -> Self {
+        Self {
+            currency: row.currency.into(),
+            uber_commission_pct: row.uber_commission_pct,
+            rider_base_cents: row.rider_base_cents,
+            rider_per_km_cents: row.rider_per_km_cents,
+            avg_delivery_fee_cents: row.avg_delivery_fee_cents,
+            platform_fee_pct: row.platform_fee_pct,
+            effective_from: row.effective_from,
         }
     }
 }

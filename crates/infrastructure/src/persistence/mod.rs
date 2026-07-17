@@ -5,11 +5,15 @@ pub mod enum_sql;
 pub mod event_store;
 pub mod prospection;
 pub mod prospection_store;
+pub mod referential;
 pub mod restaurant;
 pub mod restaurant_store;
 
 pub use event_store::PgEventStore;
 pub use prospection::PgProspectionRepository;
+pub use referential::{
+    PgPricingPolicyRepository, PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,
+};
 pub use restaurant::PgRestaurantRepository;
 
 use domain::shared::errors::DomainError;

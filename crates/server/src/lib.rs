@@ -28,8 +28,14 @@ use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-use application::queries::{ProspectionReadRepository, RestaurantReadRepository};
-use infrastructure::{PgProspectionRepository, PgRestaurantRepository, ProjectionStatus, ProjectionWorker};
+use application::queries::{
+    PricingPolicyReadRepository, ProspectionReadRepository, RestaurantReadRepository,
+    UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
+};
+use infrastructure::{
+    PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
+    PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProjectionStatus, ProjectionWorker,
+};
 use shared_types::HealthDto;
 
 use graphql::schema::ReadDeps;
@@ -104,7 +110,19 @@ pub fn router() -> Router {
                     Arc::new(PgRestaurantRepository::new(pool.clone()));
                 let prospection: Arc<dyn ProspectionReadRepository> =
                     Arc::new(PgProspectionRepository::new(pool.clone()));
-                read_deps = Some(ReadDeps { restaurants, prospection });
+                let pricing_policy: Arc<dyn PricingPolicyReadRepository> =
+                    Arc::new(PgPricingPolicyRepository::new(pool.clone()));
+                let uber_estimation_policy: Arc<dyn UberEstimationPolicyReadRepository> =
+                    Arc::new(PgUberEstimationPolicyRepository::new(pool.clone()));
+                let uber_split_policy: Arc<dyn UberSplitPolicyReadRepository> =
+                    Arc::new(PgUberSplitPolicyRepository::new(pool.clone()));
+                read_deps = Some(ReadDeps {
+                    restaurants,
+                    prospection,
+                    pricing_policy,
+                    uber_estimation_policy,
+                    uber_split_policy,
+                });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.
                 if std::env::var("RUN_PROJECTOR").map(|v| v != "false").unwrap_or(true) {

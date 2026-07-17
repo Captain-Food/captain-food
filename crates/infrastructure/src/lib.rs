@@ -12,5 +12,8 @@ pub mod integrations;
 pub mod persistence;
 pub mod projection;
 
-pub use persistence::{PgEventStore, PgProspectionRepository, PgRestaurantRepository};
+pub use persistence::{
+    PgEventStore, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
+    PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,
+};
 pub use projection::{ProjectionStatus, ProjectionWorker};

@@ -127,17 +127,23 @@ impl QueryRoot {
     }
     /// The active Captain service-fee policy (admin; calibration/transparency).
     #[graphql(name = "pricingPolicy")]
-    async fn pricing_policy(&self) -> async_graphql::Result<Vec<PricingPolicy>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn pricing_policy(&self, ctx: &async_graphql::Context<'_>) -> async_graphql::Result<Vec<PricingPolicy>> {
+        let repo = ctx.data::<std::sync::Arc<dyn application::queries::PricingPolicyReadRepository>>()?;
+        let rows = repo.list().await.map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        Ok(rows.into_iter().map(PricingPolicy::from).collect())
     }
     /// The active per-cuisine Uber Eats mark-up coefficients (admin; calibration/transparency).
     #[graphql(name = "uberEstimationPolicy")]
-    async fn uber_estimation_policy(&self) -> async_graphql::Result<Vec<UberEstimationPolicy>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn uber_estimation_policy(&self, ctx: &async_graphql::Context<'_>) -> async_graphql::Result<Vec<UberEstimationPolicy>> {
+        let repo = ctx.data::<std::sync::Arc<dyn application::queries::UberEstimationPolicyReadRepository>>()?;
+        let rows = repo.list().await.map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        Ok(rows.into_iter().map(UberEstimationPolicy::from).collect())
     }
     /// The active Uber Eats split/fee assumptions for the estimated comparison (admin; calibration/transparency).
     #[graphql(name = "uberSplitPolicy")]
-    async fn uber_split_policy(&self) -> async_graphql::Result<Vec<UberSplitPolicy>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn uber_split_policy(&self, ctx: &async_graphql::Context<'_>) -> async_graphql::Result<Vec<UberSplitPolicy>> {
+        let repo = ctx.data::<std::sync::Arc<dyn application::queries::UberSplitPolicyReadRepository>>()?;
+        let rows = repo.list().await.map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        Ok(rows.into_iter().map(UberSplitPolicy::from).collect())
     }
 }
