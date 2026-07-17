@@ -1,19 +1,13 @@
 //! Captain.Food server binary (ADR-0035): bind `$PORT`, serve the Axum router, drain on SIGTERM.
 //!
-//! Render (ADR-0042) injects `$PORT` and sends SIGTERM on deploy/scale-down; honouring it gives the
-//! graceful-drain half of the reinterpreted health/probe contract (ADR-0042, was P-04).
+//! Migrations are applied out-of-band by **sqlx-cli in CI** (ADR-0043) — the server never runs them; it
+//! only checks the schema version via `/health`. Render (ADR-0042) injects `$PORT` and sends SIGTERM on
+//! deploy/scale-down; honouring it gives the graceful-drain half of the health/probe contract.
 
 #[tokio::main]
 async fn main() {
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{port}");
-
-    // Free tier has no Pre-Deploy step, so apply migrations at startup (ADR-0043). Serve regardless of the
-    // outcome — /health reports the true schema state, so a failed migration is held back by Render's health
-    // check rather than crash-looping the process.
-    if let Err(e) = server::run_migrations_if_enabled().await {
-        eprintln!("startup migrations FAILED (serving anyway; /health reports the schema state): {e}");
-    }
 
     let app = server::router();
 

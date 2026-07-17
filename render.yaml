@@ -8,10 +8,13 @@
 #   DATABASE_URL  -> Supabase *Session pooler* string (IPv4), port 5432, with ?sslmode=require.
 #                    Do NOT use the direct db.<ref>.supabase.co host — it is IPv6-only and unreachable from Render.
 #
-# Migrations (ADR-0043): the free tier has no Pre-Deploy step, so the server applies migrations at startup
-# (MIGRATE_ON_START, default on). On a paid instance, add
-#   preDeployCommand: ./target/release/migrate
-# and set MIGRATE_ON_START=false so migrations run once before start instead of per-boot.
+# Migrations (ADR-0043): applied out-of-band by sqlx-cli in CI (.github/workflows/db-migrate.yml), NOT by
+# this service. The app only CHECKS the schema version at /health (REQUIRED_SCHEMA_VERSION) and refuses to
+# be ready if the DB is behind — so a deploy that races ahead of the migration is held until CI applies it.
+# /ping (liveness) is also exposed for uptime pingers / keep-warm; Render's Health Check Path stays /health.
+#
+# Projector: runs in-process in this web service for now (Render Background Workers are paid); it will move
+# to a dedicated worker service later (ADR-0040/0043).
 services:
   - type: web
     name: captain-food

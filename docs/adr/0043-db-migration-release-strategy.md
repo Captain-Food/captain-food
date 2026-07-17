@@ -105,3 +105,27 @@ marks version 1 with no schema change; the first real domain-schema migration (`
 ## References
 Refines ADR-0035 (incremental migrations for stateful tables); builds on ADR-0042 (Render Pre-Deploy +
 health/probe), ADR-0005/0039/0040 (projections), ADR-0006 (GraphQL contract as the client-facing version).
+
+## Amendment — 2026-07-17: migrations applied by sqlx-cli in CI; app is a version-checker
+
+Supersedes the "app embeds its migration set (`sqlx::migrate!`) + applies at startup / Pre-Deploy" mechanism
+(decisions 1, 2, 4) — the ledger format, expand/contract discipline, append-only rule and `>=` gate all
+stand; only *who applies* and *how the app checks* change. Driven by moving toward multiple services and by
+Render's free tier (no Pre-Deploy; Background Workers are paid).
+
+- **Single migration authority = sqlx-cli in CI.** `.github/workflows/db-migrate.yml` runs
+  `sqlx migrate run --source migrations` on push to `main` (paths `migrations/**`), against Supabase via the
+  `DATABASE_URL` repo secret. Apps **no longer embed migrations** (`sqlx::migrate!` removed) and **never apply
+  them**; the `migrate` bin and the startup-migration path (`MIGRATE_ON_START`) are removed.
+- **App = version-checker.** Each service ships `REQUIRED_SCHEMA_VERSION` (a constant; bump when it depends on
+  a new migration) and `/health` gates on `max(version) FROM _sqlx_migrations WHERE success >= REQUIRED`
+  (still `>=`, preserving rollback). We trade "name the exact missing migration" for a version-number check;
+  CI logs show what applied. `schemaVersion` vs `requiredSchemaVersion` are reported.
+- **Ordering.** Render auto-deploys in parallel with the CI migrate job; the `/health` gate holds a new deploy
+  back (503) until CI has applied the pending migrations, so it is self-correcting. Trade-off: migrations only
+  apply if CI runs and the `DATABASE_URL` secret is set.
+- **`/ping` → `pong`** added to every service: dependency-free liveness (process up), distinct from `/health`
+  (DB + schema readiness). Also serves uptime pingers / free-tier keep-warm. Render's Health Check Path stays
+  `/health`.
+- **Projector hosting (interim):** runs **in-process in the web service** (Render Background Workers are paid,
+  no free tier); graduates to a dedicated worker later (ADR-0040).

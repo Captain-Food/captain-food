@@ -1,24 +1,21 @@
 //! Captain.Food server (Axum BFF) — the composition root (ADR-0035).
 //!
-//! This is where dependency injection happens: concrete `infrastructure` adapters are constructed and
-//! injected behind the `application` ports, then the HTTP/GraphQL/SDUI surface is built over them. Exposed
-//! as a library so `desktop` (Tauri) can embed the same server in-process. Referencing `application`,
-//! `infrastructure` and `shared_types` proves the server → those-three edges.
+//! DI happens here: infrastructure adapters are injected behind application ports, then the HTTP/GraphQL
+//! surface is built over them. Exposed as a library so `desktop` (Tauri) can embed it in-process.
 //!
-//! `/health` is a strict readiness gate (ADR-0043). This build **embeds** its migration set (`MIGRATOR`);
-//! readiness means every embedded migration is present-and-successful in sqlx's `_sqlx_migrations` ledger.
-//! A 30-second heartbeat computes this and caches it. If any are missing, `/health` returns `503` and
-//! **names them** (`version_description`, e.g. `0005_view_order_v5`) so a mis-migrated deploy is diagnosable
-//! at a glance. Because the app only requires *its own* embedded set, an older build still passes against a
-//! newer DB — preserving rollback-by-redeploy under expand/contract (ADR-0043).
+//! Endpoints:
+//! - `/ping` → `pong` — liveness (process is up; touches nothing). Used by uptime pingers / keep-warm.
+//! - `/health` — readiness gate (ADR-0043): `200` only when the DB is reachable AND its schema version is
+//!   `>= REQUIRED_SCHEMA_VERSION`; else `503`. Migrations are applied out-of-band by **sqlx-cli in CI** —
+//!   the app never applies them, it only checks the version (so an older build still runs against a newer
+//!   DB, preserving rollback-by-redeploy under expand/contract).
+//! - `/{role}/graphql` — the GraphQL BFF (ADR-0006), see `graphql`.
 
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use serde_json::json;
-use sqlx::migrate::Migrator;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
@@ -28,61 +25,30 @@ use shared_types::HealthDto;
 
 mod graphql;
 
-/// The migration set this build depends on, embedded at compile time from the repo-root `migrations/`
-/// (ADR-0043). Shared with the `migrate` bin so there is a single source of truth for what must be applied.
-pub static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
-
-/// Apply pending migrations at startup — the interim path while Render's Pre-Deploy step is unavailable
-/// (free tier, ADR-0043). sqlx's migrator takes a Postgres advisory lock, so this is safe even with
-/// multiple instances; Pre-Deploy is still preferred once available (faster boots, failures caught before
-/// promotion). Set `MIGRATE_ON_START=false` to disable (i.e. once Pre-Deploy runs the `migrate` bin).
-pub async fn run_migrations_if_enabled() -> Result<(), Box<dyn std::error::Error>> {
-    if std::env::var("MIGRATE_ON_START").map(|v| v == "false").unwrap_or(false) {
-        println!("MIGRATE_ON_START=false — skipping startup migrations (expecting Pre-Deploy)");
-        return Ok(());
-    }
-    let url = match std::env::var("DATABASE_URL") {
-        Ok(u) if !u.is_empty() => u,
-        _ => {
-            eprintln!("DATABASE_URL not set — skipping startup migrations");
-            return Ok(());
-        }
-    };
-    // Bound the connect so an unreachable DB delays port-binding by seconds, not the 30s default.
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(15))
-        .connect(&url)
-        .await?;
-    MIGRATOR.run(&pool).await?;
-    pool.close().await;
-    println!("startup migrations: OK");
-    Ok(())
-}
+/// The schema version this build requires. Migrations are applied by **sqlx-cli in CI** (ADR-0043); the app
+/// only checks the DB has reached at least this version. Bump when adding a migration this build depends on.
+/// The gate is `>=` (never `==`) so an older build still runs against a newer DB (rollback-by-redeploy).
+pub const REQUIRED_SCHEMA_VERSION: i64 = 20260717120000;
 
 /// Readiness states published by the heartbeat, read by `/health`.
 mod db_state {
     pub const NOT_CONFIGURED: u8 = 0; // DATABASE_URL unset
     pub const DOWN: u8 = 1; // unreachable, or `_sqlx_migrations` does not exist yet
-    pub const SCHEMA_BEHIND: u8 = 2; // reachable, but some embedded migration is not applied
-    pub const HEALTHY: u8 = 3; // reachable and every embedded migration is applied
+    pub const SCHEMA_BEHIND: u8 = 2; // reachable, but max(applied version) < REQUIRED_SCHEMA_VERSION
+    pub const HEALTHY: u8 = 3; // reachable and schema is at/after the required version
 }
 
-/// A cached readiness snapshot. Cheap to clone; refreshed every 30s by the heartbeat.
+/// Cached readiness snapshot; refreshed every 30s by the heartbeat.
 #[derive(Clone)]
 struct Snapshot {
     state: u8,
-    /// Highest successfully-applied version in the DB (`-1` if none/unknown).
+    /// Highest successfully-applied migration version in the DB (`-1` if none/unknown).
     applied_version: i64,
-    /// Highest version this build requires.
-    required_version: i64,
-    /// Embedded migrations not yet applied, named `version_description`.
-    missing: Vec<String>,
 }
 
 impl Default for Snapshot {
     fn default() -> Self {
-        Self { state: db_state::NOT_CONFIGURED, applied_version: -1, required_version: required_version(), missing: Vec::new() }
+        Self { state: db_state::NOT_CONFIGURED, applied_version: -1 }
     }
 }
 
@@ -92,14 +58,13 @@ pub struct AppState {
 }
 
 /// Build the application wiring (skeleton). Constructs a port impl behind its trait, proving the
-/// server → application/infrastructure edges (ADR-0035). The real version returns the fully injected graph.
+/// server → application/infrastructure edges (ADR-0035).
 pub fn wire() -> HealthDto {
     let _restaurants: Box<dyn RestaurantRepository> = Box::new(PgRestaurantRepository);
     HealthDto::ok()
 }
 
-/// Build the Axum router. Reads `DATABASE_URL`; when present it opens a *lazy* pool (never blocks or fails
-/// at boot) and spawns the 30-second readiness heartbeat that feeds `/health`.
+/// Build the Axum router: `/ping`, `/health`, and the role-as-path GraphQL routes.
 pub fn router() -> Router {
     let _ = wire();
 
@@ -125,21 +90,21 @@ pub fn router() -> Router {
     }
 
     let health_router = Router::new()
+        .route("/ping", get(ping))
         .route("/health", get(health))
         .with_state(AppState { snap });
 
-    // GraphQL BFF (ADR-0006). The scaffold schema needs no DB, so it mounts regardless of DATABASE_URL;
-    // read resolvers (Stage 2) will require the pool/repos injected into the schema.
+    // GraphQL BFF (ADR-0006). Scaffold schema needs no DB, so it mounts regardless of DATABASE_URL.
     health_router.merge(graphql::routes::graphql_routes(graphql::schema::build_schema()))
 }
 
-/// Highest version among the embedded migrations.
-fn required_version() -> i64 {
-    MIGRATOR.iter().map(|m| m.version).max().unwrap_or(0)
+/// Liveness: the process is up. No dependencies (does not touch the DB) — for uptime pingers and to keep
+/// the free-tier instance warm. Distinct from `/health`, which gates on DB + schema version.
+async fn ping() -> &'static str {
+    "pong"
 }
 
-/// Every 30 seconds, recompute readiness and publish it. The first run happens immediately (before the
-/// initial sleep) so `/health` reflects reality within a moment of boot.
+/// Every 30s, recompute readiness and cache it. The first run happens immediately.
 fn spawn_heartbeat(pool: PgPool, snap: Arc<Mutex<Snapshot>>) {
     tokio::spawn(async move {
         loop {
@@ -150,52 +115,39 @@ fn spawn_heartbeat(pool: PgPool, snap: Arc<Mutex<Snapshot>>) {
     });
 }
 
-/// Compare the embedded migration set against `_sqlx_migrations` (successful rows only). A missing ledger
-/// table (migrator not yet run) surfaces as a query error → `DOWN`.
+/// Read `max(version)` from `_sqlx_migrations` (successful rows only) and compare to the required version.
+/// Simple query protocol (`raw_sql`, no prepared statement) → safe on any Supabase pooler mode (ADR-0043).
+/// A missing ledger table (migrations never applied) surfaces as a query error → `DOWN`.
 async fn probe(pool: &PgPool) -> Snapshot {
-    let required_version = required_version();
-    // Simple query protocol (raw_sql, no prepared statement) so the heartbeat is safe on ANY pooler mode,
-    // including Supabase's transaction pooler (6543) where prepared statements from a pooled connection
-    // are routed to a different backend and error. See ADR-0043.
-    match sqlx::raw_sql("SELECT version FROM _sqlx_migrations WHERE success")
-        .fetch_all(pool)
+    match sqlx::raw_sql("SELECT max(version) AS v FROM _sqlx_migrations WHERE success")
+        .fetch_one(pool)
         .await
     {
-        Ok(rows) => {
-            let applied: Vec<i64> = rows.iter().filter_map(|r| r.try_get::<i64, _>("version").ok()).collect();
-            let applied_set: HashSet<i64> = applied.iter().copied().collect();
-            let applied_version = applied.iter().copied().max().unwrap_or(-1);
-            let missing: Vec<String> = MIGRATOR
-                .iter()
-                .filter(|m| !applied_set.contains(&m.version))
-                .map(|m| format!("{}_{}", m.version, m.description))
-                .collect();
-            let state = if missing.is_empty() { db_state::HEALTHY } else { db_state::SCHEMA_BEHIND };
-            Snapshot { state, applied_version, required_version, missing }
+        Ok(row) => {
+            let applied = row.try_get::<Option<i64>, _>("v").ok().flatten().unwrap_or(-1);
+            let state = if applied >= REQUIRED_SCHEMA_VERSION {
+                db_state::HEALTHY
+            } else {
+                db_state::SCHEMA_BEHIND
+            };
+            Snapshot { state, applied_version: applied }
         }
-        Err(_) => Snapshot { state: db_state::DOWN, applied_version: -1, required_version, missing: Vec::new() },
+        Err(_) => Snapshot { state: db_state::DOWN, applied_version: -1 },
     }
 }
 
-/// Strict readiness endpoint. `200` only when the DB is reachable and every embedded migration is applied;
-/// otherwise `503` with a machine-readable reason (and, when behind, the names of the missing migrations).
+/// Readiness endpoint (point Render's Health Check Path here). `200` only when reachable and the schema is
+/// at/after the required version; otherwise `503` with a machine-readable reason.
 async fn health(State(app): State<AppState>) -> impl IntoResponse {
     let snap = app.snap.lock().expect("health snapshot mutex").clone();
     match snap.state {
         db_state::HEALTHY => (
             StatusCode::OK,
-            Json(json!({ "status": "ok", "db": "up", "schemaVersion": snap.applied_version })),
+            Json(json!({ "status": "ok", "db": "up", "schemaVersion": snap.applied_version, "requiredSchemaVersion": REQUIRED_SCHEMA_VERSION })),
         ),
         db_state::SCHEMA_BEHIND => (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "status": "degraded",
-                "db": "up",
-                "reason": "schema_behind",
-                "schemaVersion": snap.applied_version,
-                "requiredSchemaVersion": snap.required_version,
-                "missing": snap.missing,
-            })),
+            Json(json!({ "status": "degraded", "db": "up", "reason": "schema_behind", "schemaVersion": snap.applied_version, "requiredSchemaVersion": REQUIRED_SCHEMA_VERSION })),
         ),
         db_state::NOT_CONFIGURED => (
             StatusCode::SERVICE_UNAVAILABLE,
