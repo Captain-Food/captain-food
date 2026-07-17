@@ -21,6 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      # Cache ~/.cargo + target/ keyed on Cargo.lock + toolchain, so repeat runs only recompile the crates
+      # that actually changed (not the ~200 dependencies) — the main CI-duration win. (db-migrate needs no
+      # build cache: it runs a prebuilt sqlx-cli, so there is no artifact worth sharing between the two.)
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build the workspace (codegen + all layer crates — enforces the ADR-0035 dependency graph)
         run: cargo build --workspace --verbose
