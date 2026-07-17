@@ -136,7 +136,11 @@ async fn register_restaurant_mutation_appends_a_domain_event() {
             }}) {{ correlationId }}
         }}"#
     );
-    let resp = schema.execute(&mutation).await;
+    // registerRestaurant is [ADMIN, RESTAURANT_ACCOUNT] — execute under the ADMIN role path (the ACL
+    // guard fails closed to PUBLIC when no role is in the request context, ADR-0006).
+    let resp = schema
+        .execute(async_graphql::Request::new(mutation).data(server::graphql_acl::RequestRole::Admin))
+        .await;
     assert!(resp.errors.is_empty(), "mutation errored: {:?}", resp.errors);
     let data = resp.data.into_json().expect("json data");
     let correlation_id: uuid::Uuid = data["registerRestaurant"]["correlationId"]
@@ -161,9 +165,12 @@ async fn register_restaurant_mutation_appends_a_domain_event() {
     // 2) An invariant rejection surfaces the errors.yaml code through GraphQL, and appends nothing.
     let missing = uuid::Uuid::new_v4();
     let resp = schema
-        .execute(format!(
-            r#"mutation {{ activateRestaurant(input: {{ restaurantId: "{missing}" }}) {{ correlationId }} }}"#
-        ))
+        .execute(
+            async_graphql::Request::new(format!(
+                r#"mutation {{ activateRestaurant(input: {{ restaurantId: "{missing}" }}) {{ correlationId }} }}"#
+            ))
+            .data(server::graphql_acl::RequestRole::Admin),
+        )
         .await;
     assert_eq!(resp.errors.len(), 1, "expected a rejection: {:?}", resp.errors);
     assert!(

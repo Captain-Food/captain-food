@@ -1,7 +1,9 @@
 //! Role-as-path GraphQL endpoints (ADR-0006). The master schema is mounted under `/{role}/graphql`; the
-//! role is parsed from the path and injected into the request context (the ACL seam — the runtime guard
-//! that filters `@auth` fields per role is deferred). `GET /{role}/graphql` renders GraphiQL, `POST`
-//! executes, and `GET /{role}/voyager` renders GraphQL Voyager (interactive schema graph) over that role.
+//! role is parsed from the path and injected into the request context, where the generated per-field
+//! `guard`/`visible` ACL bindings (see `acl` + `generated/acl.rs`) enforce it: unauthorized operations
+//! are FORBIDDEN, and introspection only shows the fields/types the role can reach. `GET /{role}/graphql`
+//! renders GraphiQL, `POST` executes (introspection included — so `GET /{role}/voyager`, GraphQL Voyager's
+//! interactive schema graph, sees that role's filtered schema).
 
 use async_graphql::http::GraphiQLSource;
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
@@ -34,7 +36,8 @@ async fn graphql_handler(
     req: GraphQLRequest,
 ) -> Response {
     match RequestRole::from_segment(&role_seg) {
-        // Inject the role so a future ACL guard can filter @auth fields per path (ADR-0006).
+        // Inject the role: the generated guard/visible ACL bindings read it from the request context
+        // to authorize execution and filter introspection per path (ADR-0006).
         Some(role) => {
             let resp: GraphQLResponse = schema.execute(req.into_inner().data(role)).await.into();
             resp.into_response()

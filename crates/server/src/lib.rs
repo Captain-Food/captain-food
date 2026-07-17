@@ -46,6 +46,9 @@ use graphql::schema::{ReadDeps, WriteDeps};
 mod graphql;
 mod hosts;
 
+/// The role-as-path ACL seam (RequestRole/RoleGuard, ADR-0006), re-exported so integration tests can
+/// execute the schema under a specific role (the HTTP layer injects it from the URL path).
+pub use graphql::acl as graphql_acl;
 /// The schema composition surface (build_schema/ReadDeps/WriteDeps), re-exported so integration tests
 /// (and the embedding `desktop` shell) can build the master schema over their own adapters.
 pub use graphql::schema as graphql_schema;

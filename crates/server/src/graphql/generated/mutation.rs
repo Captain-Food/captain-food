@@ -2,11 +2,13 @@
 // The GraphQL MutationRoot: one resolver per api.yaml mutation, matching the generated SDL shape
 // (input: <Command>Input! → <Name>Payload!, always carrying correlationId). Mutations whose command
 // handler is wired delegate to it (via ctx.data — EventStore + the ports the handler needs); the rest
-// stub `not implemented` until their aggregates land. The per-role ACL guard is the acl module's seam
-// (ADR-0006), not generated here.
+// stub `not implemented` until their aggregates land. Each non-public field carries its api.yaml
+// `roles` as a `guard` (execution) + `visible` (introspection) pair from the generated acl module
+// (ADR-0006 role-as-path).
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use super::acl::*;
 use super::inputs::*;
 use super::scalars::*;
 
@@ -546,19 +548,19 @@ impl MutationRoot {
     async fn change_cart_line_quantity(&self, input: ChangeCartLineQuantityInput) -> async_graphql::Result<ChangeCartLineQuantityPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "registerRestaurantAccount")]
+    #[graphql(name = "registerRestaurantAccount", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn register_restaurant_account(&self, input: RegisterRestaurantAccountInput) -> async_graphql::Result<RegisterRestaurantAccountPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "updateRestaurantAccount")]
+    #[graphql(name = "updateRestaurantAccount", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn update_restaurant_account(&self, input: UpdateRestaurantAccountInput) -> async_graphql::Result<UpdateRestaurantAccountPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "deleteRestaurantAccount")]
+    #[graphql(name = "deleteRestaurantAccount", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn delete_restaurant_account(&self, input: DeleteRestaurantAccountInput) -> async_graphql::Result<DeleteRestaurantAccountPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "registerRestaurant")]
+    #[graphql(name = "registerRestaurant", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN_EXTERNAL)", visible = "visible_restaurant_account_admin_external")]
     async fn register_restaurant(&self, ctx: &async_graphql::Context<'_>, input: RegisterRestaurantInput) -> async_graphql::Result<RegisterRestaurantPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;
@@ -569,7 +571,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(RegisterRestaurantPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "activateRestaurant")]
+    #[graphql(name = "activateRestaurant", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn activate_restaurant(&self, ctx: &async_graphql::Context<'_>, input: ActivateRestaurantInput) -> async_graphql::Result<ActivateRestaurantPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::ActivateRestaurant = to_command(&input)?;
@@ -579,7 +581,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(ActivateRestaurantPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "updateRestaurant")]
+    #[graphql(name = "updateRestaurant", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn update_restaurant(&self, ctx: &async_graphql::Context<'_>, input: UpdateRestaurantInput) -> async_graphql::Result<UpdateRestaurantPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::UpdateRestaurant = to_command(&input)?;
@@ -589,7 +591,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(UpdateRestaurantPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "deactivateRestaurant")]
+    #[graphql(name = "deactivateRestaurant", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn deactivate_restaurant(&self, ctx: &async_graphql::Context<'_>, input: DeactivateRestaurantInput) -> async_graphql::Result<DeactivateRestaurantPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::DeactivateRestaurant = to_command(&input)?;
@@ -599,7 +601,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(DeactivateRestaurantPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "removeRestaurant")]
+    #[graphql(name = "removeRestaurant", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn remove_restaurant(&self, ctx: &async_graphql::Context<'_>, input: RemoveRestaurantInput) -> async_graphql::Result<RemoveRestaurantPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::RemoveRestaurant = to_command(&input)?;
@@ -609,7 +611,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(RemoveRestaurantPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "changeOrderAcceptanceMode")]
+    #[graphql(name = "changeOrderAcceptanceMode", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_restaurant_account_restaurant")]
     async fn change_order_acceptance_mode(&self, ctx: &async_graphql::Context<'_>, input: ChangeOrderAcceptanceModeInput) -> async_graphql::Result<ChangeOrderAcceptanceModePayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::ChangeOrderAcceptanceMode = to_command(&input)?;
@@ -619,7 +621,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(ChangeOrderAcceptanceModePayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "updateRestaurantGoogleBusinessProfile")]
+    #[graphql(name = "updateRestaurantGoogleBusinessProfile", guard = "RoleGuard::new(ALLOW_ADMIN_EXTERNAL)", visible = "visible_admin_external")]
     async fn update_restaurant_google_business_profile(&self, ctx: &async_graphql::Context<'_>, input: UpdateRestaurantGoogleBusinessProfileInput) -> async_graphql::Result<UpdateRestaurantGoogleBusinessProfilePayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::UpdateRestaurantGoogleBusinessProfile = to_command(&input)?;
@@ -629,7 +631,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(UpdateRestaurantGoogleBusinessProfilePayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "markRestaurantClosed")]
+    #[graphql(name = "markRestaurantClosed", guard = "RoleGuard::new(ALLOW_ADMIN_EXTERNAL)", visible = "visible_admin_external")]
     async fn mark_restaurant_closed(&self, ctx: &async_graphql::Context<'_>, input: MarkRestaurantClosedInput) -> async_graphql::Result<MarkRestaurantClosedPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::MarkRestaurantClosed = to_command(&input)?;
@@ -661,7 +663,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(OptOutRestaurantListingPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "changeRestaurantListingStatus")]
+    #[graphql(name = "changeRestaurantListingStatus", guard = "RoleGuard::new(ALLOW_ADMIN)", visible = "visible_admin")]
     async fn change_restaurant_listing_status(&self, ctx: &async_graphql::Context<'_>, input: ChangeRestaurantListingStatusInput) -> async_graphql::Result<ChangeRestaurantListingStatusPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::ChangeRestaurantListingStatus = to_command(&input)?;
@@ -671,7 +673,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(ChangeRestaurantListingStatusPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "configureGbpOrderLink")]
+    #[graphql(name = "configureGbpOrderLink", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT_ADMIN)", visible = "visible_restaurant_account_restaurant_admin")]
     async fn configure_gbp_order_link(&self, ctx: &async_graphql::Context<'_>, input: ConfigureGoogleBusinessProfileOrderLinkInput) -> async_graphql::Result<ConfigureGbpOrderLinkPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let cmd: domain::generated::commands::ConfigureGoogleBusinessProfileOrderLink = to_command(&input)?;
@@ -681,7 +683,7 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(ConfigureGbpOrderLinkPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "verifyGbpOrderLink")]
+    #[graphql(name = "verifyGbpOrderLink", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT_ADMIN)", visible = "visible_restaurant_account_restaurant_admin")]
     async fn verify_gbp_order_link(&self, ctx: &async_graphql::Context<'_>, input: VerifyGoogleBusinessProfileOrderLinkInput) -> async_graphql::Result<VerifyGbpOrderLinkPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
         let probe = ctx.data::<std::sync::Arc<dyn application::ports::GbpOrderLinkProbe>>()?;
@@ -692,63 +694,63 @@ impl MutationRoot {
             .map_err(domain_error)?;
         Ok(VerifyGbpOrderLinkPayload { correlation_id: CorrelationId(actor.correlation_id) })
     }
-    #[graphql(name = "recordProspectContact")]
+    #[graphql(name = "recordProspectContact", guard = "RoleGuard::new(ALLOW_ADMIN_EXTERNAL)", visible = "visible_admin_external")]
     async fn record_prospect_contact(&self, input: RecordProspectContactInput) -> async_graphql::Result<RecordProspectContactPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "markProspectCold")]
+    #[graphql(name = "markProspectCold", guard = "RoleGuard::new(ALLOW_ADMIN_EXTERNAL)", visible = "visible_admin_external")]
     async fn mark_prospect_cold(&self, input: MarkProspectColdInput) -> async_graphql::Result<MarkProspectColdPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "recordProspectReply")]
+    #[graphql(name = "recordProspectReply", guard = "RoleGuard::new(ALLOW_ADMIN_EXTERNAL)", visible = "visible_admin_external")]
     async fn record_prospect_reply(&self, input: RecordProspectReplyInput) -> async_graphql::Result<RecordProspectReplyPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "createCatalog")]
+    #[graphql(name = "createCatalog", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn create_catalog(&self, input: CreateCatalogInput) -> async_graphql::Result<CreateCatalogPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "addProduct")]
+    #[graphql(name = "addProduct", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn add_product(&self, input: AddProductInput) -> async_graphql::Result<AddProductPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "updateProduct")]
+    #[graphql(name = "updateProduct", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn update_product(&self, input: UpdateProductInput) -> async_graphql::Result<UpdateProductPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "removeProduct")]
+    #[graphql(name = "removeProduct", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn remove_product(&self, input: RemoveProductInput) -> async_graphql::Result<RemoveProductPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "addCatalogCategory")]
+    #[graphql(name = "addCatalogCategory", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn add_catalog_category(&self, input: AddCatalogCategoryInput) -> async_graphql::Result<AddCatalogCategoryPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "updateCatalogCategory")]
+    #[graphql(name = "updateCatalogCategory", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn update_catalog_category(&self, input: UpdateCatalogCategoryInput) -> async_graphql::Result<UpdateCatalogCategoryPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "removeCatalogCategory")]
+    #[graphql(name = "removeCatalogCategory", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn remove_catalog_category(&self, input: RemoveCatalogCategoryInput) -> async_graphql::Result<RemoveCatalogCategoryPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "addOptionList")]
+    #[graphql(name = "addOptionList", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn add_option_list(&self, input: AddOptionListInput) -> async_graphql::Result<AddOptionListPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "updateOptionList")]
+    #[graphql(name = "updateOptionList", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn update_option_list(&self, input: UpdateOptionListInput) -> async_graphql::Result<UpdateOptionListPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "removeOptionList")]
+    #[graphql(name = "removeOptionList", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn remove_option_list(&self, input: RemoveOptionListInput) -> async_graphql::Result<RemoveOptionListPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "updateOfferStock")]
+    #[graphql(name = "updateOfferStock", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
     async fn update_offer_stock(&self, input: UpdateOfferStockInput) -> async_graphql::Result<UpdateOfferStockPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "importCatalog")]
+    #[graphql(name = "importCatalog", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN_EXTERNAL)", visible = "visible_restaurant_account_admin_external")]
     async fn import_catalog(&self, input: ImportCatalogInput) -> async_graphql::Result<ImportCatalogPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
@@ -760,115 +762,115 @@ impl MutationRoot {
     async fn verify_phone(&self, input: VerifyPhoneInput) -> async_graphql::Result<VerifyPhonePayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "requestEmailVerification")]
+    #[graphql(name = "requestEmailVerification", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn request_email_verification(&self, input: RequestEmailVerificationInput) -> async_graphql::Result<RequestEmailVerificationPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "confirmEmailVerification")]
+    #[graphql(name = "confirmEmailVerification", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn confirm_email_verification(&self, input: ConfirmEmailVerificationInput) -> async_graphql::Result<ConfirmEmailVerificationPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "requestPhoneChange")]
+    #[graphql(name = "requestPhoneChange", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn request_phone_change(&self, input: RequestPhoneChangeInput) -> async_graphql::Result<RequestPhoneChangePayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "confirmPhoneChange")]
+    #[graphql(name = "confirmPhoneChange", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn confirm_phone_change(&self, input: ConfirmPhoneChangeInput) -> async_graphql::Result<ConfirmPhoneChangePayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "changeLanguage")]
+    #[graphql(name = "changeLanguage", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn change_language(&self, input: ChangeLanguageInput) -> async_graphql::Result<ChangeLanguagePayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "markRestaurantAsFavorite")]
+    #[graphql(name = "markRestaurantAsFavorite", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn mark_restaurant_as_favorite(&self, input: MarkRestaurantAsFavoriteInput) -> async_graphql::Result<MarkRestaurantAsFavoritePayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "unmarkRestaurantAsFavorite")]
+    #[graphql(name = "unmarkRestaurantAsFavorite", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn unmark_restaurant_as_favorite(&self, input: UnmarkRestaurantAsFavoriteInput) -> async_graphql::Result<UnmarkRestaurantAsFavoritePayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "updateCustomerInfo")]
+    #[graphql(name = "updateCustomerInfo", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn update_customer_info(&self, input: UpdateCustomerInfoInput) -> async_graphql::Result<UpdateCustomerInfoPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "setCustomerPreferences")]
+    #[graphql(name = "setCustomerPreferences", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn set_customer_preferences(&self, input: SetCustomerPreferencesInput) -> async_graphql::Result<SetCustomerPreferencesPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "setCustomerAddress")]
+    #[graphql(name = "setCustomerAddress", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn set_customer_address(&self, input: SetCustomerAddressInput) -> async_graphql::Result<SetCustomerAddressPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "removeCustomerAddress")]
+    #[graphql(name = "removeCustomerAddress", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn remove_customer_address(&self, input: RemoveCustomerAddressInput) -> async_graphql::Result<RemoveCustomerAddressPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "setCustomerPaymentMethod")]
+    #[graphql(name = "setCustomerPaymentMethod", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn set_customer_payment_method(&self, input: SetCustomerPaymentMethodInput) -> async_graphql::Result<SetCustomerPaymentMethodPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "placeOrder")]
+    #[graphql(name = "placeOrder", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn place_order(&self, input: PlaceOrderInput) -> async_graphql::Result<PlaceOrderPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "acceptOrder")]
+    #[graphql(name = "acceptOrder", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_restaurant_account_restaurant")]
     async fn accept_order(&self, input: AcceptOrderInput) -> async_graphql::Result<AcceptOrderPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "rejectOrder")]
+    #[graphql(name = "rejectOrder", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_restaurant_account_restaurant")]
     async fn reject_order(&self, input: RejectOrderInput) -> async_graphql::Result<RejectOrderPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "startPreparation")]
+    #[graphql(name = "startPreparation", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_restaurant_account_restaurant")]
     async fn start_preparation(&self, input: StartPreparationInput) -> async_graphql::Result<StartPreparationPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "markOrderReady")]
+    #[graphql(name = "markOrderReady", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_restaurant_account_restaurant")]
     async fn mark_order_ready(&self, input: MarkOrderReadyInput) -> async_graphql::Result<MarkOrderReadyPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "markOrderDelivered")]
+    #[graphql(name = "markOrderDelivered", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT_RIDER)", visible = "visible_restaurant_account_restaurant_rider")]
     async fn mark_order_delivered(&self, input: MarkOrderDeliveredInput) -> async_graphql::Result<MarkOrderDeliveredPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "cancelOrderByCustomer")]
+    #[graphql(name = "cancelOrderByCustomer", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn cancel_order_by_customer(&self, input: CancelOrderByCustomerInput) -> async_graphql::Result<CancelOrderByCustomerPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "cancelOrderByRestaurant")]
+    #[graphql(name = "cancelOrderByRestaurant", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_restaurant_account_restaurant")]
     async fn cancel_order_by_restaurant(&self, input: CancelOrderByRestaurantInput) -> async_graphql::Result<CancelOrderByRestaurantPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "rateOrder")]
+    #[graphql(name = "rateOrder", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn rate_order(&self, input: RateOrderInput) -> async_graphql::Result<RateOrderPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "rateRestaurant")]
+    #[graphql(name = "rateRestaurant", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn rate_restaurant(&self, input: RateRestaurantInput) -> async_graphql::Result<RateRestaurantPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "tipOrder")]
+    #[graphql(name = "tipOrder", guard = "RoleGuard::new(ALLOW_CUSTOMER_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_customer_restaurant_account_restaurant")]
     async fn tip_order(&self, input: TipOrderInput) -> async_graphql::Result<TipOrderPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "requestRefund")]
+    #[graphql(name = "requestRefund", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn request_refund(&self, input: RequestRefundInput) -> async_graphql::Result<RequestRefundPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "acceptDelivery")]
+    #[graphql(name = "acceptDelivery", guard = "RoleGuard::new(ALLOW_RIDER)", visible = "visible_rider")]
     async fn accept_delivery(&self, input: AcceptDeliveryInput) -> async_graphql::Result<AcceptDeliveryPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "confirmPickup")]
+    #[graphql(name = "confirmPickup", guard = "RoleGuard::new(ALLOW_RIDER)", visible = "visible_rider")]
     async fn confirm_pickup(&self, input: ConfirmPickupInput) -> async_graphql::Result<ConfirmPickupPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "completeDelivery")]
+    #[graphql(name = "completeDelivery", guard = "RoleGuard::new(ALLOW_RIDER)", visible = "visible_rider")]
     async fn complete_delivery(&self, input: CompleteDeliveryInput) -> async_graphql::Result<CompleteDeliveryPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    #[graphql(name = "cancelDelivery")]
+    #[graphql(name = "cancelDelivery", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT_ADMIN)", visible = "visible_restaurant_account_restaurant_admin")]
     async fn cancel_delivery(&self, input: CancelDeliveryInput) -> async_graphql::Result<CancelDeliveryPayload> {
         Err(async_graphql::Error::new("not implemented"))
     }
