@@ -62,6 +62,14 @@ and data inside the EU**.
   `crates/server` exists.
 - **Two vendors to operate/bill/monitor** rather than one integrated platform.
 
+### Operational notes
+- **Supabase Data API (PostgREST) is intentionally DISABLED** — all access is via the BFF + direct sqlx
+  (ADR-0006), so PostgREST is unused and its REST surface is not exposed. Known, benign side effect: with
+  the Data API off, PostgREST still runs and logs `schema "pg_pgrst_no_exposed_schemas" does not exist`
+  (SQLSTATE `3F000`) on its ~30s schema-cache reload, which tanks the dashboard "success rate" metric.
+  This is **expected noise, not an app fault** — ignore it. (To silence it, one would expose an empty
+  schema to PostgREST; not worth re-adding a REST surface.) Verified via Supabase Postgres logs 2026-07-17.
+
 ### Follow-up actions
 - When `crates/server` lands: expose an HTTP health endpoint for Render's check and handle SIGTERM drain;
   update **P-04** in `docs/adr/README.md` to the PaaS mechanism (or supersede it).
