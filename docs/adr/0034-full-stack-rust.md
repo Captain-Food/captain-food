@@ -28,6 +28,10 @@ boundaries (and never hand-edit UniFFI-generated Swift/Kotlin bindings).
 | Android (future) | Jetpack Compose (thin shell) | Crux core | **UniFFI** → Kotlin |
 | Backend BFF | — | Rust core | **Axum + Tokio + SQLx** |
 
+> **Amended 2026-07-17** (see end of ADR): the iOS/Android store apps are built as **Tauri 2.0 Mobile**
+> hybrid shells (reusing the Leptos SDUI renderer + Crux core), not SwiftUI/Compose UniFFI shells; the
+> UniFFI native path is kept as a documented fallback. Storefronts also ship as installable PWAs.
+
 Per-concern: HTTP `axum`, async `tokio`, DB `sqlx` (compile-time checked), core `crux`, GraphQL
 `async-graphql`, validation `garde`/`validator`, serde `serde`, auth `jsonwebtoken` + Supabase REST, i18n
 `leptos_i18n`, tests built-in `#[test]` + `rstest`. Config = TOML/`Cargo.toml`; migrations = SQL via
@@ -86,3 +90,27 @@ Ports-and-Adaptors / Hexagonal (Crux). Same DDD/CQRS lineage as ADR-0033 (Evans,
 
 ## References
 Perplexity `RUST_ARCHITECTURE_DECISION` note (2026-07-03). Complements ADR-0033 (SDUI, renderer-agnostic).
+
+## Amendment — 2026-07-17: client packaging (installable PWAs + Tauri 2.0 Mobile store apps)
+
+Refines the iOS/Android rows of the Decision table.
+
+**Installable PWAs.** The customer marketplace (`live.`/bare, ADR-0036) and every per-restaurant storefront
+(`{slug}.captain.food`) are **installable PWAs** (per-tenant web manifest + service worker), so a customer
+can "Add to Home Screen" and get a restaurant as its own app — no per-restaurant store submission.
+
+**Three store apps.** Captain.Food publishes three apps to the Apple App Store and Google Play — **customer
+frontoffice, restaurant backoffice, riders backoffice** — built as **Tauri 2.0 Mobile** hybrid shells that
+reuse the **Leptos/WASM SDUI renderer + Crux core**, unifying with `crates/desktop` (already Tauri 2.0).
+Chosen (CTPO, 2026-07-17) as the **best-performing hybrid** consistent with full-stack Rust: Rust IPC, lean
+binaries, native plugin access (push/camera/geolocation), and one UI codebase across desktop + mobile.
+
+**Why this is low-risk (SDUI).** Per ADR-0033 the UI is **server-driven**: screens/components/actions come
+from the specs (`*_screens.yaml` + `translations.yaml`); only the generated **component registry / renderer**
+differs per platform. So the store apps being separate Tauri builds is **not UI duplication** — the same SDUI
+definitions render everywhere, and swapping to a native renderer later needs no spec change.
+
+**Caveat / fallback.** Tauri (like any hybrid) renders in the platform webview (WKWebView / Android WebView)
+— fast, but not native *widgets*. The original table's **UniFFI native shells** (SwiftUI/Compose over the
+Crux core) remain the documented fallback if native-widget performance is later required; the Crux core +
+`shared_types` (UniFFI-ready) are unchanged, so that path stays open.
