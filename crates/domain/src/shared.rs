@@ -24,5 +24,9 @@ pub mod errors {
     pub enum DomainError {
         #[error("invariant violated: {0}")]
         Invariant(String),
+        /// A dependency (repository/adapter) failed — e.g. a read-model query or the event store. Carried
+        /// here so read ports can return `Result<_, DomainError>` without leaking the adapter's error type.
+        #[error("repository error: {0}")]
+        Repository(String),
     }
 }

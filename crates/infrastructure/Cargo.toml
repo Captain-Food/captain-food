@@ -4,11 +4,20 @@ version = "0.1.0"
 edition.workspace = true
 license-file.workspace = true
 publish = false
-description = "Captain.Food infrastructure: adapters implementing the application ports — the event store (append to domain_events), read-model repos over the View_* SQL views, and the integrations ACL (HubRise/Stripe/delivery). Depends on `application` + `domain` (ADR-0035)."
+description = "Captain.Food infrastructure: adapters implementing the application ports — the event store (append to domain_events), read-model repos over the materialized projection tables, the app-layer projection worker (ADR-0040), and the integrations ACL (HubRise/Stripe/delivery). Depends on `application` + `domain` (ADR-0035)."
 
-# sqlx / reqwest are added when the real adapters land (sqlx needs DATABASE_URL for its compile-time
-# checks); kept out of the skeleton so the workspace builds offline.
 [dependencies]
 domain = { path = "../domain" }
 application = { path = "../application" }
 async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+# `chrono`/`uuid`/`json` bind the RestaurantRow column types (TIMESTAMPTZ/UUID/JSONB) on top of the
+# workspace-pinned runtime/tls/postgres features (queries run over the session pooler, so plain
+# prepared statements are fine).
+sqlx = { workspace = true, features = ["chrono", "uuid", "json"] }
+# Only the timer is needed at runtime (the projection worker's polling loop); the workspace feature set
+# also carries rt/macros used by the integration test.
+tokio = { workspace = true }

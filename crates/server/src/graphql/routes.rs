@@ -8,8 +8,8 @@ use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Response},
-    routing::get,
+    response::{Html, IntoResponse, Redirect, Response},
+    routing::{any, get},
     Router,
 };
 
@@ -22,6 +22,9 @@ pub fn graphql_routes(schema: CaptainSchema) -> Router {
     Router::new()
         .route("/{role}/graphql", get(graphiql).post(graphql_handler))
         .route("/{role}/voyager", get(voyager))
+        // Convenience: bare paths redirect to the PUBLIC role (307 preserves method/body for POST).
+        .route("/graphql", any(|| async { Redirect::temporary("/public/graphql") }))
+        .route("/voyager", any(|| async { Redirect::temporary("/public/voyager") }))
         .with_state(schema)
 }
 
@@ -72,16 +75,17 @@ const VOYAGER_HTML: &str = r#"<!DOCTYPE html>
   <meta charset="utf-8" />
   <title>Captain.Food GraphQL — Voyager</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/graphql-voyager/dist/voyager.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/graphql-voyager@2.1.0/dist/voyager.css" />
   <style>html, body, #voyager { margin: 0; height: 100vh; overflow: hidden; }</style>
 </head>
 <body>
   <div id="voyager">Loading GraphQL Voyager…</div>
-  <script src="https://cdn.jsdelivr.net/npm/graphql-voyager/dist/voyager.standalone.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/graphql-voyager@2.1.0/dist/voyager.standalone.js"></script>
   <script>
     GraphQLVoyager.renderVoyager(document.getElementById('voyager'), {
       introspection: function (query) {
-        return fetch('__ENDPOINT__', {
+        // Absolute URL from the current origin (equivalent to the relative path, but explicit).
+        return fetch(window.location.origin + '__ENDPOINT__', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ query: query })

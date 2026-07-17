@@ -1,18 +1,32 @@
-//! The GraphQL master schema (ADR-0006). Stage 1a: the schema is built over the GENERATED type layer
-//! (`generated/` — wrapper scalars, SimpleObject output types, InputObject inputs, and the QueryRoot
-//! exposing every api.yaml query). Resolvers are stubs until the read-model repositories are injected
-//! via `.data(...)` in `build_schema`.
+//! The GraphQL master schema (ADR-0006), built over the GENERATED type layer (`generated/` — wrapper
+//! scalars, SimpleObject output types, InputObject inputs, and the QueryRoot exposing every api.yaml
+//! query). Read-model repositories are injected via `.data(...)` so the wired resolvers (e.g. `restaurants`)
+//! resolve them from `ctx`; unwired queries still stub `not implemented`.
+
+use std::sync::Arc;
 
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
+use application::queries::RestaurantReadRepository;
 
 use super::generated::query::QueryRoot;
 
 pub type CaptainSchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 
-/// Build the master schema served under every role path. Read-model repositories are injected here via
-/// `.data(...)` once the read resolvers land.
-pub fn build_schema() -> CaptainSchema {
-    Schema::build(QueryRoot, EmptyMutation, EmptySubscription).finish()
+/// Read-model repositories injected into every resolver's context (ADR-0035 composition root). Grows as
+/// more read models are wired.
+pub struct ReadDeps {
+    pub restaurants: Arc<dyn RestaurantReadRepository>,
+}
+
+/// Build the master schema served under every role path. With `Some(deps)` the read-model repos are
+/// attached, so wired resolvers return data; with `None` (no DB) the schema still builds/introspects and
+/// those resolvers error at runtime.
+pub fn build_schema(deps: Option<ReadDeps>) -> CaptainSchema {
+    let mut builder = Schema::build(QueryRoot, EmptyMutation, EmptySubscription);
+    if let Some(d) = deps {
+        builder = builder.data(d.restaurants);
+    }
+    builder.finish()
 }
 
 #[cfg(test)]
@@ -22,7 +36,7 @@ mod tests {
     /// wrapper scalars, mirror enums, the sanitized `Option` type, FK-nav fields and every query field.
     #[test]
     fn schema_builds_and_matches_generated_sdl_shape() {
-        let sdl = super::build_schema().sdl();
+        let sdl = super::build_schema(None).sdl();
         for expected in [
             "scalar RestaurantId",
             "scalar MoneyCents",

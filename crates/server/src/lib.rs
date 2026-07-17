@@ -6,10 +6,12 @@
 //! Endpoints:
 //! - `/ping` → `pong` — liveness (process is up; touches nothing). Used by uptime pingers / keep-warm.
 //! - `/health` — readiness gate (ADR-0043): `200` only when the DB is reachable AND its schema version is
-//!   `>= REQUIRED_SCHEMA_VERSION`; else `503`. Migrations are applied out-of-band by **sqlx-cli in CI** —
-//!   the app never applies them, it only checks the version (so an older build still runs against a newer
-//!   DB, preserving rollback-by-redeploy under expand/contract).
-//! - `/{role}/graphql` — the GraphQL BFF (ADR-0006), see `graphql`.
+//!   `>= REQUIRED_SCHEMA_VERSION`; else `503`. Migrations are applied out-of-band by **sqlx-cli in CI**.
+//! - `/projector` — projection-worker readiness (running / checkpoint / head / lag / lastTickAt).
+//! - `/{role}/graphql` (+ `/{role}/voyager`) — the GraphQL BFF (ADR-0006), see `graphql`.
+//!
+//! The projection worker (ADR-0040) runs **in-process** here for now (Render Background Workers are paid),
+//! gated by `RUN_PROJECTOR` (default on) so it can graduate to a dedicated worker with no logic change.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -26,16 +28,25 @@ use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-use application::ports::RestaurantRepository;
-use infrastructure::PgRestaurantRepository;
+use application::queries::RestaurantReadRepository;
+use infrastructure::{PgRestaurantRepository, ProjectionStatus, ProjectionWorker};
 use shared_types::HealthDto;
 
+use graphql::schema::ReadDeps;
+
 mod graphql;
+
+/// Minimal health/edge-proof: lets the `desktop` (Tauri) shell embed the server in-process and proves the
+/// server → shared_types edge (ADR-0035). The real DI graph is built in `router()`.
+pub fn wire() -> HealthDto {
+    HealthDto::ok()
+}
 
 /// The schema version this build requires. Migrations are applied by **sqlx-cli in CI** (ADR-0043); the app
 /// only checks the DB has reached at least this version. Bump when adding a migration this build depends on.
 /// The gate is `>=` (never `==`) so an older build still runs against a newer DB (rollback-by-redeploy).
-pub const REQUIRED_SCHEMA_VERSION: i64 = 20260717120000;
+/// `20260717170000` = the `projection_checkpoint` migration the in-process projector needs.
+pub const REQUIRED_SCHEMA_VERSION: i64 = 20260717170000;
 
 /// Readiness states published by the heartbeat, read by `/health`.
 mod db_state {
@@ -62,48 +73,59 @@ impl Default for Snapshot {
 #[derive(Clone)]
 pub struct AppState {
     snap: Arc<Mutex<Snapshot>>,
+    /// Live projection-worker status when the worker runs in-process; `None` when not started.
+    projector_status: Option<Arc<Mutex<ProjectionStatus>>>,
 }
 
-/// Build the application wiring (skeleton). Constructs a port impl behind its trait, proving the
-/// server → application/infrastructure edges (ADR-0035).
-pub fn wire() -> HealthDto {
-    let _restaurants: Box<dyn RestaurantRepository> = Box::new(PgRestaurantRepository);
-    HealthDto::ok()
-}
-
-/// Build the Axum router: `/ping`, `/health`, and the role-as-path GraphQL routes.
+/// Build the Axum router: `/ping`, `/health`, `/projector`, and the role-as-path GraphQL routes. Reads
+/// `DATABASE_URL`; when present it opens a lazy pool used by the heartbeat, the read-model repo (injected
+/// into GraphQL), and the in-process projection worker.
 pub fn router() -> Router {
-    let _ = wire();
-
     let snap = Arc::new(Mutex::new(Snapshot::default()));
+    let mut read_deps: Option<ReadDeps> = None;
+    let mut projector_status: Option<Arc<Mutex<ProjectionStatus>>> = None;
 
     match std::env::var("DATABASE_URL") {
         Ok(url) if !url.is_empty() => match PgPoolOptions::new()
             .max_connections(5)
-            .min_connections(1) // keep one connection warm so the 30s heartbeat reuses it
+            .min_connections(1)
             .acquire_timeout(Duration::from_secs(10))
-            .idle_timeout(Duration::from_secs(240)) // recycle cleanly before the pooler drops idle conns
+            .idle_timeout(Duration::from_secs(240))
             .max_lifetime(Duration::from_secs(1800))
             .connect_lazy(&url)
         {
             Ok(pool) => {
                 // Configured but unconfirmed until the first probe: report DOWN, not NOT_CONFIGURED.
                 snap.lock().expect("health snapshot mutex").state = db_state::DOWN;
-                spawn_heartbeat(pool, snap.clone());
+                spawn_heartbeat(pool.clone(), snap.clone());
+
+                // Read-model repository injected into GraphQL resolvers (ADR-0035 composition root).
+                let restaurants: Arc<dyn RestaurantReadRepository> =
+                    Arc::new(PgRestaurantRepository::new(pool.clone()));
+                read_deps = Some(ReadDeps { restaurants });
+
+                // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.
+                if std::env::var("RUN_PROJECTOR").map(|v| v != "false").unwrap_or(true) {
+                    let worker = ProjectionWorker::new(pool.clone());
+                    projector_status = Some(worker.status());
+                    tokio::spawn(worker.run_loop());
+                    println!("projection worker: running in-process (set RUN_PROJECTOR=false to disable)");
+                } else {
+                    println!("RUN_PROJECTOR=false — projection worker not started in-process");
+                }
             }
             Err(e) => eprintln!("DATABASE_URL set but pool init failed: {e}"),
         },
         _ => eprintln!("DATABASE_URL not set — /health will report not_configured (503)"),
     }
 
-    let health_router = Router::new()
+    let base = Router::new()
         .route("/ping", get(ping))
         .route("/health", get(health))
-        .with_state(AppState { snap });
+        .route("/projector", get(projector))
+        .with_state(AppState { snap, projector_status });
 
-    // GraphQL BFF (ADR-0006). Scaffold schema needs no DB, so it mounts regardless of DATABASE_URL.
-    health_router
-        .merge(graphql::routes::graphql_routes(graphql::schema::build_schema()))
+    base.merge(graphql::routes::graphql_routes(graphql::schema::build_schema(read_deps)))
         // Outer layer: stamp every response with its server-side build time.
         .layer(middleware::from_fn(response_timing))
 }
@@ -124,10 +146,26 @@ async fn response_timing(req: Request, next: Next) -> Response {
     resp
 }
 
-/// Liveness: the process is up. No dependencies (does not touch the DB) — for uptime pingers and to keep
-/// the free-tier instance warm. Distinct from `/health`, which gates on DB + schema version.
+/// Liveness: the process is up. No dependencies (does not touch the DB).
 async fn ping() -> &'static str {
     "pong"
+}
+
+/// Projection-worker readiness. `200` when the worker is running, `503` otherwise (not started / not
+/// caught up is still `200` with `lag > 0` — inspect the body). Reports checkpoint/head/lag/lastTickAt.
+async fn projector(State(app): State<AppState>) -> impl IntoResponse {
+    match &app.projector_status {
+        Some(handle) => {
+            let status = handle.lock().expect("projector status mutex").clone();
+            let code = if status.running { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+            let body = serde_json::to_value(&status).unwrap_or_else(|_| json!({ "running": false }));
+            (code, Json(body))
+        }
+        None => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "running": false, "reason": "projector_not_started" })),
+        ),
+    }
 }
 
 /// Every 30s, recompute readiness and cache it. The first run happens immediately.
@@ -143,7 +181,6 @@ fn spawn_heartbeat(pool: PgPool, snap: Arc<Mutex<Snapshot>>) {
 
 /// Read `max(version)` from `_sqlx_migrations` (successful rows only) and compare to the required version.
 /// Simple query protocol (`raw_sql`, no prepared statement) → safe on any Supabase pooler mode (ADR-0043).
-/// A missing ledger table (migrations never applied) surfaces as a query error → `DOWN`.
 async fn probe(pool: &PgPool) -> Snapshot {
     match sqlx::raw_sql("SELECT max(version) AS v FROM _sqlx_migrations WHERE success")
         .fetch_one(pool)
