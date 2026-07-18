@@ -70,10 +70,19 @@ pull case and stays dormant until such a consumer exists.
 
 ### Follow-up actions
 - Implement the **Stripe** adapter (signature verify + ACL → the three payment events, idempotent). *(this change)*
-- HubRise adapter: **ingress** ✅ + **outbound OAuth2 client** ✅ (`crates/adapters/hubrise`,
-  ADR-20260718-213352). Remaining: the **domain wiring** (callback → pull → `ImportCatalog` /
-  `OfferStockUpdated`) — must reuse the **Catalog aggregate's** id/stream conventions (deterministic
-  UUIDv5-of-`ref`) so events project; coordinate with the write-side rather than emit blind.
+- HubRise adapter: **ingress** ✅ + **outbound OAuth2 client** ✅ + **domain wiring** ✅
+  (`crates/adapters/hubrise/src/enrich.rs`, ADR-20260718-213352). A verified catalog/inventory callback
+  now drives `api` pull → the enrichment ACL → the `ImportCatalog` / `update_offer_stock` **command
+  handlers**. Reconciled with the **Catalog aggregate**: every domain id is a **UUIDv5 of the HubRise
+  identifier** under a fixed namespace, and an Offer is seeded from the SKU **`ref`** (what the inventory
+  endpoint reports as `sku_ref`), so an inventory update targets the exact `OfferId` `ImportCatalog`
+  assigned and the events project. Catalog is an orchestrated command (rejectable — `CatalogNotFound`
+  when the connect flow hasn't created the `Catalog` yet → definitive skip); inventory is a reported fact
+  routed through `update_offer_stock` only to reuse its stream/version + `StockStatus` derivation, its lone
+  `OfferNotFound` rejection being the "SKU not imported yet" skip — so no fact is ever rejected. 14 tests.
+  **Open contract**: the HubRise *connect* flow must `CreateCatalog`/register the `Restaurant` with these
+  same derived ids (needs a connection/token table → plan mode); until then a token is the configured
+  `HUBRISE_ACCESS_TOKEN` (single location, ADR-20260718-213352).
 - Add the webhook secrets to `render.yaml` (`sync:false`).
 - Decide replay/idempotency storage (dedupe table vs event-store natural key).
 

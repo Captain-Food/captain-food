@@ -7,16 +7,19 @@
 //! - `http` — the thin axum shell exposing `POST /webhooks/hubrise`; mount [`routes`] into the monolith
 //!   server, or run the standalone `hubrise-webhook` binary (see `main.rs`) as its own web service.
 //!
-//! **Remaining seam (the domain wiring):** turning a pulled catalog/inventory into `ImportCatalog` /
-//! `OfferStockUpdated` must match the **Catalog aggregate's** id + stream conventions so the emitted
-//! events project correctly — the offer id in `OfferStockUpdated` has to equal the id `ImportCatalog`
-//! assigned. The idiomatic strategy is a deterministic id from the HubRise `ref` (UUIDv5, like the SIRENE
-//! ACL does with the SIRET), but it must be reconciled with the Catalog aggregate — deliberately NOT done
-//! blind here. Once agreed, the flow is: callback → `api` pull → ACL map (deterministic ids) →
-//! `ImportCatalog` handler / `OfferStockUpdated` append.
+//! - [`enrich`] — the **domain wiring** (now landed): callback → `api` pull → ACL map (deterministic
+//!   UUIDv5-of-HubRise-id) → `ImportCatalog` handler / per-SKU `update_offer_stock`. The derived `OfferId`
+//!   equals the one `ImportCatalog` assigns, so an inventory update targets the imported offer and the
+//!   events project (reconciled with the Catalog aggregate — see the `enrich` module docs).
+//!
+//! Mount [`routes`] (with an optional [`enrich::Enricher`]) into the monolith, or run the standalone
+//! `hubrise-webhook` binary (`main.rs`) as its own web service — which builds the real Postgres-backed
+//! enricher over the [`api::HubRiseApiClient`].
 
 pub mod acl;
 pub mod api;
+pub mod enrich;
 mod http;
 
+pub use enrich::{Enricher, HubRiseEnricher};
 pub use http::routes;

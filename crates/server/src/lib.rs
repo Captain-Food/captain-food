@@ -120,6 +120,7 @@ pub fn router() -> Router {
     let mut saga_status: Option<Arc<Mutex<ProcessManagerStatus>>> = None;
     let mut sirene_worker: Option<Arc<SireneSyncWorker>> = None;
     let mut stripe_ingestor: Option<Arc<StripeWebhookIngestor>> = None;
+    let mut hubrise_enricher: Option<Arc<dyn hubrise_adapter::Enricher>> = None;
 
     match std::env::var("DATABASE_URL") {
         Ok(url) if !url.is_empty() => match PgPoolOptions::new()
@@ -216,6 +217,22 @@ pub fn router() -> Router {
                 stripe_ingestor =
                     Some(Arc::new(StripeWebhookIngestor::new(Arc::new(PgEventStore::new(pool.clone())))));
 
+                // HubRise domain enrichment (ADR-20260718-145856): a verified catalog/inventory callback
+                // triggers an OAuth API pull → ACL map → `ImportCatalog` / per-SKU stock update. Only
+                // wired when `HUBRISE_ACCESS_TOKEN` is present (the outbound pull needs it); otherwise the
+                // endpoint stays ingress-only (verified callbacks ACK as pending).
+                match hubrise_adapter::api::HubRiseApiClient::from_env() {
+                    Ok(api) => {
+                        hubrise_enricher = Some(Arc::new(hubrise_adapter::HubRiseEnricher::new(
+                            Arc::new(PgEventStore::new(pool.clone())),
+                            api,
+                        )));
+                    }
+                    Err(_) => eprintln!(
+                        "HUBRISE_ACCESS_TOKEN unset — /webhooks/hubrise verifies callbacks but does not enrich"
+                    ),
+                }
+
                 let worker = Arc::new(SireneSyncWorker::new(pool.clone()));
                 sirene_worker = Some(worker.clone());
                 if std::env::var("RUN_SIRENE_WORKER").map(|v| v != "false").unwrap_or(true) {
@@ -246,7 +263,7 @@ pub fn router() -> Router {
         // each mountable here (monolith) or deployable as its own web service. `POST /webhooks/stripe`
         // (signature-verified inbound payment facts) and `POST /webhooks/hubrise` (HMAC-verified ingress).
         .merge(stripe_adapter::routes(stripe_ingestor))
-        .merge(hubrise_adapter::routes())
+        .merge(hubrise_adapter::routes(hubrise_enricher))
         // Host-based landing (ADR-0036): any path not matched above is dispatched by the request `Host`
         // to its per-audience/tenant placeholder. Explicit routes (/health, /ping, /{role}/graphql) win,
         // so Render's health check (internal *.onrender.com host) is unaffected. Covers `/` too.

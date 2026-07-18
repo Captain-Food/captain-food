@@ -1,9 +1,13 @@
 //! HTTP shell for the HubRise adapter: `POST /webhooks/hubrise`. Thin — reads the raw body + signature,
-//! delegates verification/parsing to the (framework-free) [`crate::acl`], and ACKs. Verified ingress only:
-//! domain translation (OAuth pull → `OfferStockUpdated`/`ImportCatalog`) is a deliberate follow-up.
+//! delegates verification/parsing to the (framework-free) [`crate::acl`], and, when an [`Enricher`] is
+//! wired and the callback needs a pull (catalog/inventory), drives the domain enrichment
+//! (`api` pull → ACL map → command). Verification runs over the RAW body bytes.
+
+use std::sync::Arc;
 
 use axum::{
     body::Bytes,
+    extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
@@ -13,13 +17,19 @@ use axum::{
 use crate::acl::{
     verify_hubrise_signature, HubRiseCallback, HUBRISE_SIGNATURE_HEADER, HUBRISE_WEBHOOK_SECRET_ENV,
 };
+use crate::enrich::{EnrichOutcome, Enricher};
 
-/// Mount `POST /webhooks/hubrise`. Stateless — the current ingress needs no DB.
-pub fn routes() -> Router {
-    Router::new().route("/webhooks/hubrise", post(hubrise_webhook))
+/// Mount `POST /webhooks/hubrise`. The [`Enricher`] is `None` when no database / API token is configured
+/// — verified callbacks are then ACKed as `verified_pending_enrichment` (ingress-only, as before).
+pub fn routes(enricher: Option<Arc<dyn Enricher>>) -> Router {
+    Router::new().route("/webhooks/hubrise", post(hubrise_webhook)).with_state(enricher)
 }
 
-async fn hubrise_webhook(headers: HeaderMap, body: Bytes) -> Response {
+async fn hubrise_webhook(
+    State(enricher): State<Option<Arc<dyn Enricher>>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     // Fail closed: without the client secret nothing can be authenticated.
     let secret = match std::env::var(HUBRISE_WEBHOOK_SECRET_ENV) {
         Ok(s) if !s.trim().is_empty() => s.trim().to_string(),
@@ -44,18 +54,60 @@ async fn hubrise_webhook(headers: HeaderMap, body: Bytes) -> Response {
                 .into_response()
         }
     };
-    // Verified ingress only. Domain enrichment (OAuth pull → OfferStockUpdated / ImportCatalog) is the
-    // next chapter; acknowledge so HubRise stops redelivering.
-    println!(
-        "hubrise webhook: verified {}.{} (id {}){}",
-        callback.resource_type,
-        callback.event_type,
-        callback.id,
-        if callback.needs_pull() { " [needs API pull to enrich]" } else { "" }
-    );
-    (
-        StatusCode::ACCEPTED,
-        Json(serde_json::json!({ "received": true, "status": "verified_pending_enrichment" })),
-    )
-        .into_response()
+
+    // No enricher wired (or the callback carries no pullable resource): ingress-only ACK, as before.
+    let Some(enricher) = enricher.filter(|_| callback.needs_pull()) else {
+        println!(
+            "hubrise webhook: verified {}.{} (id {}){}",
+            callback.resource_type,
+            callback.event_type,
+            callback.id,
+            if callback.needs_pull() { " [needs enricher — none wired]" } else { "" }
+        );
+        return (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({ "received": true, "status": "verified_pending_enrichment" })),
+        )
+            .into_response();
+    };
+
+    // Enrich: pull the changed resource, map it, apply the domain write.
+    match enricher.enrich(&callback).await {
+        Ok(outcome) => {
+            let status = match &outcome {
+                EnrichOutcome::CatalogImported { catalog_id } => {
+                    println!("hubrise webhook: imported catalog {} (cb {})", catalog_id.0, callback.id);
+                    "catalog_imported"
+                }
+                EnrichOutcome::InventoryApplied { applied, skipped } => {
+                    println!(
+                        "hubrise webhook: inventory applied={applied} skipped={skipped} (cb {})",
+                        callback.id
+                    );
+                    "inventory_applied"
+                }
+                EnrichOutcome::Ignored { resource_type } => {
+                    println!("hubrise webhook: ignored {resource_type} (cb {})", callback.id);
+                    "ignored"
+                }
+                EnrichOutcome::Skipped { reason } | EnrichOutcome::MapFailed { reason } => {
+                    // Definitive: retrying the same payload would not help (logged, ACKed).
+                    eprintln!("hubrise webhook: skipped (cb {}): {reason}", callback.id);
+                    "skipped"
+                }
+                EnrichOutcome::PullFailed { reason } => {
+                    // The pull itself failed — ask HubRise to redeliver.
+                    eprintln!("hubrise webhook: pull failed (cb {}): {reason}", callback.id);
+                    return (StatusCode::BAD_GATEWAY, "hubrise API pull failed").into_response();
+                }
+            };
+            (StatusCode::OK, Json(serde_json::json!({ "received": true, "status": status })))
+                .into_response()
+        }
+        // Infrastructure failure (event store unreachable): 5xx so HubRise redelivers the callback.
+        Err(e) => {
+            eprintln!("hubrise webhook: enrichment append failed (cb {}): {e}", callback.id);
+            (StatusCode::INTERNAL_SERVER_ERROR, "failed to record enrichment").into_response()
+        }
+    }
 }

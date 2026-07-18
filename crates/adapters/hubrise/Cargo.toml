@@ -4,13 +4,26 @@ version = "0.1.0"
 edition.workspace = true
 license-file.workspace = true
 publish = false
-description = "HubRise partner adapter (ADR-20260718-213352): a self-contained vertical slice — the ACL (X-HubRise-Hmac-SHA256 verification + callback envelope) and its HTTP shell (POST /webhooks/hubrise). Verified ingress only for now; the domain enrichment (OAuth API pull → OfferStockUpdated/ImportCatalog) will add `application`/`infrastructure` deps later. Exposes `routes()` and a standalone `hubrise-webhook` binary for independent deployment."
+description = "HubRise partner adapter (ADR-20260718-213352): a self-contained vertical slice — the ingress ACL (X-HubRise-Hmac-SHA256 verification + callback envelope), the outbound OAuth2 API client (pull catalog/inventory), and the domain enrichment ACL (map pulled catalog/inventory → ImportCatalog / OfferStockUpdated via the application command handlers, with deterministic UUIDv5-of-HubRise-id ids reconciled with the Catalog aggregate). Exposes `routes()` and a standalone `hubrise-webhook` binary for independent deployment."
 
 [dependencies]
+# Inner layers (dependency rule): the enrichment ACL maps HubRise shapes onto domain command structs and
+# drives the application command handlers via the EventStore port — no dependency on `infrastructure` for
+# its logic.
+application = { path = "../../application" }
+domain = { path = "../../domain" }
+# The standalone binary (main.rs) constructs a concrete Postgres EventStore.
+infrastructure = { path = "../../infrastructure" }
+
 axum = { workspace = true }
 tokio = { workspace = true }
+sqlx = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Deterministic domain ids from HubRise identifiers (UUIDv5), like the SIRENE ACL.
+uuid = { workspace = true, features = ["v5"] }
+# Object-safe Enricher / HubRisePuller traits (async).
+async-trait = { workspace = true }
 # Signature verification.
 hmac = "0.12"
 sha2 = "0.10"
