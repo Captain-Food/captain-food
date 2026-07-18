@@ -91,3 +91,28 @@ SEO-critical surface is the customer marketplace, which should ultimately own th
 **Reserved subdomains** — excluded from the `*.captain.food` tenant wildcard; the tenant middleware must
 treat these as non-tenant hosts: `www`, `live`, `join`, `restos`, `riders`, `system`, `api` (plus the bare
 `captain.food`). Add new reserved names here.
+
+## Amendment — 2026-07-18: realized DNS & custom domains (Dynadot → Render), host router live
+
+The topology is now deployed. Concrete DNS at the registrar **Dynadot** (zone `captain.food`):
+
+- **apex `captain.food`** → 301 **Forward → `https://join.captain.food/`** (an apex cannot be a CNAME; the
+  bare domain is **not** on Render).
+- **`www`** → 301 → `join`.
+- **`join.captain.food`** → CNAME → `captain-food.github.io` — **marketing on GitHub Pages, off-Render**.
+  So marketing landed on **`join`**, not the bare domain the 2026-07-16 interim table anticipated; bare +
+  `www` both redirect to it.
+- **`*.captain.food`** → CNAME → `captain-food.onrender.com` (the Render service) — one wildcard covers
+  `api`/`live`/`restos`/`riders`/`system` **and** every `{slug}`. The explicit `join`/`www` records
+  **override** the wildcard (DNS most-specific-match wins), so marketing/redirects are unaffected.
+- **Wildcard TLS**: `*.captain.food` is a Render custom domain; Let's Encrypt DNS-01 via
+  `_acme-challenge.captain.food` CNAME → `<service>.verify.renderdns.com` (Dynadot, so **no** Cloudflare
+  `_cf-custom-hostname` record). Certificate **issued**. Render's own `*.onrender.com` URL is **disabled**
+  (the service is reachable only via the custom domains).
+
+Runtime **host routing** is implemented in `crates/server/src/hosts.rs`: the single deployed server
+dispatches by the request `Host` to a per-audience placeholder (`live` = front-office; `restos`/`riders`/
+`system` = back-offices) or a restaurant tenant `{slug}`; `api` is served by the GraphQL routes; reserved
+off-Render (`www`/`join`) and malformed labels → 404, non-`captain.food` hosts → a neutral default. It is
+the router **fallback**, so `/health`/`/ping`/`/{role}/graphql` keep precedence. Placeholders until the
+real web apps land. Ops view: ADR-0042 "Operational notes".

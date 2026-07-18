@@ -113,6 +113,10 @@ mutation/query is reached by a story step, and every test↔rule link holds both
 - Review and validation gates are executable and **blocking**; never hand-edit generated output
   (`specs/generated/**`, the `database.md` GENERATED region) — change the spec/emitter and regenerate.
 - Every recurring agent/loop failure becomes a new rule, test, or ADR.
+- Keep **`docs/STATUS.md`** current with every substantive change, and land cross-cutting **decisions as
+  ADRs in the same change** — so concurrent sessions never diverge on state or intent. ADR ids are
+  **date-time** (`ADR-YYYYMMDD-HHMMSS`) to avoid collisions (ADR-20260718-135417); legacy `0001`–`0047`
+  keep their sequential ids.
 - Autonomous loops/routines run under the **weekly time budget** (`make budgeted-loop` or the routine
   guard) — Claude Code has no native cap; see [docs/claude/loops.md](docs/claude/loops.md) / ADR-0014.
 

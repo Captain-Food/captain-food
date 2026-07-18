@@ -83,6 +83,13 @@ and data inside the EU**.
   slower optimized compile is cached. **Open optimization**: the Dockerfile's `cargo chef cook` is not
   scoped to `-p server`, so it currently cooks the whole workspace (incl. `web`/`desktop`/`codegen`);
   scoping it to `-p server` would shrink the cached layer and speed cold builds (no behaviour change).
+- **DNS & custom domains (Dynadot → Render).** The service is reachable **only via custom domains** — the
+  `onrender.com` URL is disabled. `*.captain.food` is a Render custom domain with an **issued wildcard TLS
+  cert** (Let's Encrypt DNS-01 via `_acme-challenge.captain.food` CNAME → `<service>.verify.renderdns.com`;
+  on Dynadot, so no Cloudflare `_cf-custom-hostname`). DNS: `*` CNAME → `captain-food.onrender.com` (covers
+  `api`/`live`/`restos`/`riders`/`system` + every `{slug}`); apex + `www` 301 → `join` (marketing on GitHub
+  Pages, off-Render); explicit `join`/`www` records override the wildcard. Host-based routing:
+  `crates/server/src/hosts.rs`. Full topology + the realized-DNS amendment: **ADR-0036 (2026-07-18)**.
 - **Supabase Data API (PostgREST) is intentionally DISABLED** — all access is via the BFF + direct sqlx
   (ADR-0006), so PostgREST is unused and its REST surface is not exposed. Known, benign side effect: with
   the Data API off, PostgREST still runs and logs `schema "pg_pgrst_no_exposed_schemas" does not exist`
