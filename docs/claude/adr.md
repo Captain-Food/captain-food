@@ -4,7 +4,10 @@ Architecture Decision Records capture significant decisions and their rationale.
 
 ## Naming & status
 
-- File: `docs/adr/NNNN-kebab-title.md` (zero-padded, monotonic). Index: `docs/adr/README.md`.
+- File: `docs/adr/YYYYMMDD-HHMMSS-kebab-title.md` — a **UTC date-time id** (`date -u +%Y%m%d-%H%M%S`), so
+  concurrent sessions never collide on "the next number" (ADR-20260718-135417). ID in the title and in
+  cross-references: `ADR-YYYYMMDD-HHMMSS`. Same-second tie-break: append `-b`. **Legacy ADRs `0001`–`0047`
+  keep their sequential zero-padded ids** (not renamed); both forms coexist. Index: `docs/adr/README.md`.
 - Status: `Proposed` → `Accepted` → `Superseded by ADR-XXXX` (or `Deprecated`). Never delete an ADR;
   supersede it.
 - An ADR is **Accepted** only when the decision is realized in the repo (or explicitly ratified).

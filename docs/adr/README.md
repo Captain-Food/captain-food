@@ -3,6 +3,11 @@
 Significant decisions and their rationale. Conventions: `docs/adr/adr.md` (in `docs/claude/`). Template:
 [`_template.md`](_template.md). Never delete an ADR — supersede it.
 
+> **ADR identifiers are UTC date-time** (`ADR-YYYYMMDD-HHMMSS`, file `docs/adr/YYYYMMDD-HHMMSS-title.md`)
+> so concurrent sessions never collide on a shared counter — see
+> [ADR-20260718-135417](20260718-135417-adr-id-scheme-datetime.md). The legacy `0001`–`0047` tables below
+> keep their sequential ids; both forms coexist. **New ADRs go in the [date-time section](#newer-decisions-date-time-ids).**
+
 **0001–0015** are technical / operating-model decisions (realized in the repo). **0016–0026** are
 **product/business** decisions from the June 2026 sessions (`Status: Proposed` — recorded now, realized
 in the DSL in later phases).
@@ -78,6 +83,14 @@ Concrete architecture/domain-model decisions taken while building the specs (Acc
 | [0045](0045-sirene-sync-staging-table-and-worker.md) | SIRENE sync — **raw-ingestion staging table `external_sirene_restaurants` + on-app `sync_sirene_worker`** (refines 0019/0020/0027): CI only fetches→UPSERTs raw rows then pings; the ACL+aggregate run on the **deployed** version (kills the CI↔prod version-skew) via a projector-style checkpointed drain. Deletion reuses existing `MarkRestaurantClosed`/`RestaurantMarkedClosed` — detect-by-absence + explicit `F` state, debounced, auto for NON_PARTNER but manual-review for partners; never hard-delete; SIRET-change dedup out of scope. Supersedes the interim direct-write `sirene_sync`; realization is a follow-up |
 | [0046](0046-graphql-write-side-command-handlers.md) | GraphQL **write side** — generated `MutationRoot` (one `<Name>Payload`+resolver per api.yaml mutation) over thin CQRS command handlers. Invariant strategy: **rehydrate the aggregate from its event stream** (`EventStore::load` + a pure domain `fold`) for intra-aggregate/state rules (authoritative, no read-lag race), **read-model ports** for cross-aggregate/uniqueness (best-effort), inline for value checks; optimistic-concurrency append at the loaded version (creation idempotent). Every invariant ↔ `errors.yaml` + a `tests.yaml` behaviour test (0032). Fail-closed Google seams (0019/0021). Interim: `Invariant("<Code>: …")` string errors; anonymous PUBLIC actor until the ACL/authn lands (0006). Restaurant aggregate wired; others stubbed |
 | [0047](0047-api-auth-supabase-jwt-jwks.md) | API auth & role authz — verify **Supabase JWT via JWKS** (`SUPABASE_JWKS_URL`, public keys, no shared secret) at the `/{role}/graphql` boundary; realizes the deferred ADR-0006 guard over ADR-0015. Business role from `app_metadata.captain_role` (absent ⇒ CUSTOMER); `/public` open, others require a matching role (401/403); fail-closed if JWKS down; asymmetric-only (no HS* `alg`-confusion). First-cut **path** guard shipped in `crates/server` (`auth.rs`); per-field `@auth` + EXTERNAL service tokens are follow-ups |
+
+## Newer decisions (date-time ids)
+
+New ADRs use a UTC date-time id (ADR-20260718-135417) and are appended here, newest last.
+
+| ADR | Title |
+|---|---|
+| [20260718-135417](20260718-135417-adr-id-scheme-datetime.md) | ADR identifiers are **date-time based** (`ADR-YYYYMMDD-HHMMSS`) — kills the shared-counter collision when concurrent sessions each grab "the next number" (as 0046 was double-allocated 2026-07-17); legacy `0001`–`0047` keep their sequential ids, both coexist |
 
 ## Proposed (deferred until app/runtime code exists)
 
