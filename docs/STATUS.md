@@ -13,6 +13,7 @@
 | CI `db-migrate` (sqlx-cli, gated on green build) | ✅ | Applies `migrations/*.sql` out-of-band (ADR-0043) |
 | `/health` (schema-version readiness), `/ping`, `/projector` | ✅ | `>=` version gate; in-process projector |
 | GraphQL `/{role}/graphql` + `/{role}/voyager` | ✅ | Role-as-path; per-role filtered schema |
+| Custom domains `*.captain.food` (Dynadot wildcard → Render) + Host router | ✅ | Wildcard TLS issued; apex+`www` 301→`join` (GitHub Pages); `hosts.rs` dispatches audiences (`live`/`restos`/`riders`/`system`) + `{slug}` tenants (ADR-0036); onrender URL disabled |
 
 ## 📖 Read side (queries)
 
@@ -22,7 +23,7 @@
 | `prospectionPipeline` | ✅ | Admin; fed by SIRENE registrations |
 | `pricingPolicy` / `uberEstimationPolicy` / `uberSplitPolicy` | ✅ | **Real seeded data** |
 | `catalog` / `categories` / `carts` / `cart` / `orders` / `order` | ✅ wired | Empty until the write side emits their events |
-| `me` / `favoriteRestaurants` | ⏳ | Needs auth/identity (JWT) |
+| `me` / `favoriteRestaurants` | 🚧 | Identity now available (ADR-0047 `Principal` in ctx); resolver wiring pending |
 | Projection worker → registry (per-aggregate checkpoints) | ✅ | In-process |
 
 ## ✍️ Write side (mutations)
@@ -40,7 +41,7 @@
 |---|---|---|
 | Per-role ACL — execution guard + per-role introspection/Voyager | ✅ | Spec-derived from api.yaml `roles` (ADR-0006) |
 | Per-field ACL on FK-derived nav edges | 📋 | Needs a DSL decision (escalate to plan mode) |
-| Authentication / identity (Supabase JWT) | ⏳ | Not started |
+| Authentication / identity (Supabase JWT) | ✅ | **First cut shipped (ADR-0047)**: verify Supabase JWT via JWKS at `/{role}/graphql` (public keys, no shared secret); `app_metadata.captain_role` gates the path (`/public` open, else 401/403), fail-closed if JWKS down, asymmetric-only. Verified role + `Principal` injected. Per-field `@auth` + EXTERNAL service tokens = follow-ups |
 
 ## 🔎 SIRENE prospection (ADR-0019/0020/0027/0045)
 
@@ -58,4 +59,4 @@
 - ✅ None outstanding.
 
 ## 🧭 Architecture decisions
-See [`docs/adr/`](adr/) — latest: 0042 (hosting), 0043 (migrations), 0044 (license), 0045 (SIRENE redesign), 0046 (write side).
+See [`docs/adr/`](adr/) — latest: 0042 (hosting), 0043 (migrations), 0044 (license), 0045 (SIRENE redesign), 0046 (write side), 0047 (API auth — Supabase JWT/JWKS).
