@@ -169,6 +169,14 @@ impl CustomerReadRepository for FakeCustomers {
     async fn by_email(&self, email: EmailAddress) -> Result<Option<CustomerRow>, DomainError> {
         Ok(self.rows.iter().find(|r| r.email.as_ref() == Some(&email)).cloned())
     }
+
+    async fn by_id(&self, id: CustomerId) -> Result<Option<CustomerRow>, DomainError> {
+        Ok(self.rows.iter().find(|r| r.customer_id == id).cloned())
+    }
+
+    async fn by_auth_ref(&self, auth_ref: ExternalReference) -> Result<Option<CustomerRow>, DomainError> {
+        Ok(self.rows.iter().find(|r| r.auth_ref.as_ref() == Some(&auth_ref)).cloned())
+    }
 }
 
 /// Fake Restaurant read model (favorite target existence).

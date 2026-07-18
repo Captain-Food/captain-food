@@ -12,9 +12,12 @@
 //!   `payment_intent.succeeded` / `payment_intent.payment_failed` / `charge.refunded` into the INBOUND
 //!   payment facts (`PaymentCaptured`/`PaymentFailed`/`PaymentRefunded`), recorded idempotently by
 //!   Stripe event id. The HTTP endpoint (`POST /webhooks/stripe`) lives in `server`.
+//! - [`supabase_auth`] — the wrapped auth provider seam (phone-OTP + email magic link, ADR-0015);
+//!   fail-closed stand-in until the real `supabase-acl` adapter lands.
 //! - Later: HubRise (catalog import, inventory), delivery partner.
 
 pub mod google;
 pub mod sirene;
 pub mod stripe;
+pub mod supabase_auth;
 pub mod sync_sirene_worker;

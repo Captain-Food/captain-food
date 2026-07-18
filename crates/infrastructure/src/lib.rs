@@ -17,9 +17,10 @@ pub use integrations::stripe::{
     verify_signature as verify_stripe_signature, SignatureError as StripeSignatureError,
     StripeEvent, StripeIngestOutcome, StripeWebhookIngestor, STRIPE_WEBHOOK_SECRET_ENV,
 };
+pub use integrations::supabase_auth::FailClosedAuthProviderGateway;
 pub use integrations::sync_sirene_worker::{SireneSyncSummary, SireneSyncWorker};
 pub use persistence::{
-    PgCartRepository, PgCatalogRepository, PgEventStore, PgOrderRepository,
+    PgCartRepository, PgCatalogRepository, PgCustomerRepository, PgEventStore, PgOrderRepository,
     PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,
 };

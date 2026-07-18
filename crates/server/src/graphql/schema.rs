@@ -7,11 +7,11 @@
 use std::sync::Arc;
 
 use async_graphql::{EmptySubscription, Schema};
-use application::ports::{EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
+use application::ports::{AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
 use application::queries::{
-    CartReadRepository, CatalogReadRepository, OrderReadRepository, PricingPolicyReadRepository,
-    ProspectionReadRepository, RestaurantReadRepository, UberEstimationPolicyReadRepository,
-    UberSplitPolicyReadRepository,
+    CartReadRepository, CatalogReadRepository, CustomerReadRepository, OrderReadRepository,
+    PricingPolicyReadRepository, ProspectionReadRepository, RestaurantReadRepository,
+    UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 
 use super::generated::mutation::MutationRoot;
@@ -30,15 +30,18 @@ pub struct ReadDeps {
     pub catalogs: Arc<dyn CatalogReadRepository>,
     pub carts: Arc<dyn CartReadRepository>,
     pub orders: Arc<dyn OrderReadRepository>,
+    pub customers: Arc<dyn CustomerReadRepository>,
 }
 
 /// Write-side ports injected into the mutation resolvers' context (ADR-0035 composition root): the
 /// event store the command handlers append to, plus the Google seams the listing commands need
-/// (ownership proof, ADR-0019; order-link probe, ADR-0021).
+/// (ownership proof, ADR-0019; order-link probe, ADR-0021) and the wrapped auth provider the Customer
+/// identity commands need (phone-OTP / email magic link, ADR-0015).
 pub struct WriteDeps {
     pub event_store: Arc<dyn EventStore>,
     pub ownership: Arc<dyn GoogleOwnershipVerifier>,
     pub gbp_probe: Arc<dyn GbpOrderLinkProbe>,
+    pub auth_provider: Arc<dyn AuthProviderGateway>,
 }
 
 /// Build the master schema served under every role path. With `Some(deps)`/`Some(writes)` the
@@ -55,11 +58,13 @@ pub fn build_schema(deps: Option<ReadDeps>, writes: Option<WriteDeps>) -> Captai
         builder = builder.data(d.catalogs);
         builder = builder.data(d.carts);
         builder = builder.data(d.orders);
+        builder = builder.data(d.customers);
     }
     if let Some(w) = writes {
         builder = builder.data(w.event_store);
         builder = builder.data(w.ownership);
         builder = builder.data(w.gbp_probe);
+        builder = builder.data(w.auth_provider);
     }
     builder.finish()
 }

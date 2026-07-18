@@ -35,13 +35,14 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
 use application::queries::{
-    CartReadRepository, CatalogReadRepository, OrderReadRepository, PricingPolicyReadRepository,
-    ProspectionReadRepository, RestaurantReadRepository, UberEstimationPolicyReadRepository,
-    UberSplitPolicyReadRepository,
+    CartReadRepository, CatalogReadRepository, CustomerReadRepository, OrderReadRepository,
+    PricingPolicyReadRepository, ProspectionReadRepository, RestaurantReadRepository,
+    UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 use infrastructure::{
-    FailClosedGoogleOwnershipVerifier, PgCartRepository, PgCatalogRepository, PgEventStore,
-    PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
+    FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, PgCartRepository,
+    PgCatalogRepository, PgCustomerRepository, PgEventStore, PgOrderRepository,
+    PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProjectionStatus, ProjectionWorker,
     SireneSyncWorker, StripeWebhookIngestor, UnverifiedGbpOrderLinkProbe,
 };
@@ -144,6 +145,8 @@ pub fn router() -> Router {
                     Arc::new(PgCartRepository::new(pool.clone()));
                 let orders: Arc<dyn OrderReadRepository> =
                     Arc::new(PgOrderRepository::new(pool.clone()));
+                let customers: Arc<dyn CustomerReadRepository> =
+                    Arc::new(PgCustomerRepository::new(pool.clone()));
                 read_deps = Some(ReadDeps {
                     restaurants,
                     prospection,
@@ -153,14 +156,17 @@ pub fn router() -> Router {
                     catalogs,
                     carts,
                     orders,
+                    customers,
                 });
 
                 // Write side (CQRS commands): the event store behind the mutation resolvers, plus the
-                // Google seam adapters (fail-closed stand-ins until the real integration lands).
+                // Google and Supabase Auth seam adapters (fail-closed stand-ins until the real
+                // integrations land).
                 write_deps = Some(WriteDeps {
                     event_store: Arc::new(PgEventStore::new(pool.clone())),
                     ownership: Arc::new(FailClosedGoogleOwnershipVerifier),
                     gbp_probe: Arc::new(UnverifiedGbpOrderLinkProbe),
+                    auth_provider: Arc::new(FailClosedAuthProviderGateway),
                 });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.

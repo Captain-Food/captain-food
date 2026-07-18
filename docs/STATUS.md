@@ -23,7 +23,7 @@
 | `prospectionPipeline` | ✅ | Admin; fed by SIRENE registrations |
 | `pricingPolicy` / `uberEstimationPolicy` / `uberSplitPolicy` | ✅ | **Real seeded data** |
 | `catalog` / `categories` / `carts` / `cart` / `orders` / `order` | ✅ wired | Empty until the write side emits their events |
-| `me` / `favoriteRestaurants` | 🚧 | Identity now available (ADR-0047 `Principal` in ctx); resolver wiring pending |
+| `me` / `favoriteRestaurants` | ✅ | `me` resolves the verified ADR-0047 `Principal` → Customer read model; `favoriteRestaurants` joins the customer's favourites |
 | Projection worker → registry (per-aggregate checkpoints) | ✅ | In-process |
 
 ## ✍️ Write side (mutations)
@@ -34,7 +34,7 @@
 | Restaurant aggregate (13 commands) | ✅ | Spec invariants (event-stream rehydration) + 25 behaviour tests |
 | Cart (3) · Order (11) · DeliveryJob (4) | ✅ | Round 2a — real invariants + 29 behaviour tests; some Cart line-checks await a Catalog offer read port |
 | Catalog (12) · Prospect (3) · RestaurantAccount (3) | ✅ | Round 2b — real invariants + behaviour tests |
-| Customer (14) | 🚧 | Handlers + tests done; needs `AuthProviderGateway` stand-in + a Customer read model injected at the composition root (in progress) |
+| Customer (14) | ✅ | Wired end-to-end: `customer` read model + Pg repo, fail-closed `AuthProviderGateway` stand-in (real Supabase ACL deferred), injected at the composition root |
 | `placeOrder` (checkout saga) | 🚧 | Handler + `PaymentGateway` port ready; mutation stubbed until the Stripe integration + PlaceOrderProcess saga land (payment legs are inbound webhooks) |
 | Structured typed errors (vs interim `"Code: detail"`) | 📋 | ADR-0046 follow-up |
 

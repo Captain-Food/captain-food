@@ -65,7 +65,7 @@
   <tr><td class="p"><code>prospectionPipeline</code></td><td class="s done">✅</td><td class="note">Admin; fed by SIRENE registrations</td></tr>
   <tr><td class="p"><code>pricingPolicy</code> / <code>uberEstimationPolicy</code> / <code>uberSplitPolicy</code></td><td class="s done">✅</td><td class="note"><strong>Real seeded data</strong></td></tr>
   <tr><td class="p"><code>catalog</code> / <code>categories</code> / <code>carts</code> / <code>cart</code> / <code>orders</code> / <code>order</code></td><td class="s done">✅</td><td class="note">Wired; empty until the write side emits their events</td></tr>
-  <tr><td class="p"><code>me</code> / <code>favoriteRestaurants</code></td><td class="s prog">🚧</td><td class="note">Identity now available (ADR-0047 <code>Principal</code> in ctx); resolver wiring pending</td></tr>
+  <tr><td class="p"><code>me</code> / <code>favoriteRestaurants</code></td><td class="s done">✅</td><td class="note"><code>me</code> resolves the verified ADR-0047 <code>Principal</code> → Customer read model; <code>favoriteRestaurants</code> joins the customer's favourites</td></tr>
   <tr><td class="p">Projection worker → per-aggregate registry</td><td class="s done">✅</td><td class="note">In-process, per-aggregate checkpoints</td></tr>
 </table></div>
 
@@ -76,7 +76,7 @@
   <tr><td class="p">Restaurant aggregate (13 commands)</td><td class="s done">✅</td><td class="note">Spec invariants via event-stream rehydration + 25 behaviour tests (ADR-0046)</td></tr>
   <tr><td class="p">Cart (3) · Order (11) · DeliveryJob (4)</td><td class="s done">✅</td><td class="note">Round 2a — real invariants + 29 behaviour tests</td></tr>
   <tr><td class="p">Catalog (12) · Prospect (3) · RestaurantAccount (3)</td><td class="s done">✅</td><td class="note">Round 2b — real invariants + behaviour tests</td></tr>
-  <tr><td class="p">Customer (14)</td><td class="s prog">🚧</td><td class="note">Handlers + tests done; needs <code>AuthProviderGateway</code> stand-in + Customer read model wired at the composition root</td></tr>
+  <tr><td class="p">Customer (14)</td><td class="s done">✅</td><td class="note">Wired end-to-end: <code>customer</code> read model + fail-closed <code>AuthProviderGateway</code> stand-in (real Supabase ACL deferred)</td></tr>
   <tr><td class="p"><code>placeOrder</code> (checkout saga)</td><td class="s prog">🚧</td><td class="note">Handler + <code>PaymentGateway</code> port ready; mutation stubbed until Stripe + PlaceOrderProcess land</td></tr>
   <tr><td class="p">Structured typed errors (vs interim <code>"Code: detail"</code>)</td><td class="s plan">📋</td><td class="note">ADR-0046 follow-up</td></tr>
 </table></div>

@@ -17,22 +17,24 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use application::projections::{
-    project_cart, project_catalog, project_order_tracking, project_prospection_pipeline,
-    project_restaurant, Envelope,
+    project_cart, project_catalog, project_customer, project_order_tracking,
+    project_prospection_pipeline, project_restaurant, Envelope,
 };
 use application::projectors::cart::CartProjector;
 use application::projectors::catalog::CatalogProjector;
+use application::projectors::customer::CustomerProjector;
 use application::projectors::order_tracking::OrderTrackingProjector;
 use application::projectors::prospection_pipeline::ProspectionPipelineProjector;
 use application::projectors::restaurant::RestaurantProjector;
 use chrono::Utc;
 use domain::generated::events::DomainEvent;
-use domain::generated::scalars::{CartId, CatalogId, OrderId, RestaurantId};
+use domain::generated::scalars::{CartId, CatalogId, CustomerId, OrderId, RestaurantId};
 use domain::shared::errors::DomainError;
 use sqlx::{PgPool, Row};
 
 use crate::persistence::{
-    cart_store, catalog_store, db_err, order_tracking_store, prospection_store, restaurant_store,
+    cart_store, catalog_store, customer_store, db_err, order_tracking_store, prospection_store,
+    restaurant_store,
 };
 use crate::projection::ProjectionStatus;
 
@@ -45,6 +47,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1500);
 enum ReadModelProjector {
     Restaurant,
     ProspectionPipeline,
+    Customer,
     Catalog,
     Cart,
     OrderTracking,
@@ -66,6 +69,13 @@ impl ReadModelProjector {
                 if let Some(next) = project_prospection_pipeline(&ProspectionPipelineProjector, state, env)
                 {
                     prospection_store::upsert(pool, &next).await?;
+                }
+            }
+            Self::Customer => {
+                let id = CustomerId(aggregate_uuid_of(env, "Customer-", "customerId")?);
+                let state = customer_store::load(pool, id).await?;
+                if let Some(next) = project_customer(&CustomerProjector, state, env) {
+                    customer_store::upsert(pool, &next).await?;
                 }
             }
             Self::Catalog => {
@@ -111,6 +121,11 @@ const REGISTRY: &[ProjectorGroup] = &[
         checkpoint: "Restaurant",
         stream_prefix: "Restaurant-",
         projectors: &[ReadModelProjector::Restaurant, ReadModelProjector::ProspectionPipeline],
+    },
+    ProjectorGroup {
+        checkpoint: "Customer",
+        stream_prefix: "Customer-",
+        projectors: &[ReadModelProjector::Customer],
     },
     ProjectorGroup {
         checkpoint: "Catalog",

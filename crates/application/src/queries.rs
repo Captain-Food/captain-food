@@ -5,8 +5,8 @@
 use async_trait::async_trait;
 
 use domain::generated::scalars::{
-    CartId, CuisineCategory, CurrencyCode, CustomerId, EmailAddress, OrderId, OrderStatus,
-    PhoneNumber, ProspectPipelineStatus, RestaurantId, Slug,
+    CartId, CuisineCategory, CurrencyCode, CustomerId, EmailAddress, ExternalReference, OrderId,
+    OrderStatus, PhoneNumber, ProspectPipelineStatus, RestaurantId, Slug,
 };
 use domain::shared::errors::DomainError;
 
@@ -56,13 +56,19 @@ pub trait CartReadRepository: Send + Sync {
 
 /// Read port over the `Customer` projection table (ADR-0040) — the identity/lookup read model. Backs
 /// the write-side uniqueness/resolution invariants of the Customer aggregate (VerifyPhone
-/// register-vs-identify, `PhoneAlreadyInUse`, `EmailAlreadyInUse`) and, later, the `me` query.
+/// register-vs-identify, `PhoneAlreadyInUse`, `EmailAlreadyInUse`) plus the `me` (session authRef →
+/// Customer) and `favoriteRestaurants` GraphQL queries.
 #[async_trait]
 pub trait CustomerReadRepository: Send + Sync {
     /// The customer owning this canonical E.164 phone (the primary identifier), or `None`.
     async fn by_phone(&self, phone: PhoneNumber) -> Result<Option<CustomerRow>, DomainError>;
     /// The customer whose verified email this is, or `None`.
     async fn by_email(&self, email: EmailAddress) -> Result<Option<CustomerRow>, DomainError>;
+    /// A single customer by id — backs `favoriteRestaurants` (and profile lookups by id).
+    async fn by_id(&self, id: CustomerId) -> Result<Option<CustomerRow>, DomainError>;
+    /// The customer linked to this auth-provider user reference (Supabase `sub`, ADR-0015) — how the
+    /// `me` query resolves the verified session identity to its Customer row.
+    async fn by_auth_ref(&self, auth_ref: ExternalReference) -> Result<Option<CustomerRow>, DomainError>;
 }
 
 /// Optional filters for the order list — mirrors the `orders` query args in api.yaml

@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
-use application::projections::{CartRow, CatalogRow, OrderTrackingRow, ProspectionPipelineRow, RestaurantRow};
+use application::projections::{CartRow, CatalogRow, CustomerRow, OrderTrackingRow, ProspectionPipelineRow, RestaurantRow};
 use application::queries::{PricingPolicyRow, UberEstimationPolicyRow, UberSplitPolicyRow};
 use domain::generated::scalars as ds;
 
@@ -938,6 +938,23 @@ impl From<(OrderTrackingRow, RestaurantRow)> for Order {
             rated_at: row.rated_at,
             delivery_jobs: Vec::new(),
             restaurant: restaurant.into(),
+        }
+    }
+}
+
+/// Read-model row → API type: the Customer identity row behind the `me` query. Only the profile
+/// surface is exposed — the jsonb accumulation columns (ratings/favorites/preferences/addresses)
+/// stay internal to the read model.
+impl From<CustomerRow> for CustomerProfile {
+    fn from(row: CustomerRow) -> Self {
+        Self {
+            customer_id: row.customer_id.into(),
+            display_name: row.display_name.map(Into::into),
+            email: row.email.map(Into::into),
+            email_verified: row.email_verified,
+            phone: row.phone.into(),
+            locale: row.locale.map(Into::into),
+            timezone: row.timezone.map(Into::into),
         }
     }
 }

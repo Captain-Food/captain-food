@@ -26,13 +26,45 @@ impl QueryRoot {
     }
     /// The signed-in customer's own profile (resolves the session authRef → Customer via Customer).
     #[graphql(name = "me", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
-    async fn me(&self) -> async_graphql::Result<Option<CustomerProfile>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn me(&self, ctx: &async_graphql::Context<'_>) -> async_graphql::Result<Option<CustomerProfile>> {
+        // The verified session identity (ADR-0047), injected per-request by the HTTP layer. No
+        // principal (schema executed outside a request) or an anonymous one → no profile, not an error.
+        let Some(auth_ref) = ctx.data_opt::<crate::auth::Principal>().and_then(|p| p.user_id.clone()) else {
+            return Ok(None);
+        };
+        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?;
+        let row = customers
+            .by_auth_ref(domain::generated::scalars::ExternalReference(auth_ref))
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        Ok(row.map(CustomerProfile::from))
     }
     /// The customer's favorited restaurants (Customer.favorite_restaurant_ids joined to Restaurant).
     #[graphql(name = "favoriteRestaurants", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
-    async fn favorite_restaurants(&self, input: FavoriteRestaurantsQueryInput) -> async_graphql::Result<Vec<Restaurant>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn favorite_restaurants(&self, ctx: &async_graphql::Context<'_>, input: FavoriteRestaurantsQueryInput) -> async_graphql::Result<Vec<Restaurant>> {
+        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?;
+        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;
+        let Some(row) = customers.by_id(input.customer_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))? else {
+            return Ok(Vec::new());
+        };
+        // The projected favorite set is a jsonb array of restaurant-id strings (CustomerProjector);
+        // resolve each against the Restaurant read model (an unknown id simply drops out).
+        let ids: Vec<uuid::Uuid> = row
+            .favorite_restaurant_ids
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().and_then(|s| uuid::Uuid::parse_str(s).ok())).collect())
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for id in ids {
+            let found = restaurants
+                .by_id(domain::generated::scalars::RestaurantId(id))
+                .await
+                .map_err(|e| async_graphql::Error::new(e.to_string()))?;
+            if let Some(r) = found {
+                out.push(Restaurant::from(r));
+            }
+        }
+        Ok(out)
     }
     /// Discover: public list of restaurants. All args are optional filters resolved by the read side (Restaurant); the query returns only matching restaurants. `list` selects a curated/ personalized shelf (the read model resolves its members).
     #[graphql(name = "restaurants")]

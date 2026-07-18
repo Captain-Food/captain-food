@@ -8,15 +8,16 @@
 
 use std::sync::Arc;
 
-use application::ports::{EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
+use application::ports::{AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
 use application::queries::{
-    CartReadRepository, CatalogReadRepository, OrderReadRepository, PricingPolicyReadRepository,
-    ProspectionReadRepository, RestaurantReadRepository, UberEstimationPolicyReadRepository,
-    UberSplitPolicyReadRepository,
+    CartReadRepository, CatalogReadRepository, CustomerReadRepository, OrderReadRepository,
+    PricingPolicyReadRepository, ProspectionReadRepository, RestaurantReadRepository,
+    UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 use infrastructure::{
-    FailClosedGoogleOwnershipVerifier, PgCartRepository, PgCatalogRepository, PgEventStore,
-    PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
+    FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, PgCartRepository,
+    PgCatalogRepository, PgCustomerRepository, PgEventStore, PgOrderRepository,
+    PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, UnverifiedGbpOrderLinkProbe,
 };
 use sqlx::PgPool;
@@ -95,9 +96,11 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
     let catalogs: Arc<dyn CatalogReadRepository> = Arc::new(PgCatalogRepository::new(pool.clone()));
     let carts: Arc<dyn CartReadRepository> = Arc::new(PgCartRepository::new(pool.clone()));
     let orders: Arc<dyn OrderReadRepository> = Arc::new(PgOrderRepository::new(pool.clone()));
+    let customers: Arc<dyn CustomerReadRepository> = Arc::new(PgCustomerRepository::new(pool.clone()));
     let event_store: Arc<dyn EventStore> = Arc::new(PgEventStore::new(pool.clone()));
     let ownership: Arc<dyn GoogleOwnershipVerifier> = Arc::new(FailClosedGoogleOwnershipVerifier);
     let gbp_probe: Arc<dyn GbpOrderLinkProbe> = Arc::new(UnverifiedGbpOrderLinkProbe);
+    let auth_provider: Arc<dyn AuthProviderGateway> = Arc::new(FailClosedAuthProviderGateway);
     server::graphql_schema::build_schema(
         Some(server::graphql_schema::ReadDeps {
             restaurants,
@@ -108,8 +111,9 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
             catalogs,
             carts,
             orders,
+            customers,
         }),
-        Some(server::graphql_schema::WriteDeps { event_store, ownership, gbp_probe }),
+        Some(server::graphql_schema::WriteDeps { event_store, ownership, gbp_probe, auth_provider }),
     )
 }
 
@@ -183,4 +187,23 @@ async fn register_restaurant_mutation_appends_a_domain_event() {
         .await
         .expect("count events");
     assert_eq!(events, 1, "rejection appended nothing");
+
+    // 3) The Customer vertical resolves its ctx deps (AuthProviderGateway + CustomerReadRepository):
+    //    the fail-closed auth stand-in rejects the OTP with the canonical errors.yaml code — proving
+    //    the resolver got past dependency resolution (no "data does not exist" context error).
+    let customer_id = uuid::Uuid::new_v4();
+    let resp = schema
+        .execute(
+            async_graphql::Request::new(format!(
+                r#"mutation {{ verifyPhone(input: {{ customerId: "{customer_id}", dialingCode: "+33", nationalNumber: "0612345678", code: "123456" }}) {{ correlationId customerId created }} }}"#
+            ))
+            .data(server::graphql_acl::RequestRole::Public),
+        )
+        .await;
+    assert_eq!(resp.errors.len(), 1, "expected the fail-closed rejection: {:?}", resp.errors);
+    assert!(
+        resp.errors[0].message.contains("InvalidVerificationCode"),
+        "error carries the errors.yaml code (deps resolved from ctx): {}",
+        resp.errors[0].message
+    );
 }

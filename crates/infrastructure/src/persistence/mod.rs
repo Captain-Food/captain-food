@@ -5,6 +5,8 @@ pub mod cart;
 pub mod cart_store;
 pub mod catalog;
 pub mod catalog_store;
+pub mod customer;
+pub mod customer_store;
 pub mod enum_sql;
 pub mod event_store;
 pub mod order;
@@ -17,6 +19,7 @@ pub mod restaurant_store;
 
 pub use cart::PgCartRepository;
 pub use catalog::PgCatalogRepository;
+pub use customer::PgCustomerRepository;
 pub use event_store::PgEventStore;
 pub use order::PgOrderRepository;
 pub use prospection::PgProspectionRepository;
