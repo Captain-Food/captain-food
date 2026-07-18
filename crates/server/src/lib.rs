@@ -9,9 +9,13 @@
 //!   `>= REQUIRED_SCHEMA_VERSION`; else `503`. Migrations are applied out-of-band by **sqlx-cli in CI**.
 //! - `/projector` — projection-worker readiness (running / checkpoint / head / lag / lastTickAt).
 //! - `/{role}/graphql` (+ `/{role}/voyager`) — the GraphQL BFF (ADR-0006), see `graphql`.
+//! - `POST /internal/sirene/drain` — wakes the SIRENE sync worker after a CI ingestion run (ADR-0045);
+//!   secured by the `INTERNAL_TRIGGER_TOKEN` shared secret (`x-internal-token` header).
 //!
 //! The projection worker (ADR-0040) runs **in-process** here for now (Render Background Workers are paid),
 //! gated by `RUN_PROJECTOR` (default on) so it can graduate to a dedicated worker with no logic change.
+//! The SIRENE sync worker (ADR-0045) follows the same pattern: in-process, primarily woken by the CI
+//! ingestion's ping, with a slow safety-net poll loop gated by `RUN_SIRENE_WORKER` (default on).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -37,7 +41,7 @@ use infrastructure::{
     FailClosedGoogleOwnershipVerifier, PgCartRepository, PgCatalogRepository, PgEventStore,
     PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProjectionStatus, ProjectionWorker,
-    UnverifiedGbpOrderLinkProbe,
+    SireneSyncWorker, UnverifiedGbpOrderLinkProbe,
 };
 use shared_types::HealthDto;
 
@@ -63,8 +67,9 @@ pub fn wire() -> HealthDto {
 /// The schema version this build requires. Migrations are applied by **sqlx-cli in CI** (ADR-0043); the app
 /// only checks the DB has reached at least this version. Bump when adding a migration this build depends on.
 /// The gate is `>=` (never `==`) so an older build still runs against a newer DB (rollback-by-redeploy).
-/// `20260717170000` = the `projection_checkpoint` migration the in-process projector needs.
-pub const REQUIRED_SCHEMA_VERSION: i64 = 20260717170000;
+/// `20260718100000` = the `external_sirene_restaurants` staging table the in-process SIRENE sync worker
+/// (ADR-0045) drains.
+pub const REQUIRED_SCHEMA_VERSION: i64 = 20260718100000;
 
 /// Readiness states published by the heartbeat, read by `/health`.
 mod db_state {
@@ -103,6 +108,7 @@ pub fn router() -> Router {
     let mut read_deps: Option<ReadDeps> = None;
     let mut write_deps: Option<WriteDeps> = None;
     let mut projector_status: Option<Arc<Mutex<ProjectionStatus>>> = None;
+    let mut sirene_worker: Option<Arc<SireneSyncWorker>> = None;
 
     match std::env::var("DATABASE_URL") {
         Ok(url) if !url.is_empty() => match PgPoolOptions::new()
@@ -163,6 +169,21 @@ pub fn router() -> Router {
                 } else {
                     println!("RUN_PROJECTOR=false — projection worker not started in-process");
                 }
+
+                // SIRENE sync worker (ADR-0045): drains the `external_sirene_restaurants` staging
+                // table through the ACL into the ordinary write path. Always constructed (the
+                // /internal/sirene/drain ping needs it); the slow safety-net poll loop is gated by
+                // RUN_SIRENE_WORKER (default on) like the projector.
+                let worker = Arc::new(SireneSyncWorker::new(pool.clone()));
+                sirene_worker = Some(worker.clone());
+                if std::env::var("RUN_SIRENE_WORKER").map(|v| v != "false").unwrap_or(true) {
+                    tokio::spawn(worker.run_loop());
+                    println!(
+                        "sirene sync worker: running in-process (set RUN_SIRENE_WORKER=false to keep only the ping trigger)"
+                    );
+                } else {
+                    println!("RUN_SIRENE_WORKER=false — sirene sync worker poll loop not started (ping trigger stays active)");
+                }
             }
             Err(e) => eprintln!("DATABASE_URL set but pool init failed: {e}"),
         },
@@ -176,6 +197,8 @@ pub fn router() -> Router {
         .with_state(AppState { snap, projector_status });
 
     base.merge(graphql::routes::graphql_routes(graphql::schema::build_schema(read_deps, write_deps)))
+        // Internal trigger (ADR-0045): the CI ingestion pings this to wake the SIRENE sync worker.
+        .merge(graphql::routes::sirene_internal_routes(sirene_worker))
         // Host-based landing (ADR-0036): any path not matched above is dispatched by the request `Host`
         // to its per-audience/tenant placeholder. Explicit routes (/health, /ping, /{role}/graphql) win,
         // so Render's health check (internal *.onrender.com host) is unaffected. Covers `/` too.

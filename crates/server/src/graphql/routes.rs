@@ -13,9 +13,10 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{any, get},
-    Extension, Router,
+    routing::{any, get, post},
+    Extension, Json, Router,
 };
+use infrastructure::SireneSyncWorker;
 
 use crate::auth::AuthContext;
 
@@ -32,6 +33,52 @@ pub fn graphql_routes(schema: CaptainSchema) -> Router {
         .route("/graphql", any(|| async { Redirect::temporary("/public/graphql") }))
         .route("/voyager", any(|| async { Redirect::temporary("/public/voyager") }))
         .with_state(schema)
+}
+
+/// Internal trigger endpoints (ADR-0045) — NOT part of the GraphQL surface, mounted here alongside it.
+/// `POST /internal/sirene/drain` wakes the SIRENE sync worker after a CI ingestion run: it spawns
+/// `run_once` in the background (a France-wide first drain outlives any request timeout) and answers
+/// `202 Accepted` immediately. Secured by a shared secret: the request must carry the
+/// `x-internal-token` header matching the `INTERNAL_TRIGGER_TOKEN` env var — rejected when the env is
+/// unset (503, fail closed) or the token mismatches (401).
+pub fn sirene_internal_routes(worker: Option<Arc<SireneSyncWorker>>) -> Router {
+    Router::new().route("/internal/sirene/drain", post(sirene_drain)).with_state(worker)
+}
+
+async fn sirene_drain(
+    State(worker): State<Option<Arc<SireneSyncWorker>>>,
+    headers: HeaderMap,
+) -> Response {
+    // Fail closed: without a configured secret there is no way to authenticate the ping.
+    let expected = match std::env::var("INTERNAL_TRIGGER_TOKEN") {
+        Ok(token) if !token.trim().is_empty() => token.trim().to_string(),
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "internal trigger not configured (INTERNAL_TRIGGER_TOKEN unset)",
+            )
+                .into_response()
+        }
+    };
+    let presented = headers.get("x-internal-token").and_then(|v| v.to_str().ok());
+    if presented != Some(expected.as_str()) {
+        return (StatusCode::UNAUTHORIZED, "invalid or missing x-internal-token").into_response();
+    }
+    let Some(worker) = worker else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sirene sync worker not available (no database configured)",
+        )
+            .into_response();
+    };
+    // Drain in the background; an already-running pass is fine (it will pick the same rows up).
+    tokio::spawn(async move {
+        match worker.run_once().await {
+            Ok(summary) => println!("sirene sync worker (ping-triggered): {summary:?}"),
+            Err(e) => eprintln!("sirene sync worker (ping-triggered): {e}"),
+        }
+    });
+    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "draining" }))).into_response()
 }
 
 async fn graphql_handler(

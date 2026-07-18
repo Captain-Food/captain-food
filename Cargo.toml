@@ -10,7 +10,8 @@ members = [
     "tools/codegen-rs",        # spec validator + generator (ADR-0034) — tooling, not part of the app graph
     "crates/domain",           # ★ pure DDD — depends on nothing else
     "crates/application",      # use cases + ports (traits) — depends on domain
-    "crates/infrastructure",   # adapters implementing ports — depends on application, domain
+    "crates/sirene_ingest",    # SIRENE raw-ingestion client + CI bin (ADR-0045) — NO domain crates (thin CI build)
+    "crates/infrastructure",   # adapters implementing ports — depends on application, domain, sirene_ingest (wire types)
     "crates/shared_types",     # serde DTOs (+ UniFFI later)
     "crates/core",             # Crux core over domain — depends on domain, shared_types
     "crates/server",           # Axum BFF — depends on application, infrastructure, shared_types

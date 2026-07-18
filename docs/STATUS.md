@@ -48,15 +48,16 @@
 | Piece | Status | Notes |
 |---|---|---|
 | SIRENE ACL (INSEE → RegisterRestaurant mapping) | ✅ | Unit + DB verified |
-| Interim direct-write `sirene_sync` binary | ✅ | Superseded by ADR-0045; to retire |
+| Interim direct-write `sirene_sync` binary | ✅ | **Retired** (ADR-0045) — replaced by the split below |
 | `external_sirene_restaurants` staging table | ✅ | Migration applied by CI |
-| Thin CI ingestion (fetch → UPSERT raw rows, nationwide) | 🚧 | ADR-0045 — in progress |
-| On-app `sync_sirene_worker` (ACL on deployed version) + deletion | 🚧 | ADR-0045 — in progress |
-| `INSEE_API_TOKEN` repo secret | ✅ | Added; SIRENE can run live once the ingestion + worker deploy |
+| Thin CI ingestion crate `sirene_ingest` (fetch → UPSERT raw rows, France-wide by department, active-only) | ✅ | No domain deps; scheduled workflow builds only this crate |
+| On-app `sync_sirene_worker` (ACL on deployed version) + deletion reconciliation | ✅ | Per-row checkpoint; detect-by-absence (21d debounce) + explicit `F`/`C`; NON_PARTNER auto-close, partners flagged; `POST /internal/sirene/drain` (token-gated, fail-closed) |
+| `INSEE_API_TOKEN` repo secret | ✅ | Added; SIRENE runs live on deploy (scheduled ingestion → staging → worker) |
+| `INTERNAL_TRIGGER_TOKEN` (Render env + repo secret) to enable the CI→worker ping | ⏳ | Optional; without it CI ingests and the worker drains on its own poll loop (`RUN_SIRENE_WORKER`, default on) |
 
 ## 👤 Pending user actions
 
-- ✅ None outstanding.
+- ⏳ *(optional)* Set `INTERNAL_TRIGGER_TOKEN` on the Render service **and** as a repo secret to let the CI ingestion ping the worker for an immediate drain. Not required — the worker polls on its own (`RUN_SIRENE_WORKER`, default on).
 
 ## 🧭 Architecture decisions
 See [`docs/adr/`](adr/) — latest: 0042 (hosting; +DNS ops note), 0043 (migrations), 0044 (license), 0045 (SIRENE redesign), 0046 (write side), 0047 (API auth — Supabase JWT/JWKS), 0036 amendment (realized DNS + host router, 2026-07-18). **ADR ids are now date-time** to avoid concurrent-session collisions (ADR-20260718-135417).

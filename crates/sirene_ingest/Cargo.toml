@@ -1,0 +1,29 @@
+# SIRENE raw ingestion (ADR-0045) — the THIN half of the split sync: an HTTP client for the INSEE
+# Sirene API + the wire DTOs + the raw UPSERT into the `external_sirene_restaurants` staging table,
+# plus the `sirene_ingest` bin the scheduled GitHub Actions job builds and runs.
+#
+# Deliberately depends on NO workspace crate (no domain/application/infrastructure): CI builds a small
+# dependency graph and executes ZERO domain logic — the ACL + aggregate run only on the deployed server
+# (`infrastructure`'s `sync_sirene_worker`), which imports the wire types from HERE, eliminating the
+# version-skew hazard of the retired direct-write `sirene_sync` binary.
+[package]
+name = "sirene_ingest"
+version = "0.1.0"
+edition.workspace = true
+license-file.workspace = true
+publish = false
+description = "Captain.Food SIRENE ingestion (ADR-0045): fetch active food-service établissements from the INSEE Sirene API and UPSERT the raw records into the external_sirene_restaurants staging table. No domain crates — translation happens on-app in infrastructure's sync_sirene_worker."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+# v4 for the per-run `sync_run_id` correlating all rows one ingestion touched.
+uuid = { workspace = true }
+tokio = { workspace = true }
+# `uuid`/`chrono`/`json` bind the staging columns (UUID/TIMESTAMPTZ/JSONB) on top of the
+# workspace-pinned runtime/tls/postgres features.
+sqlx = { workspace = true, features = ["uuid", "chrono", "json"] }
+# Same TLS choice as the rest of the workspace: SChannel on Windows dev boxes, OpenSSL on the
+# Linux CI image (no C toolchain needed for rustls' `ring`).
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }

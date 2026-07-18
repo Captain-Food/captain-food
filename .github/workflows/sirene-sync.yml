@@ -1,15 +1,23 @@
-# SIRENE prospect sync (ADR-0019/0020/0027) — scheduled pull of food-service établissements
-# (NAF 56.10A/B/C + 56.30Z, Tours / dept 37) from the INSEE Sirene API, registered as NON_PARTNER
-# prospects through the NORMAL write path (`register_restaurant` → `domain_events`).
+# SIRENE raw ingestion (ADR-0045, refines ADR-0019/0020/0027) — the THIN half of the split sync.
 #
-# Independent of db-migrate: this only APPENDS events; the projection worker (in-process on the web
-# service, or the `projector` bin) folds them into the `restaurant` table on its own schedule.
-# Idempotent by construction (restaurantId = UUIDv5 of the SIRET), so re-runs are safe.
+# This job only fetches active food-service établissements (NAF 56.10A/B/C + 56.30Z, all of France,
+# partitioned by department) from the INSEE Sirene API and UPSERTs the RAW records into the
+# `external_sirene_restaurants` staging table. It runs NO ACL, NO aggregate, NO domain crates: only the
+# `sirene_ingest` crate is built (a small dependency graph — reqwest + sqlx + serde), so the
+# version-sensitive translation happens exclusively in the deployed server's `sync_sirene_worker`
+# (woken by the ping below, plus its own safety-net poll loop). Idempotent: one row per SIRET,
+# re-runs refresh `last_seen_at`/`payload` and re-pend the rows.
 #
 # Requires repo secrets:
-# - DATABASE_URL     — the same Supabase Session-pooler string db-migrate uses.
-# - INSEE_API_TOKEN  — API key from the INSEE portal (portail-api.insee.fr), sent as the
-#                      X-INSEE-Api-Key-Integration header by the client.
+# - DATABASE_URL           — Postgres; only the staging table is written (a limited-privilege role
+#                            scoped to `external_sirene_restaurants` is recommended, ADR-0045).
+# - INSEE_API_TOKEN        — API key from the INSEE portal (portail-api.insee.fr), sent as the
+#                            X-INSEE-Api-Key-Integration header by the client.
+# Optional (to wake the worker immediately instead of waiting for its poll):
+# - INTERNAL_TRIGGER_URL   — the deployed server's drain endpoint,
+#                            e.g. https://<app>/internal/sirene/drain
+# - INTERNAL_TRIGGER_TOKEN — shared secret; must equal the server's INTERNAL_TRIGGER_TOKEN env var
+#                            (sent as the x-internal-token header).
 name: sirene-sync
 
 on:
@@ -22,10 +30,10 @@ permissions:
 
 concurrency:
   group: sirene-sync
-  cancel-in-progress: false # never interrupt a half-finished sync; runs are idempotent anyway
+  cancel-in-progress: false # never interrupt a half-finished sweep; runs are idempotent anyway
 
 jobs:
-  sync:
+  ingest:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -33,13 +41,15 @@ jobs:
       # Same cache strategy as codegen-consistency: repeat runs only rebuild what changed.
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build the synchronizer
-        run: cargo build --release -p server --bin sirene_sync
+      - name: Build the ingestion binary (no domain crates — ADR-0045)
+        run: cargo build --release -p sirene_ingest
 
-      - name: Run the SIRENE sync (--once)
+      - name: Run the SIRENE ingestion (--once)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           INSEE_API_TOKEN: ${{ secrets.INSEE_API_TOKEN }}
-          # Default scope is Tours (code commune 37261); uncomment to widen to the department.
-          # SIRENE_DEPARTMENT: "37"
-        run: ./target/release/sirene_sync --once
+          INTERNAL_TRIGGER_URL: ${{ secrets.INTERNAL_TRIGGER_URL }}
+          INTERNAL_TRIGGER_TOKEN: ${{ secrets.INTERNAL_TRIGGER_TOKEN }}
+          # Uncomment to narrow a debug run to specific departments (comma-separated).
+          # SIRENE_DEPARTMENTS: "37"
+        run: ./target/release/sirene_ingest --once

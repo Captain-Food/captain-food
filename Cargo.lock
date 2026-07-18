@@ -1215,9 +1215,9 @@ dependencies = [
  "async-trait",
  "chrono",
  "domain",
- "reqwest",
  "serde",
  "serde_json",
+ "sirene_ingest",
  "sqlx",
  "tokio",
  "uuid",
@@ -2161,6 +2161,19 @@ dependencies = [
  "num-traits",
  "thiserror",
  "time",
+]
+
+[[package]]
+name = "sirene_ingest"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

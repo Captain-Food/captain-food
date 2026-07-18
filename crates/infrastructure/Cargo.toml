@@ -4,11 +4,14 @@ version = "0.1.0"
 edition.workspace = true
 license-file.workspace = true
 publish = false
-description = "Captain.Food infrastructure: adapters implementing the application ports — the event store (append to domain_events), read-model repos over the materialized projection tables, the app-layer projection worker (ADR-0040), and the integrations ACL (HubRise/Stripe/delivery). Depends on `application` + `domain` (ADR-0035)."
+description = "Captain.Food infrastructure: adapters implementing the application ports — the event store (append to domain_events), read-model repos over the materialized projection tables, the app-layer projection worker (ADR-0040), the SIRENE staging-table sync worker (ADR-0045), and the integrations ACL (HubRise/Stripe/delivery). Depends on `application` + `domain` + `sirene_ingest` (ADR-0035/0045)."
 
 [dependencies]
 domain = { path = "../domain" }
 application = { path = "../application" }
+# SIRENE HTTP client + wire DTOs (ADR-0045): shared with the thin CI ingestion binary; the ACL here
+# maps those wire types onto domain commands, and the sync worker drains the staging table they fill.
+sirene_ingest = { path = "../sirene_ingest" }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -20,10 +23,7 @@ uuid = { workspace = true, features = ["v5"] }
 # workspace-pinned runtime/tls/postgres features (queries run over the session pooler, so plain
 # prepared statements are fine).
 sqlx = { workspace = true, features = ["chrono", "uuid", "json"] }
-# Only the timer is needed at runtime (the projection worker's polling loop); the workspace feature set
-# also carries rt/macros used by the integration test.
+# Only the timer is needed at runtime (the projection/sirene workers' polling loops); the workspace
+# feature set also carries rt/macros used by the integration test.
 tokio = { workspace = true }
-# HTTP client for the SIRENE ACL (integrations/sirene). default-features off + native-tls for the same
-# reason as the workspace sqlx TLS choice: SChannel on Windows dev boxes (no C toolchain), OpenSSL on
-# the Linux CI/Render images (libssl is present).
-reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+# reqwest moved out with the SIRENE HTTP client to `sirene_ingest` (ADR-0045) — no direct HTTP here.

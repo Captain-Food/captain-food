@@ -13,6 +13,7 @@ pub mod persistence;
 pub mod projection;
 
 pub use integrations::google::{FailClosedGoogleOwnershipVerifier, UnverifiedGbpOrderLinkProbe};
+pub use integrations::sync_sirene_worker::{SireneSyncSummary, SireneSyncWorker};
 pub use persistence::{
     PgCartRepository, PgCatalogRepository, PgEventStore, PgOrderRepository,
     PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
