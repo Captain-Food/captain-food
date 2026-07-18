@@ -164,14 +164,26 @@ impl AuthContext {
     }
 
     /// Find the JWK for `kid`, refreshing the cache if stale or if the key is unknown (rotation).
+    ///
+    /// **Serve-stale-on-refresh-failure**: if the set is past its TTL but the refresh fails (a transient
+    /// JWKS outage), keep using the cached keys rather than locking everyone out — signing keys rotate
+    /// rarely, so the TTL is a freshness hint, not a hard expiry. A genuinely unknown `kid` still forces a
+    /// refetch and **fails closed** if it can't be resolved.
     async fn key_for(&self, kid: &str) -> Result<Jwk, AuthError> {
         if self.stale().await {
-            self.refresh().await?;
+            if let Err(e) = self.refresh().await {
+                // Fail closed only when there is nothing cached to fall back to (cold cache).
+                if self.cache.read().await.is_none() {
+                    return Err(e);
+                }
+                // Otherwise carry on with the stale-but-present keys.
+            }
         }
         if let Some(jwk) = self.lookup(kid).await {
             return Ok(jwk);
         }
-        // Unknown kid on a fresh-enough set: force one refetch to absorb a just-rotated key.
+        // Unknown kid (e.g. a just-rotated key): force one refetch to absorb rotation; fail closed if it
+        // still can't be resolved.
         self.refresh().await?;
         self.lookup(kid).await.ok_or(AuthError::Unauthorized)
     }
@@ -298,5 +310,42 @@ mod tests {
         assert_eq!(bearer(&h), Some("xyz"));
         h.insert(AUTHORIZATION, "Basic zzz".parse().unwrap());
         assert_eq!(bearer(&h), None);
+    }
+
+    /// A single-key JWKS (dummy RSA material — enough to parse + `find(kid)`, not to verify a signature).
+    fn test_set() -> JwkSet {
+        serde_json::from_str(
+            r#"{"keys":[{"kty":"RSA","use":"sig","kid":"test-kid","alg":"RS256","n":"0vx7agoebGcQSuuPiLJXZptN","e":"AQAB"}]}"#,
+        )
+        .expect("parse test JWKS")
+    }
+
+    /// An `Instant` far enough in the past to be stale (falls back to `now` on a very-low-uptime host,
+    /// which still keeps the assertions below valid).
+    fn stale_instant() -> Instant {
+        Instant::now().checked_sub(JWKS_TTL * 2).unwrap_or_else(Instant::now)
+    }
+
+    fn ctx_with_cache(set: JwkSet, fetched: Instant) -> AuthContext {
+        AuthContext {
+            jwks_url: None, // any refresh() therefore fails — proves we never hit the network on a cache hit
+            issuer: None,
+            http: reqwest::Client::new(),
+            cache: RwLock::new(Some(CachedJwks { set, fetched })),
+        }
+    }
+
+    #[tokio::test]
+    async fn serve_stale_returns_a_cached_key_when_refresh_fails() {
+        // Stale cache + failing refresh (no JWKS URL): a known kid is still served from the cached set.
+        let ctx = ctx_with_cache(test_set(), stale_instant());
+        assert!(ctx.key_for("test-kid").await.is_ok(), "present key must survive a failed refresh");
+    }
+
+    #[tokio::test]
+    async fn unknown_kid_still_fails_closed_when_refresh_fails() {
+        // A kid we've never cached cannot be served from stale data and cannot be fetched → rejected.
+        let ctx = ctx_with_cache(test_set(), stale_instant());
+        assert!(ctx.key_for("rotated-unknown-kid").await.is_err(), "unknown key must fail closed");
     }
 }
