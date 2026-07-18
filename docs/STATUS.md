@@ -59,13 +59,18 @@
 | `INSEE_API_TOKEN` repo secret | ✅ | Added; SIRENE runs live on deploy (scheduled ingestion → staging → worker) |
 | `INTERNAL_TRIGGER_TOKEN` (Render env + repo secret) to enable the CI→worker ping | ⏳ | Optional; without it CI ingests and the worker drains on its own poll loop (`RUN_SIRENE_WORKER`, default on) |
 
-## 🔌 Inbound integrations (webhooks → ACL → events, ADR-20260718-145856)
+## 🔌 External integrations — partner adapters & M2M (ADR-20260718-145856 / -213352)
+
+**Partner webhook adapters are self-contained crates** under `crates/adapters/*` — each an ACL +
+axum shell + standalone binary, mountable into the monolith **or** deployable as its own web service.
+Two directions: partner-**push** webhooks (below) vs external-**drive** `/external/graphql` (M2M).
 
 | Piece | Status | Notes |
 |---|---|---|
-| **Stripe** `POST /webhooks/stripe` | ✅ | `Stripe-Signature` HMAC verify over raw body (constant-time, 300s replay window, fail-closed); ACL maps `payment_intent.succeeded`/`.payment_failed`/`charge.refunded` → `PaymentCaptured`/`PaymentFailed`/`PaymentRefunded`; idempotent by Stripe event id (`StripeEvent-<id>` stream). 12 unit tests |
+| **Stripe** — `crates/adapters/stripe` (`POST /webhooks/stripe`, `stripe-webhook` bin) | ✅ | `Stripe-Signature` HMAC over raw body (constant-time, 300s replay, fail-closed); ACL → `PaymentCaptured`/`PaymentFailed`/`PaymentRefunded`; idempotent by Stripe event id. 12 tests |
 | Checkout must set `metadata.restaurantId` (+`orderId`) on the PaymentIntent/charge | 📋 | Else `charge.refunded` is unmappable (logged + 200-ACKed). Lands with `placeOrder` |
-| **HubRise** `POST /webhooks/hubrise` — verified ingress | 🚧 | HMAC-SHA256 (hex, `X-HubRise-Hmac-SHA256`, `HUBRISE_WEBHOOK_SECRET`, constant-time, fail-closed) + envelope parse (4 tests). **Domain ACL (→ `OfferStockUpdated`/`ImportCatalog`) deferred**: catalog/inventory callbacks carry no state → needs an OAuth2 API pull + external-ref→domain-id mapping (next chapter) |
+| **HubRise** — `crates/adapters/hubrise` (`POST /webhooks/hubrise`, `hubrise-webhook` bin) — verified ingress | 🚧 | HMAC-SHA256 hex (`X-HubRise-Hmac-SHA256`, fail-closed) + envelope parse (4 tests). **Domain ACL (→ `OfferStockUpdated`/`ImportCatalog`) deferred**: catalog/inventory callbacks carry no state → needs an OAuth2 API pull + ref-mapping |
+| **`/external/graphql`** — M2M standard | ✅ | External entities query/mutate via the `EXTERNAL` role path; API-key auth (`X-External-Api-Key`, ADR-0047); allowlist is per-op `roles: [EXTERNAL]`. **Subscribe** = future (needs `SubscriptionRoot` + WS + `api.yaml`); per-partner keys = future |
 
 ## 👤 Pending user actions
 

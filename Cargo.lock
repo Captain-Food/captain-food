@@ -1003,6 +1003,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "hubrise-adapter"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "hex",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "hyper"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2082,6 +2095,7 @@ dependencies = [
  "axum",
  "chrono",
  "domain",
+ "hubrise-adapter",
  "infrastructure",
  "jsonwebtoken",
  "reqwest",
@@ -2089,6 +2103,7 @@ dependencies = [
  "serde_json",
  "shared_types",
  "sqlx",
+ "stripe-adapter",
  "tokio",
  "uuid",
 ]
@@ -2441,6 +2456,25 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
  "unicode-properties",
+]
+
+[[package]]
+name = "stripe-adapter"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "axum",
+ "domain",
+ "hex",
+ "hmac",
+ "infrastructure",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

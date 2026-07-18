@@ -1,0 +1,30 @@
+[package]
+name = "stripe-adapter"
+version = "0.1.0"
+edition.workspace = true
+license-file.workspace = true
+publish = false
+description = "Stripe partner adapter (ADR-20260718-213352): a self-contained vertical slice — the ACL (Stripe-Signature verification + event mapping + idempotent ingestor over the EventStore port) and its HTTP shell (POST /webhooks/stripe). Exposes `routes()` for the monolith to mount, and a standalone `stripe-webhook` binary so it can deploy as its own web service, isolated from other partners."
+
+[dependencies]
+# Inner layers only (dependency rule): the ACL maps Stripe shapes onto domain events via the application
+# EventStore port — it does NOT depend on `infrastructure` for its logic.
+application = { path = "../../application" }
+domain = { path = "../../domain" }
+# The standalone binary (main.rs) constructs a concrete Postgres EventStore.
+infrastructure = { path = "../../infrastructure" }
+
+axum = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
+# Signature verification (same versions as the workspace's other HMAC users).
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+# The ACL unit tests implement the `EventStore` async-trait with an in-memory fake.
+async-trait = { workspace = true }

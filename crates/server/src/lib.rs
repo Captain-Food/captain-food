@@ -44,8 +44,9 @@ use infrastructure::{
     PgCatalogRepository, PgCustomerRepository, PgEventStore, PgOrderRepository,
     PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProjectionStatus, ProjectionWorker,
-    SireneSyncWorker, StripeWebhookIngestor, UnverifiedGbpOrderLinkProbe,
+    SireneSyncWorker, UnverifiedGbpOrderLinkProbe,
 };
+use stripe_adapter::StripeWebhookIngestor;
 use shared_types::HealthDto;
 
 use graphql::schema::{ReadDeps, WriteDeps};
@@ -214,12 +215,11 @@ pub fn router() -> Router {
     base.merge(graphql::routes::graphql_routes(graphql::schema::build_schema(read_deps, write_deps)))
         // Internal trigger (ADR-0045): the CI ingestion pings this to wake the SIRENE sync worker.
         .merge(graphql::routes::sirene_internal_routes(sirene_worker))
-        // Stripe webhook ingestion: `POST /webhooks/stripe` — signature-verified (STRIPE_WEBHOOK_SECRET,
-        // fail-closed) inbound payment facts recorded via the ACL. Not part of the GraphQL surface.
-        .merge(graphql::routes::stripe_webhook_routes(stripe_ingestor))
-        // HubRise callback ingress: `POST /webhooks/hubrise` — HMAC-verified (HUBRISE_WEBHOOK_SECRET,
-        // fail-closed) + envelope-parsed. Stateless; domain enrichment (OAuth pull) is a follow-up.
-        .merge(graphql::routes::hubrise_webhook_routes())
+        // Partner webhook adapters (ADR-20260718-213352): self-contained crates under crates/adapters/*,
+        // each mountable here (monolith) or deployable as its own web service. `POST /webhooks/stripe`
+        // (signature-verified inbound payment facts) and `POST /webhooks/hubrise` (HMAC-verified ingress).
+        .merge(stripe_adapter::routes(stripe_ingestor))
+        .merge(hubrise_adapter::routes())
         // Host-based landing (ADR-0036): any path not matched above is dispatched by the request `Host`
         // to its per-audience/tenant placeholder. Explicit routes (/health, /ping, /{role}/graphql) win,
         // so Render's health check (internal *.onrender.com host) is unaffected. Covers `/` too.

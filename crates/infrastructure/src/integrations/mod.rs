@@ -8,21 +8,15 @@
 //!   table through the ACL into the ordinary write path (register/close, ADR-0045).
 //! - [`google`] — Google Business Profile seams (ownership proof + order-link probe, ADR-0019/0021);
 //!   fail-closed stand-ins until the real Google adapters land.
-//! - [`stripe`] — the Stripe webhook ACL: signature verification + translation of
-//!   `payment_intent.succeeded` / `payment_intent.payment_failed` / `charge.refunded` into the INBOUND
-//!   payment facts (`PaymentCaptured`/`PaymentFailed`/`PaymentRefunded`), recorded idempotently by
-//!   Stripe event id. The HTTP endpoint (`POST /webhooks/stripe`) lives in `server`.
 //! - [`supabase_auth`] — the wrapped auth provider seam (phone-OTP + email magic link, ADR-0015);
 //!   fail-closed stand-in until the real `supabase-acl` adapter lands.
-//! - [`hubrise`] — the HubRise callback ingress: HMAC-SHA256 signature verification + envelope parsing
-//!   (ADR-20260718-145856). Domain translation (→ `OfferStockUpdated`/`ImportCatalog`) needs an OAuth
-//!   API pull + ref-mapping and is a deliberate follow-up. The HTTP endpoint (`POST /webhooks/hubrise`)
-//!   lives in `server`.
-//! - Later: HubRise domain enrichment (OAuth catalog/inventory pull), delivery partner.
+//!
+//! Partner **webhook** adapters (Stripe, HubRise) now live in their own self-contained crates under
+//! `crates/adapters/*` (ADR-20260718-213352) — each an ACL + HTTP shell + standalone binary, so it can
+//! deploy as its own web service. They are deliberately NOT part of `infrastructure`. Later: delivery
+//! partner.
 
 pub mod google;
-pub mod hubrise;
 pub mod sirene;
-pub mod stripe;
 pub mod supabase_auth;
 pub mod sync_sirene_worker;
