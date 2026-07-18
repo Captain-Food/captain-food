@@ -5,10 +5,11 @@
 //!
 //! All six read models have an impl. Columns that fold from the event payload are implemented for real
 //! (statuses, tip sums, the OrderPlaced breakdown, delivery mirror, payment status, jsonb accumulations,
-//! prospection status/count); columns that need state outside the event — the live catalog + pricing
-//! policies (`Cart` prices, `uber_*`), the account read model (`Restaurant.default_currency`), the catalog
-//! tree, the prospection score — are `TODO(runtime)` placeholders that preserve the prior value, to be
-//! completed once the read-model lookup ports land with the DB layer.
+//! prospection status/count, the Catalog `tree` with its derived per-offer `stockStatus`); columns that
+//! need state outside the event — the live catalog + pricing policies (`Cart` prices, `uber_*`, the
+//! per-offer `uberPrice`), the account read model (`Restaurant.default_currency`), the prospection
+//! score — are `TODO(runtime)` placeholders that preserve the prior value, to be completed once the
+//! read-model lookup ports land with the DB layer.
 
 pub mod cart;
 pub mod catalog;

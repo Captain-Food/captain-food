@@ -811,9 +811,9 @@ impl From<(ProspectionPipelineRow, RestaurantRow)> for Prospect {
     }
 }
 
-/// One section of the projected `Catalog.tree` jsonb (camelCase keys), leniently parsed: an
-/// absent key or an empty/unbuilt tree (the merge is a documented projector TODO(runtime)) yields an
-/// empty list.
+/// One section of the projected `Catalog.tree` jsonb (camelCase keys, as folded by the
+/// `CatalogProjector` with the derived per-offer `stockStatus`), leniently parsed: an absent key or
+/// an empty tree (a catalog created before any content event) yields an empty list.
 pub(crate) fn catalog_tree_section<T: serde::de::DeserializeOwned>(tree: &serde_json::Value, key: &str) -> Vec<T> {
     tree.get(key).cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
 }

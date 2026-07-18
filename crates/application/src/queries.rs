@@ -4,9 +4,12 @@
 
 use async_trait::async_trait;
 
+use domain::generated::entities::{Money, OptionList, Product};
 use domain::generated::scalars::{
-    CartId, CuisineCategory, CurrencyCode, CustomerId, EmailAddress, ExternalReference, OrderId,
-    OrderStatus, PhoneNumber, ProspectPipelineStatus, RestaurantId, Slug,
+    CartId, CatalogItemAvailability, CuisineCategory, CurrencyCode, CustomerId, EmailAddress,
+    ExternalReference, OfferId, OfferName, OptionId, OptionListId, OrderId, OrderStatus,
+    PhoneNumber, ProductId, ProductName, ProspectPipelineStatus, Quantity, RestaurantId, Slug,
+    StockStatus,
 };
 use domain::shared::errors::DomainError;
 
@@ -37,12 +40,110 @@ pub trait RestaurantReadRepository: Send + Sync {
     async fn by_id(&self, id: RestaurantId) -> Result<Option<RestaurantRow>, DomainError>;
 }
 
+/// One option list (modifier group) as the Cart line checks need it: the selection bounds plus the
+/// member option ids — enough to prove `selectedOptionIds` ⊆ the offer's lists and within min/max
+/// (`errors.yaml#/InvalidOptionSelection`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OfferOptionListView {
+    pub id: OptionListId,
+    /// Minimum number of selections the customer must make from this list.
+    pub min_selections: i64,
+    /// Maximum number of selections (`None` = unbounded).
+    pub max_selections: Option<i64>,
+    /// Whether the SAME option may be selected more than once.
+    pub multiple_selection: bool,
+    /// The options belonging to this list.
+    pub option_ids: Vec<OptionId>,
+}
+
+/// Offer-level slice of the projected `Catalog.tree` — what the Cart write side validates a line
+/// against (rules.yaml#/CartRejectsUnorderableOrInvalidLine): availability (manual flag), the DERIVED
+/// stock status + tracked quantity (availability ≠ stock — two orthogonal concepts), the live price
+/// (never trusted from the client) and the offer's option-list constraints.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OfferView {
+    pub offer_id: OfferId,
+    pub product_id: ProductId,
+    /// The owning product's name — the `{productName}` parameter of the errors.yaml messages.
+    pub product_name: ProductName,
+    pub offer_name: OfferName,
+    /// The live catalog price (the projection prices carts from this, never from the client).
+    pub price: Money,
+    /// Manual UI flag (`errors.yaml#/OfferUnavailable` when UNAVAILABLE).
+    pub availability: CatalogItemAvailability,
+    /// DERIVED from quantity vs lowStockThreshold (scalars.yaml#/StockStatus).
+    pub stock_status: StockStatus,
+    /// The tracked stock quantity, or `None` when the offer does not track stock (never blocks).
+    pub stock_quantity: Option<Quantity>,
+    /// The option lists attached to this offer (resolved from the tree's `optionLists` section).
+    pub option_lists: Vec<OfferOptionListView>,
+}
+
+/// Resolve one offer out of a projected `Catalog.tree` jsonb (camelCase, as written by the
+/// `CatalogProjector` fold): walk `products[].offers[]` for the id, re-derive `stock_status` from the
+/// node's `stock`, and hydrate the offer's option lists from the `optionLists` section. `None` when
+/// the offer is not in the tree (`errors.yaml#/OfferNotFound`).
+pub fn offer_view_from_tree(tree: &serde_json::Value, offer_id: OfferId) -> Option<OfferView> {
+    let products = tree.get("products").and_then(|v| v.as_array())?;
+    for product_node in products {
+        let Ok(product) = serde_json::from_value::<Product>(product_node.clone()) else {
+            continue; // a malformed node never panics the write side — the offer just isn't found
+        };
+        let Some(offer) = product.offers.iter().find(|o| o.id == offer_id) else { continue };
+        let option_lists = tree
+            .get("optionLists")
+            .and_then(|v| v.as_array())
+            .map(|lists| {
+                lists
+                    .iter()
+                    .filter_map(|node| serde_json::from_value::<OptionList>(node.clone()).ok())
+                    .filter(|list| offer.option_list_ids.contains(&list.id))
+                    .map(|list| OfferOptionListView {
+                        id: list.id,
+                        min_selections: list.min_selections,
+                        max_selections: list.max_selections,
+                        multiple_selection: list.multiple_selection,
+                        option_ids: list.options.iter().map(|o| o.id).collect(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        return Some(OfferView {
+            offer_id,
+            product_id: product.id,
+            product_name: product.name.clone(),
+            offer_name: offer.name.clone(),
+            price: offer.price.clone(),
+            availability: offer.availability,
+            stock_status: crate::projectors::catalog::derive_stock_status(offer.stock.as_ref()),
+            stock_quantity: offer.stock.as_ref().map(|s| s.quantity),
+            option_lists,
+        });
+    }
+    None
+}
+
 /// Read port over the `Catalog` projection table (ADR-0040). Backs the public `catalog` and
-/// `categories` GraphQL queries (`categories` derives from the same row's `tree`).
+/// `categories` GraphQL queries (`categories` derives from the same row's `tree`) plus the Cart
+/// write side's offer-level line checks ([`Self::offer_by_id`]).
 #[async_trait]
 pub trait CatalogReadRepository: Send + Sync {
     /// A restaurant's catalog (newest first when several exist), or `None` before CatalogCreated.
     async fn by_restaurant(&self, restaurant_id: RestaurantId) -> Result<Option<CatalogRow>, DomainError>;
+
+    /// One offer of the restaurant's live catalog, or `None` when the restaurant has no catalog or
+    /// the offer is not in it. Provided: every adapter (Pg included) reads the projected `tree` via
+    /// [`Self::by_restaurant`] + [`offer_view_from_tree`]; override only for a normalized store.
+    async fn offer_by_id(
+        &self,
+        restaurant_id: RestaurantId,
+        offer_id: OfferId,
+    ) -> Result<Option<OfferView>, DomainError> {
+        Ok(self
+            .by_restaurant(restaurant_id)
+            .await?
+            .and_then(|row| offer_view_from_tree(&row.tree, offer_id)))
+    }
 }
 
 /// Read port over the `Cart` projection table (ADR-0040). Backs the `carts`/`cart` GraphQL queries.

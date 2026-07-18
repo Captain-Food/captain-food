@@ -98,8 +98,8 @@ impl QueryRoot {
     async fn categories(&self, ctx: &async_graphql::Context<'_>, input: CategoriesQueryInput) -> async_graphql::Result<Vec<CatalogCategory>> {
         let repo = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;
         let row = repo.by_restaurant(input.restaurant_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))?;
-        // Categories live inside the projected Catalog.tree jsonb; an absent catalog or an empty/unbuilt
-        // tree (the merge is a documented projector TODO(runtime)) yields an empty list.
+        // Categories live inside the projected Catalog.tree jsonb; an absent catalog or an empty
+        // tree (a catalog created before any content event) yields an empty list.
         Ok(row.map(|r| catalog_tree_section::<CatalogCategory>(&r.tree, "categories")).unwrap_or_default())
     }
     /// A restaurant + its catalog by slug (multi-tenant resolution by Host or /r/{slug}).

@@ -82,13 +82,13 @@ use domain::generated::events::{
     PaymentIntentCreated, RefundRequested, RestaurantRated as RestaurantRatedEvent,
 };
 use domain::generated::scalars::{
-    CartId, CartStatus, DeliveryJobId, DeliveryStatus, Mode, OrderAcceptanceMode, OrderId,
-    OrderStatus, ServiceType, TipRecipient, Tipper,
+    CartId, CartStatus, CatalogItemAvailability, DeliveryJobId, DeliveryStatus, Mode,
+    OrderAcceptanceMode, OrderId, OrderStatus, OptionId, ServiceType, TipRecipient, Tipper,
 };
 use domain::order::OrderState;
 
 use crate::ports::{CreatedPaymentIntent, PaymentGateway};
-use crate::queries::CartReadRepository;
+use crate::queries::{CartReadRepository, CatalogReadRepository, OfferView};
 
 /// Absorb the optimistic-concurrency clash of a CREATION command (expected_version = 0) as success:
 /// the aggregate already exists under this client-generated id, so re-running the command is a no-op.
@@ -615,20 +615,115 @@ fn cart_not_open(cart_id: &CartId, status: CartStatus) -> DomainError {
     reject("CartNotOpen", format!("cartId={} status={:?}", cart_id.0, status))
 }
 
+/// Validate a cart line against the LIVE catalog read model (offer-level `CatalogReadRepository`
+/// port): the offer must exist (`errors.yaml#/OfferNotFound`), be AVAILABLE
+/// (`errors.yaml#/OfferUnavailable` — availability is the manual flag, orthogonal to stock), have
+/// enough tracked stock for the requested quantity (`errors.yaml#/InsufficientStock`), and the
+/// selected options must belong to the offer's option lists within their selection bounds
+/// (`errors.yaml#/InvalidOptionSelection`). Prices are NOT read here — the projection prices the cart
+/// from the same live catalog (rules.yaml#/CartPricedFromLiveCatalog).
+async fn require_orderable_line(
+    catalogs: &dyn CatalogReadRepository,
+    restaurant_id: &domain::generated::scalars::RestaurantId,
+    line: &CartLineItem,
+) -> Result<(), DomainError> {
+    let Some(offer) = catalogs.offer_by_id(*restaurant_id, line.offer_id).await? else {
+        return Err(reject("OfferNotFound", format!("offerId={}", line.offer_id.0)));
+    };
+    if offer.availability == CatalogItemAvailability::UNAVAILABLE {
+        return Err(reject(
+            "OfferUnavailable",
+            format!(
+                "offerId={} productName={} offerName={}",
+                offer.offer_id.0, offer.product_name.0, offer.offer_name.0
+            ),
+        ));
+    }
+    require_stock_covers(&offer, line.quantity)?;
+    require_valid_option_selection(&offer, &line.selected_option_ids)
+}
+
+/// The `errors.yaml#/InsufficientStock` guard: a stock-TRACKED offer must cover the requested
+/// quantity (`stock_quantity = None` = untracked, never blocks — its derived status is IN_STOCK;
+/// availability ≠ stock, the manual flag is checked separately).
+fn require_stock_covers(offer: &OfferView, requested: i64) -> Result<(), DomainError> {
+    let available = match offer.stock_quantity {
+        None => return Ok(()),
+        Some(quantity) => quantity.0,
+    };
+    if (requested as f64) > available {
+        return Err(reject(
+            "InsufficientStock",
+            format!(
+                "offerId={} productName={} offerName={} requested={} available={}",
+                offer.offer_id.0, offer.product_name.0, offer.offer_name.0, requested, available
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// The `errors.yaml#/InvalidOptionSelection` guard: every selected option belongs to one of the
+/// offer's option lists, and each attached list's selection count respects `minSelections` /
+/// `maxSelections` (with duplicates of the same option only when `multipleSelection`).
+fn require_valid_option_selection(
+    offer: &OfferView,
+    selected: &[OptionId],
+) -> Result<(), DomainError> {
+    let invalid = |detail: String| {
+        reject(
+            "InvalidOptionSelection",
+            format!("offerId={} productName={} {detail}", offer.offer_id.0, offer.product_name.0),
+        )
+    };
+    for option_id in selected {
+        if !offer.option_lists.iter().any(|list| list.option_ids.contains(option_id)) {
+            return Err(invalid(format!("optionId={} not in the offer's option lists", option_id.0)));
+        }
+    }
+    for list in &offer.option_lists {
+        let picked: Vec<&OptionId> =
+            selected.iter().filter(|option_id| list.option_ids.contains(option_id)).collect();
+        let count = picked.len() as i64;
+        if count < list.min_selections {
+            return Err(invalid(format!(
+                "optionListId={} picked={count} minSelections={}",
+                list.id.0, list.min_selections
+            )));
+        }
+        if list.max_selections.map_or(false, |max| count > max) {
+            return Err(invalid(format!(
+                "optionListId={} picked={count} maxSelections={}",
+                list.id.0,
+                list.max_selections.unwrap_or_default()
+            )));
+        }
+        if !list.multiple_selection {
+            let mut seen = HashSet::new();
+            if picked.iter().any(|option_id| !seen.insert(option_id.0)) {
+                return Err(invalid(format!(
+                    "optionListId={} duplicate selection without multipleSelection",
+                    list.id.0
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Handle `commands.yaml#/AddCartLine` → emit `events.yaml#/CartStarted` (first line only, creating
 /// the cart) + `events.yaml#/CartLineAdded` (actors.yaml, Cart aggregate). The client generates the
 /// cartId and the cartLineId: the first add for a new cartId CREATES the cart bound to the restaurant
 /// (so `CartNotFound` is unreachable for this command by construction), and re-sending a line id the
-/// cart already holds is an idempotent replay (no duplicate fact).
+/// cart already holds is an idempotent replay (no duplicate fact). The line is validated against the
+/// LIVE catalog through the offer-level read port — see [`require_orderable_line`] — AFTER the
+/// cart-state invariants, so a closed/mismatched cart rejects with its own code first.
 pub async fn add_cart_line(
     store: &dyn EventStore,
+    catalogs: &dyn CatalogReadRepository,
     cmd: AddCartLine,
     actor: &Actor,
 ) -> Result<(), DomainError> {
-    // TODO(invariant): OfferNotFound / OfferUnavailable / InsufficientStock / InvalidOptionSelection —
-    //                  validating the line against the LIVE catalog (availability, stock, option-list
-    //                  min/max) needs an offer-level Catalog read port; the Catalog projection's `tree`
-    //                  is not yet queryable per offer (projector TODO(runtime)).
     if cmd.line.quantity > MAX_LINE_QUANTITY {
         return Err(reject(
             "QuantityExceedsLimit",
@@ -646,6 +741,7 @@ pub async fn add_cart_line(
         // First line: create the cart (CartStarted) and add the line in one append. customerId stays
         // None — a guest builds the cart; CartBindingProcess/checkout binds the customer later.
         None => {
+            require_orderable_line(catalogs, &cmd.restaurant_id, &line).await?;
             let events = [
                 DomainEvent::CartStarted(CartStarted {
                     cart_id: cmd.cart_id,
@@ -671,6 +767,7 @@ pub async fn add_cart_line(
             if s.line_ids.contains(&line.cart_line_id) {
                 return Ok(()); // idempotent replay of an already-recorded line (client-generated id)
             }
+            require_orderable_line(catalogs, &cmd.restaurant_id, &line).await?;
             let event = DomainEvent::CartLineAdded(CartLineAdded { cart_id: cmd.cart_id, line });
             store.append(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
         }
@@ -702,10 +799,14 @@ pub async fn remove_cart_line(
 }
 
 /// Handle `commands.yaml#/ChangeCartLineQuantity` → emit `events.yaml#/CartLineQuantityChanged`
-/// (actors.yaml, Cart aggregate). Only an OPEN cart is editable, the line must exist and the new
-/// quantity must respect the per-line cap.
+/// (actors.yaml, Cart aggregate). Only an OPEN cart is editable, the line must exist, the new
+/// quantity must respect the per-line cap, and — when the line's offer is still in the live catalog
+/// and stock-tracked — the new quantity must be covered by its stock
+/// (`errors.yaml#/InsufficientStock`). An offer that has since LEFT the catalog does not block the
+/// change (actors.yaml declares no OfferNotFound here); checkout re-validates the whole cart.
 pub async fn change_cart_line_quantity(
     store: &dyn EventStore,
+    catalogs: &dyn CatalogReadRepository,
     cmd: ChangeCartLineQuantity,
     actor: &Actor,
 ) -> Result<(), DomainError> {
@@ -713,19 +814,20 @@ pub async fn change_cart_line_quantity(
     if state.status != CartStatus::OPEN {
         return Err(cart_not_open(&cmd.cart_id, state.status));
     }
-    if !state.line_ids.contains(&cmd.cart_line_id) {
+    let Some(line) = state.lines.iter().find(|line| line.cart_line_id == cmd.cart_line_id) else {
         return Err(reject(
             "CartLineNotFound",
             format!("cartId={} cartLineId={}", cmd.cart_id.0, cmd.cart_line_id.0),
         ));
-    }
-    // TODO(invariant): InsufficientStock — checking the new quantity against the offer's live stock
-    //                  needs the same offer-level Catalog read port as add_cart_line.
+    };
     if cmd.quantity > MAX_LINE_QUANTITY {
         return Err(reject(
             "QuantityExceedsLimit",
             format!("cartLineId={} quantity={}", cmd.cart_line_id.0, cmd.quantity),
         ));
+    }
+    if let Some(offer) = catalogs.offer_by_id(state.restaurant_id, line.offer_id).await? {
+        require_stock_covers(&offer, cmd.quantity)?;
     }
     let event = DomainEvent::CartLineQuantityChanged(CartLineQuantityChanged {
         cart_id: cmd.cart_id,

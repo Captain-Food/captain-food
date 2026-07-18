@@ -3,11 +3,12 @@
 //! `specs/rules.yaml` rule it asserts). Given = pre-seeded stream events (in-memory event store),
 //! When = the command handler, Then = the emitted event(s) / the errors.yaml rejection code.
 //!
-//! Pure and offline: an in-memory [`EventStore`]. The live-catalog invariants
-//! (OfferNotFound / OfferUnavailable / InsufficientStock / InvalidOptionSelection) still lack an
-//! offer-level Catalog read port and are documented `TODO(invariant)`s in `application::commands` —
-//! NOT asserted here. `CartNotFound` is unreachable for AddCartLine by construction
-//! (create-on-first-add) and is asserted on remove/change instead.
+//! Pure and offline: an in-memory [`EventStore`] plus a fake `CatalogReadRepository` whose row is
+//! built by folding catalog events through the REAL `CatalogProjector` tree fold — so the live-catalog
+//! line invariants (OfferNotFound / OfferUnavailable / InsufficientStock / InvalidOptionSelection) are
+//! asserted against exactly what the projection worker would materialize. `CartNotFound` is
+//! unreachable for AddCartLine by construction (create-on-first-add) and is asserted on remove/change
+//! instead.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -16,11 +17,17 @@ use async_trait::async_trait;
 
 use application::commands::{add_cart_line, change_cart_line_quantity, rejection_code, remove_cart_line};
 use application::ports::{version_conflict, Actor, EventStore};
+use application::projections::{project_catalog, Envelope};
+use application::projectors::catalog::CatalogProjector;
+use application::queries::{CatalogReadRepository, CatalogRow};
 use domain::cart::MAX_LINE_QUANTITY;
 use domain::generated::commands::{AddCartLine, CartLine, ChangeCartLineQuantity, RemoveCartLine};
-use domain::generated::entities::CartLineItem;
+use domain::generated::entities::{
+    CartLineItem, Money, Offer, OptionList, Product, ProductItemOption, Stock, TaxRate,
+};
 use domain::generated::events::{
-    CartCheckedOut, CartLineAdded, CartStarted, DomainEvent,
+    CartCheckedOut, CartLineAdded, CartStarted, CatalogCreated, DomainEvent, OptionListAdded,
+    ProductAdded,
 };
 use domain::generated::scalars::*;
 use domain::shared::errors::DomainError;
@@ -73,6 +80,24 @@ impl EventStore for MemStore {
     }
 }
 
+/// Fake Catalog read model: at most one projected row (built through the REAL `CatalogProjector`
+/// fold — see [`projected_catalog`]); `offer_by_id` runs the trait's provided tree walk, exactly the
+/// code path `PgCatalogRepository` uses.
+#[derive(Default)]
+struct FakeCatalogs {
+    row: Option<CatalogRow>,
+}
+
+#[async_trait]
+impl CatalogReadRepository for FakeCatalogs {
+    async fn by_restaurant(
+        &self,
+        restaurant_id: RestaurantId,
+    ) -> Result<Option<CatalogRow>, DomainError> {
+        Ok(self.row.clone().filter(|r| r.restaurant_id == restaurant_id))
+    }
+}
+
 // ------------------------------------------------------------------------------------------------
 // Fixtures (tests.yaml `fixtures`, with UUIDs instead of the sample string ids)
 // ------------------------------------------------------------------------------------------------
@@ -95,7 +120,7 @@ fn cart_started(cart_id: CartId, restaurant_id: RestaurantId) -> DomainEvent {
     DomainEvent::CartStarted(CartStarted { cart_id, restaurant_id, customer_id: None })
 }
 
-/// Fixture `cartLineAdded` (line-1, offer off-1, quantity 2).
+/// Fixture `cartLineAdded` (quantity 2, no options).
 fn cart_line_added(cart_id: CartId, cart_line_id: CartLineId, offer_id: OfferId) -> DomainEvent {
     DomainEvent::CartLineAdded(CartLineAdded {
         cart_id,
@@ -108,13 +133,19 @@ fn cart_checked_out(cart_id: CartId) -> DomainEvent {
     DomainEvent::CartCheckedOut(CartCheckedOut { cart_id, order_id: OrderId(uuid::Uuid::new_v4()) })
 }
 
-fn add_cmd(cart_id: CartId, restaurant_id: RestaurantId, line_id: CartLineId, quantity: i64) -> AddCartLine {
+fn add_cmd(
+    cart_id: CartId,
+    restaurant_id: RestaurantId,
+    line_id: CartLineId,
+    offer_id: OfferId,
+    quantity: i64,
+) -> AddCartLine {
     AddCartLine {
         cart_id,
         restaurant_id,
         line: CartLine {
             cart_line_id: line_id,
-            offer_id: OfferId(uuid::Uuid::new_v4()),
+            offer_id,
             quantity,
             selected_option_ids: vec![],
         },
@@ -130,6 +161,119 @@ fn rid() -> RestaurantId {
 fn lid() -> CartLineId {
     CartLineId(uuid::Uuid::new_v4())
 }
+fn oid() -> OfferId {
+    OfferId(uuid::Uuid::new_v4())
+}
+
+// ------------------------------------------------------------------------------------------------
+// Catalog fixtures — the read model the line checks run against, materialized by the REAL
+// `CatalogProjector` tree fold (so these tests also exercise the projection, ADR-0040).
+// ------------------------------------------------------------------------------------------------
+
+/// Fold catalog events through the generated dispatch + the real Compute impl into a `CatalogRow`,
+/// exactly like the projection worker does.
+fn projected_catalog(events: Vec<DomainEvent>) -> CatalogRow {
+    let mut row = None;
+    for (i, event) in events.into_iter().enumerate() {
+        let env = Envelope {
+            stream_name: "Catalog-test".into(),
+            position: i as i64 + 1,
+            occurred_at: chrono::Utc::now(),
+            event,
+        };
+        row = project_catalog(&CatalogProjector, row, &env);
+    }
+    row.expect("catalog projected")
+}
+
+fn tracked_stock(quantity: f64) -> Stock {
+    Stock {
+        quantity: Quantity(quantity),
+        low_stock_threshold: None,
+        status: StockStatus::IN_STOCK, // carried value is ignored — the projector re-derives it
+        expires_at: None,
+    }
+}
+
+fn offer_fixture(
+    offer_id: OfferId,
+    availability: CatalogItemAvailability,
+    stock: Option<Stock>,
+    option_list_ids: Vec<OptionListId>,
+) -> Offer {
+    Offer {
+        id: offer_id,
+        r#ref: None,
+        product_id: ProductId(uuid::Uuid::new_v4()),
+        name: OfferName("Regular".into()),
+        price: Money { amount_cents: MoneyCents(980), currency: CurrencyCode("EUR".into()) },
+        availability,
+        stock,
+        option_list_ids,
+    }
+}
+
+fn option_fixture(option_id: OptionId, option_list_id: OptionListId) -> ProductItemOption {
+    ProductItemOption {
+        id: option_id,
+        r#ref: None,
+        option_list_id,
+        name: OptionName("Extra".into()),
+        price: Money { amount_cents: MoneyCents(100), currency: CurrencyCode("EUR".into()) },
+        r#default: false,
+        availability: CatalogItemAvailability::AVAILABLE,
+        stock: None,
+    }
+}
+
+/// A catalog for `restaurant_id` holding one product with `offer` (+ optional option lists),
+/// projected through the real tree fold.
+fn catalog_with(
+    restaurant_id: RestaurantId,
+    offer: Offer,
+    option_lists: Vec<OptionList>,
+) -> FakeCatalogs {
+    let catalog_id = CatalogId(uuid::Uuid::new_v4());
+    let product = Product {
+        id: offer.product_id,
+        r#ref: None,
+        catalog_id,
+        restaurant_id,
+        category_ref: None,
+        name: ProductName("Margherita".into()),
+        description: None,
+        tags: vec![],
+        image_ids: vec![],
+        tax_rate: TaxRate { delivery: TaxRatePercent(10.0), collection: None, eat_in: None },
+        offers: vec![offer],
+    };
+    let mut events = vec![
+        DomainEvent::CatalogCreated(CatalogCreated {
+            catalog_id,
+            r#ref: None,
+            restaurant_id,
+            name: CatalogName("Main menu".into()),
+        }),
+        DomainEvent::ProductAdded(ProductAdded { catalog_id, restaurant_id, product }),
+    ];
+    for option_list in option_lists {
+        events.push(DomainEvent::OptionListAdded(OptionListAdded {
+            catalog_id,
+            restaurant_id,
+            option_list,
+        }));
+    }
+    FakeCatalogs { row: Some(projected_catalog(events)) }
+}
+
+/// The default orderable catalog: `offer_id` AVAILABLE and not stock-tracked (never blocks).
+fn orderable_catalog(restaurant_id: RestaurantId, offer_id: OfferId) -> FakeCatalogs {
+    catalog_with(
+        restaurant_id,
+        offer_fixture(offer_id, CatalogItemAvailability::AVAILABLE, None, vec![]),
+        vec![],
+    )
+}
 
 // ------------------------------------------------------------------------------------------------
 // Adding lines (rules.yaml#/CartPricedFromLiveCatalog, #/CartRejectsUnorderableOrInvalidLine)
@@ -139,9 +283,12 @@ fn lid() -> CartLineId {
 #[tokio::test]
 async fn adds_the_first_line_creating_the_cart() {
     let store = MemStore::default();
-    let (cart, resto, line) = (cid(), rid(), lid());
+    let (cart, resto, line, offer) = (cid(), rid(), lid(), oid());
+    let catalogs = orderable_catalog(resto, offer);
 
-    add_cart_line(&store, add_cmd(cart, resto, line, 2), &actor()).await.expect("first add");
+    add_cart_line(&store, &catalogs, add_cmd(cart, resto, line, offer, 2), &actor())
+        .await
+        .expect("first add");
 
     let events = store.stream(&stream(cart));
     assert_eq!(events.len(), 2);
@@ -160,43 +307,179 @@ async fn adds_the_first_line_creating_the_cart() {
 #[tokio::test]
 async fn re_adding_the_same_line_is_a_no_op() {
     let store = MemStore::default();
-    let (cart, resto, line) = (cid(), rid(), lid());
-    let offer = OfferId(uuid::Uuid::new_v4());
+    let (cart, resto, line, offer) = (cid(), rid(), lid(), oid());
+    let catalogs = orderable_catalog(resto, offer);
     store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, offer)]);
 
-    let mut cmd = add_cmd(cart, resto, line, 2);
-    cmd.line.offer_id = offer;
-    add_cart_line(&store, cmd, &actor()).await.expect("replay absorbed");
+    add_cart_line(&store, &catalogs, add_cmd(cart, resto, line, offer, 2), &actor())
+        .await
+        .expect("replay absorbed");
     assert_eq!(store.stream(&stream(cart)).len(), 2, "no duplicate fact");
 }
 
 /// tests.yaml#/cases/TestCartAddLineIsRejectedWhenCartInvalid (CartNotOpen / CartRestaurantMismatch /
 /// QuantityExceedsLimit arms) — rules.yaml#/CartRejectsUnorderableOrInvalidLine. The CartNotFound arm
-/// is unreachable for AddCartLine (create-on-first-add); the catalog arms (OfferNotFound /
-/// OfferUnavailable / InsufficientStock / InvalidOptionSelection, TestCartAddLineIsRejectedWhenOfferNotOrderable)
-/// are TODO(invariant) until an offer-level Catalog read port exists.
+/// is unreachable for AddCartLine (create-on-first-add); the InvalidOptionSelection arm is asserted in
+/// `rejects_an_invalid_option_selection`. Cart-state invariants fire BEFORE the catalog lookups, so an
+/// empty catalog read model never masks them.
 #[tokio::test]
 async fn rejects_adding_on_a_closed_or_mismatched_cart_or_over_the_limit() {
     let store = MemStore::default();
+    let catalogs = FakeCatalogs::default();
 
     // Checked-out cart → CartNotOpen.
     let (cart, resto) = (cid(), rid());
     store.seed(&stream(cart), vec![cart_started(cart, resto), cart_checked_out(cart)]);
-    let err = add_cart_line(&store, add_cmd(cart, resto, lid(), 1), &actor()).await.expect_err("closed");
+    let err = add_cart_line(&store, &catalogs, add_cmd(cart, resto, lid(), oid(), 1), &actor())
+        .await
+        .expect_err("closed");
     assert_eq!(rejection_code(&err), Some("CartNotOpen"));
 
     // Another restaurant's line on an open cart → CartRestaurantMismatch (no mixing).
     let (cart, resto) = (cid(), rid());
     store.seed(&stream(cart), vec![cart_started(cart, resto)]);
-    let err = add_cart_line(&store, add_cmd(cart, rid(), lid(), 1), &actor()).await.expect_err("mismatch");
+    let err = add_cart_line(&store, &catalogs, add_cmd(cart, rid(), lid(), oid(), 1), &actor())
+        .await
+        .expect_err("mismatch");
     assert_eq!(rejection_code(&err), Some("CartRestaurantMismatch"));
     assert_eq!(store.stream(&stream(cart)).len(), 1, "no event on rejection");
 
     // Over the per-line cap → QuantityExceedsLimit.
-    let err = add_cart_line(&store, add_cmd(cid(), rid(), lid(), MAX_LINE_QUANTITY + 1), &actor())
-        .await
-        .expect_err("over limit");
+    let err = add_cart_line(
+        &store,
+        &catalogs,
+        add_cmd(cid(), rid(), lid(), oid(), MAX_LINE_QUANTITY + 1),
+        &actor(),
+    )
+    .await
+    .expect_err("over limit");
     assert_eq!(rejection_code(&err), Some("QuantityExceedsLimit"));
+}
+
+/// tests.yaml#/cases/TestCartAddLineIsRejectedWhenOfferNotOrderable (OfferNotFound / OfferUnavailable /
+/// InsufficientStock arms, via the offer-level Catalog read port over the projected tree) —
+/// rules.yaml#/CartRejectsUnorderableOrInvalidLine
+#[tokio::test]
+async fn rejects_adding_an_unknown_unavailable_or_out_of_stock_offer() {
+    let store = MemStore::default();
+    let (resto, offer) = (rid(), oid());
+
+    // Unknown offer (not in the restaurant's catalog — here: no catalog at all) → OfferNotFound.
+    let err = add_cart_line(
+        &store,
+        &FakeCatalogs::default(),
+        add_cmd(cid(), resto, lid(), offer, 1),
+        &actor(),
+    )
+    .await
+    .expect_err("unknown offer");
+    assert_eq!(rejection_code(&err), Some("OfferNotFound"));
+
+    // A catalog exists but holds a DIFFERENT offer → still OfferNotFound.
+    let err = add_cart_line(
+        &store,
+        &orderable_catalog(resto, oid()),
+        add_cmd(cid(), resto, lid(), offer, 1),
+        &actor(),
+    )
+    .await
+    .expect_err("other offer");
+    assert_eq!(rejection_code(&err), Some("OfferNotFound"));
+
+    // Manual availability flag UNAVAILABLE → OfferUnavailable (availability ≠ stock).
+    let catalogs = catalog_with(
+        resto,
+        offer_fixture(offer, CatalogItemAvailability::UNAVAILABLE, Some(tracked_stock(10.0)), vec![]),
+        vec![],
+    );
+    let err = add_cart_line(&store, &catalogs, add_cmd(cid(), resto, lid(), offer, 1), &actor())
+        .await
+        .expect_err("unavailable");
+    assert_eq!(rejection_code(&err), Some("OfferUnavailable"));
+
+    // Stock-tracked at 0 → InsufficientStock.
+    let catalogs = catalog_with(
+        resto,
+        offer_fixture(offer, CatalogItemAvailability::AVAILABLE, Some(tracked_stock(0.0)), vec![]),
+        vec![],
+    );
+    let err = add_cart_line(&store, &catalogs, add_cmd(cid(), resto, lid(), offer, 1), &actor())
+        .await
+        .expect_err("out of stock");
+    assert_eq!(rejection_code(&err), Some("InsufficientStock"));
+
+    // Requesting more than the tracked stock covers → InsufficientStock; within it → accepted.
+    let catalogs = catalog_with(
+        resto,
+        offer_fixture(offer, CatalogItemAvailability::AVAILABLE, Some(tracked_stock(2.0)), vec![]),
+        vec![],
+    );
+    let err = add_cart_line(&store, &catalogs, add_cmd(cid(), resto, lid(), offer, 3), &actor())
+        .await
+        .expect_err("beyond stock");
+    assert_eq!(rejection_code(&err), Some("InsufficientStock"));
+    add_cart_line(&store, &catalogs, add_cmd(cid(), resto, lid(), offer, 2), &actor())
+        .await
+        .expect("within stock");
+}
+
+/// tests.yaml#/cases/TestCartAddLineIsRejectedWhenCartInvalid (InvalidOptionSelection arm: selected
+/// options ∈ the offer's option lists, within minSelections/maxSelections, duplicates only when
+/// multipleSelection) — rules.yaml#/CartRejectsUnorderableOrInvalidLine
+#[tokio::test]
+async fn rejects_an_invalid_option_selection() {
+    let store = MemStore::default();
+    let (resto, offer) = (rid(), oid());
+    let list_id = OptionListId(uuid::Uuid::new_v4());
+    let (opt_a, opt_b) = (OptionId(uuid::Uuid::new_v4()), OptionId(uuid::Uuid::new_v4()));
+    // "Sauces": pick EXACTLY one (min 1, max 1), no duplicate picks.
+    let sauces = OptionList {
+        id: list_id,
+        r#ref: None,
+        name: OptionListName("Sauces".into()),
+        min_selections: 1,
+        max_selections: Some(1),
+        multiple_selection: false,
+        options: vec![option_fixture(opt_a, list_id), option_fixture(opt_b, list_id)],
+    };
+    let catalogs = catalog_with(
+        resto,
+        offer_fixture(offer, CatalogItemAvailability::AVAILABLE, None, vec![list_id]),
+        vec![sauces],
+    );
+    let cmd_with = |selected: Vec<OptionId>| {
+        let mut cmd = add_cmd(cid(), resto, lid(), offer, 1);
+        cmd.line.selected_option_ids = selected;
+        cmd
+    };
+
+    // An option from NO list of this offer → InvalidOptionSelection.
+    let foreign = OptionId(uuid::Uuid::new_v4());
+    let err = add_cart_line(&store, &catalogs, cmd_with(vec![foreign]), &actor())
+        .await
+        .expect_err("foreign option");
+    assert_eq!(rejection_code(&err), Some("InvalidOptionSelection"));
+
+    // Under minSelections (none picked) → InvalidOptionSelection.
+    let err = add_cart_line(&store, &catalogs, cmd_with(vec![]), &actor())
+        .await
+        .expect_err("under min");
+    assert_eq!(rejection_code(&err), Some("InvalidOptionSelection"));
+
+    // Over maxSelections (two picked) → InvalidOptionSelection.
+    let err = add_cart_line(&store, &catalogs, cmd_with(vec![opt_a, opt_b]), &actor())
+        .await
+        .expect_err("over max");
+    assert_eq!(rejection_code(&err), Some("InvalidOptionSelection"));
+
+    // A duplicate pick without multipleSelection → InvalidOptionSelection (also over max here).
+    let err = add_cart_line(&store, &catalogs, cmd_with(vec![opt_a, opt_a]), &actor())
+        .await
+        .expect_err("duplicate");
+    assert_eq!(rejection_code(&err), Some("InvalidOptionSelection"));
+
+    // A valid selection is accepted.
+    add_cart_line(&store, &catalogs, cmd_with(vec![opt_b]), &actor()).await.expect("valid selection");
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -208,11 +491,13 @@ async fn rejects_adding_on_a_closed_or_mismatched_cart_or_over_the_limit() {
 #[tokio::test]
 async fn changes_the_quantity_of_an_existing_line() {
     let store = MemStore::default();
-    let (cart, resto, line) = (cid(), rid(), lid());
-    store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, OfferId(uuid::Uuid::new_v4()))]);
+    let (cart, resto, line, offer) = (cid(), rid(), lid(), oid());
+    let catalogs = orderable_catalog(resto, offer);
+    store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, offer)]);
 
     change_cart_line_quantity(
         &store,
+        &catalogs,
         ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3 },
         &actor(),
     )
@@ -232,7 +517,7 @@ async fn changes_the_quantity_of_an_existing_line() {
 async fn removes_a_line_from_the_cart() {
     let store = MemStore::default();
     let (cart, resto, line) = (cid(), rid(), lid());
-    store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, OfferId(uuid::Uuid::new_v4()))]);
+    store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, oid())]);
 
     remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: line }, &actor())
         .await
@@ -258,7 +543,7 @@ async fn rejects_removing_from_a_missing_or_closed_cart_or_a_missing_line() {
     let (cart, resto, line) = (cid(), rid(), lid());
     store.seed(
         &stream(cart),
-        vec![cart_started(cart, resto), cart_line_added(cart, line, OfferId(uuid::Uuid::new_v4())), cart_checked_out(cart)],
+        vec![cart_started(cart, resto), cart_line_added(cart, line, oid()), cart_checked_out(cart)],
     );
     let err = remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: line }, &actor())
         .await
@@ -276,14 +561,17 @@ async fn rejects_removing_from_a_missing_or_closed_cart_or_a_missing_line() {
 }
 
 /// ChangeCartLineQuantity rejection arms (actors.yaml throws: CartNotFound / CartLineNotFound /
-/// QuantityExceedsLimit; InsufficientStock is TODO(invariant)) —
+/// QuantityExceedsLimit / InsufficientStock — the stock re-check runs against the line's offer in the
+/// LIVE catalog; an offer that has since left the catalog does not block, checkout re-validates) —
 /// rules.yaml#/CartRejectsUnorderableOrInvalidLine
 #[tokio::test]
-async fn rejects_changing_quantity_on_invalid_cart_line_or_over_the_limit() {
+async fn rejects_changing_quantity_on_invalid_cart_line_over_the_limit_or_beyond_stock() {
     let store = MemStore::default();
+    let catalogs = FakeCatalogs::default();
 
     let err = change_cart_line_quantity(
         &store,
+        &catalogs,
         ChangeCartLineQuantity { cart_id: cid(), cart_line_id: lid(), quantity: 1 },
         &actor(),
     )
@@ -291,11 +579,12 @@ async fn rejects_changing_quantity_on_invalid_cart_line_or_over_the_limit() {
     .expect_err("missing cart");
     assert_eq!(rejection_code(&err), Some("CartNotFound"));
 
-    let (cart, resto, line) = (cid(), rid(), lid());
-    store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, OfferId(uuid::Uuid::new_v4()))]);
+    let (cart, resto, line, offer) = (cid(), rid(), lid(), oid());
+    store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, offer)]);
 
     let err = change_cart_line_quantity(
         &store,
+        &catalogs,
         ChangeCartLineQuantity { cart_id: cart, cart_line_id: lid(), quantity: 1 },
         &actor(),
     )
@@ -305,11 +594,38 @@ async fn rejects_changing_quantity_on_invalid_cart_line_or_over_the_limit() {
 
     let err = change_cart_line_quantity(
         &store,
+        &catalogs,
         ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: MAX_LINE_QUANTITY + 1 },
         &actor(),
     )
     .await
     .expect_err("over limit");
     assert_eq!(rejection_code(&err), Some("QuantityExceedsLimit"));
+
+    // The new quantity exceeds the offer's live tracked stock → InsufficientStock.
+    let low_stock = catalog_with(
+        resto,
+        offer_fixture(offer, CatalogItemAvailability::AVAILABLE, Some(tracked_stock(2.0)), vec![]),
+        vec![],
+    );
+    let err = change_cart_line_quantity(
+        &store,
+        &low_stock,
+        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3 },
+        &actor(),
+    )
+    .await
+    .expect_err("beyond stock");
+    assert_eq!(rejection_code(&err), Some("InsufficientStock"));
     assert_eq!(store.stream(&stream(cart)).len(), 2, "no event on rejection");
+
+    // An offer that has since LEFT the catalog does not block the change (no OfferNotFound declared).
+    change_cart_line_quantity(
+        &store,
+        &catalogs,
+        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3 },
+        &actor(),
+    )
+    .await
+    .expect("offer gone from catalog — change still recorded");
 }

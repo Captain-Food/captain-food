@@ -5974,7 +5974,7 @@ fn emit_server_types(model: &Model) -> String {
     // FK-derived `restaurant` navigation field is NON-NULL, so the mapping takes the joined Restaurant
     // row (the resolver performs the join).
     out.push_str(
-        "\n/// One section of the projected `Catalog.tree` jsonb (camelCase keys), leniently parsed: an\n/// absent key or an empty/unbuilt tree (the merge is a documented projector TODO(runtime)) yields an\n/// empty list.\npub(crate) fn catalog_tree_section<T: serde::de::DeserializeOwned>(tree: &serde_json::Value, key: &str) -> Vec<T> {\n    tree.get(key).cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()\n}\n",
+        "\n/// One section of the projected `Catalog.tree` jsonb (camelCase keys, as folded by the\n/// `CatalogProjector` with the derived per-offer `stockStatus`), leniently parsed: an absent key or\n/// an empty tree (a catalog created before any content event) yields an empty list.\npub(crate) fn catalog_tree_section<T: serde::de::DeserializeOwned>(tree: &serde_json::Value, key: &str) -> Vec<T> {\n    tree.get(key).cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()\n}\n",
     );
     out.push_str(
         "\n/// Read-model rows → API type: the Catalog row plus the joined Restaurant row (the FK-derived\n/// `restaurant` navigation field is non-null, so the resolver hydrates it from the Restaurant read\n/// model). categories/products/optionLists deserialize out of the projected `tree` jsonb.\nimpl From<(CatalogRow, RestaurantRow)> for Catalog {\n    fn from((row, restaurant): (CatalogRow, RestaurantRow)) -> Self {\n        Self {\n            id: row.catalog_id.into(),\n            restaurant_id: row.restaurant_id.into(),\n            slug: row.slug.into(),\n            name: row.name.into(),\n            categories: catalog_tree_section(&row.tree, \"categories\"),\n            products: catalog_tree_section(&row.tree, \"products\"),\n            option_lists: catalog_tree_section(&row.tree, \"optionLists\"),\n            updated_at: row.updated_at,\n            restaurant: restaurant.into(),\n        }\n    }\n}\n",
@@ -6224,7 +6224,7 @@ fn wired_query_body(name: &str) -> Option<&'static str> {
             "        let repo = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;\n        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;\n        let Some(row) = repo.by_restaurant(input.restaurant_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))? else {\n            return Ok(None);\n        };\n        // The non-null `restaurant` navigation field: hydrate from the Restaurant read model (both rows\n        // are projections of the same domain log, so the FK target always exists).\n        let restaurant = restaurants\n            .by_id(row.restaurant_id)\n            .await\n            .map_err(|e| async_graphql::Error::new(e.to_string()))?\n            .ok_or_else(|| async_graphql::Error::new(\"catalog references an unknown restaurant\"))?;\n        Ok(Some(Catalog::from((row, restaurant))))",
         ),
         "categories" => Some(
-            "        let repo = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;\n        let row = repo.by_restaurant(input.restaurant_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))?;\n        // Categories live inside the projected Catalog.tree jsonb; an absent catalog or an empty/unbuilt\n        // tree (the merge is a documented projector TODO(runtime)) yields an empty list.\n        Ok(row.map(|r| catalog_tree_section::<CatalogCategory>(&r.tree, \"categories\")).unwrap_or_default())",
+            "        let repo = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;\n        let row = repo.by_restaurant(input.restaurant_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))?;\n        // Categories live inside the projected Catalog.tree jsonb; an absent catalog or an empty\n        // tree (a catalog created before any content event) yields an empty list.\n        Ok(row.map(|r| catalog_tree_section::<CatalogCategory>(&r.tree, \"categories\")).unwrap_or_default())",
         ),
         "carts" => Some(
             "        let repo = ctx.data::<std::sync::Arc<dyn application::queries::CartReadRepository>>()?;\n        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;\n        let rows = repo.by_customer(input.customer_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))?;\n        // The non-null `restaurant` navigation field: join against the Restaurant read model in memory\n        // (a cart is only ever started against a projected restaurant, so a match always exists).\n        let by_id: std::collections::HashMap<_, _> = restaurants\n            .list(application::queries::RestaurantFilter::default())\n            .await\n            .map_err(|e| async_graphql::Error::new(e.to_string()))?\n            .into_iter()\n            .map(|r| (r.restaurant_id.0, r))\n            .collect();\n        Ok(rows\n            .into_iter()\n            .filter_map(|c| by_id.get(&c.restaurant_id.0).cloned().map(|r| Cart::from((c, r))))\n            .collect())",
@@ -6343,6 +6343,9 @@ fn wired_mutation_body(name: &str, payload: &str) -> Option<String> {
         Probe,
         /// `ProspectionReadRepository` — backs the ProspectContactedTooRecently check (ADR-0020).
         Prospection,
+        /// `CatalogReadRepository` — the offer-level live-catalog lookups behind the Cart line
+        /// invariants (OfferNotFound / OfferUnavailable / InsufficientStock / InvalidOptionSelection).
+        Catalogs,
         /// `AuthProviderGateway` — the wrapped Supabase Auth ACL boundary (ADR-0015).
         Auth,
         /// `AuthProviderGateway` + `CustomerReadRepository` — identity flows that also need the
@@ -6379,11 +6382,12 @@ fn wired_mutation_body(name: &str, payload: &str) -> Option<String> {
         "verifyGbpOrderLink" => {
             ("VerifyGoogleBusinessProfileOrderLink", "verify_gbp_order_link", Extra::Probe)
         }
-        // Cart aggregate (ADR-0046 round 2: the checkout→order→delivery flow).
-        "addCartLine" => ("AddCartLine", "add_cart_line", Extra::None),
+        // Cart aggregate (ADR-0046 round 2: the checkout→order→delivery flow). Line-level commands
+        // validate against the LIVE catalog (offer-level read port over the projected tree).
+        "addCartLine" => ("AddCartLine", "add_cart_line", Extra::Catalogs),
         "removeCartLine" => ("RemoveCartLine", "remove_cart_line", Extra::None),
         "changeCartLineQuantity" => {
-            ("ChangeCartLineQuantity", "change_cart_line_quantity", Extra::None)
+            ("ChangeCartLineQuantity", "change_cart_line_quantity", Extra::Catalogs)
         }
         // Order aggregate.
         "acceptOrder" => ("AcceptOrder", "accept_order", Extra::None),
@@ -6479,6 +6483,10 @@ fn wired_mutation_body(name: &str, payload: &str) -> Option<String> {
         Extra::Prospection => (
             "        let prospection = ctx.data::<std::sync::Arc<dyn application::queries::ProspectionReadRepository>>()?;\n".to_string(),
             ", prospection.as_ref()",
+        ),
+        Extra::Catalogs => (
+            "        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;\n".to_string(),
+            ", catalogs.as_ref()",
         ),
         Extra::Auth => (
             "        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?;\n".to_string(),

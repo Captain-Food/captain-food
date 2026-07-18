@@ -539,9 +539,10 @@ impl MutationRoot {
     #[graphql(name = "addCartLine")]
     async fn add_cart_line(&self, ctx: &async_graphql::Context<'_>, input: AddCartLineInput) -> async_graphql::Result<AddCartLinePayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
+        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;
         let cmd: domain::generated::commands::AddCartLine = to_command(&input)?;
         let actor = request_actor(ctx);
-        application::commands::add_cart_line(store.as_ref(), cmd, &actor)
+        application::commands::add_cart_line(store.as_ref(), catalogs.as_ref(), cmd, &actor)
             .await
             .map_err(domain_error)?;
         Ok(AddCartLinePayload { correlation_id: CorrelationId(actor.correlation_id) })
@@ -559,9 +560,10 @@ impl MutationRoot {
     #[graphql(name = "changeCartLineQuantity")]
     async fn change_cart_line_quantity(&self, ctx: &async_graphql::Context<'_>, input: ChangeCartLineQuantityInput) -> async_graphql::Result<ChangeCartLineQuantityPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
+        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;
         let cmd: domain::generated::commands::ChangeCartLineQuantity = to_command(&input)?;
         let actor = request_actor(ctx);
-        application::commands::change_cart_line_quantity(store.as_ref(), cmd, &actor)
+        application::commands::change_cart_line_quantity(store.as_ref(), catalogs.as_ref(), cmd, &actor)
             .await
             .map_err(domain_error)?;
         Ok(ChangeCartLineQuantityPayload { correlation_id: CorrelationId(actor.correlation_id) })
