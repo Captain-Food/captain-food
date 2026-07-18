@@ -87,7 +87,8 @@ Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhon
 | 1 | **Checkout saga** — `placeOrder` + `PlaceOrderProcess` + PM runtime | 🅐 | ✅ wired (fail-closed gateway) |
 | 1a | ⚠️ **DSL gap** — `PaymentIntentCreated` needs a checkout snapshot (or a pending-checkout store) so `OrderPlaced` rebuilds from the log; saga fail-closes until then | plan mode | 📋 |
 | 1b | Stripe **outbound** `PaymentGateway` (create PaymentIntent) in the Stripe adapter crate | 🅑 (owns Stripe) | 📋 |
-| 2 | **HubRise** domain ACL — webhook → `OfferStockUpdated`/`ImportCatalog` (OAuth2 pull + ref-mapping) | 🅑 | 🚧 |
+| 2 | **HubRise** domain ACL — webhook → `ImportCatalog`/`OfferStockUpdated` (OAuth2 pull + deterministic ref-mapping) | 🅐 | ✅ landed (`enrich.rs`, 14 tests) |
+| 2a | ⚠️ **Connect flow** — `CreateCatalog`/register `Restaurant` with the enricher's derived UUIDv5 ids + persist per-location tokens (multi-location `HUBRISE_ACCESS_TOKEN` today = single location); needs a connection/token table | plan mode | 📋 |
 | 3 | **Process managers** — Refund/CartBinding/DeliveryDispatch + PM runtime (event-driven, `/saga`) | 🅐 | ✅ (Refund/CartBinding emit [] per spec; partner re-offer + outbound refund = TODO(saga)) |
 | 4 | **Cart line invariants** + catalog `tree` projector + offer read port | 🅐 | ✅ |
 | 5 | **Frontend** — Leptos/WASM SDUI renderer (customer/restaurant/rider apps) | unassigned | 📋 |
