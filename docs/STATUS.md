@@ -22,7 +22,8 @@
 | `restaurants` / `restaurant` | ✅ | Real data once SIRENE runs |
 | `prospectionPipeline` | ✅ | Admin; fed by SIRENE registrations |
 | `pricingPolicy` / `uberEstimationPolicy` / `uberSplitPolicy` | ✅ | **Real seeded data** |
-| `catalog` / `categories` / `carts` / `cart` / `orders` / `order` | ✅ wired | Empty until the write side emits their events |
+| `catalog` / `categories` | ✅ | **Real nested data** — catalog `tree` projector (categories→products→offers/option-lists + derived `stockStatus`) |
+| `carts` / `cart` / `orders` / `order` | ✅ wired | Populated as carts/orders are placed |
 | `me` / `favoriteRestaurants` | ✅ | `me` resolves the verified ADR-0047 `Principal` → Customer read model; `favoriteRestaurants` joins the customer's favourites |
 | Projection worker → registry (per-aggregate checkpoints) | ✅ | In-process; **no batch cap** (drains all pending per tick, loops 1.5s); hardened to **log-skip a poison event** so one bad record can't wedge projection. ⚠️ Free-tier **spin-down** pauses it when the app is idle >15 min → kept warm via **uptimerobot `/ping` every 5 min** |
 
@@ -32,10 +33,10 @@
 |---|---|---|
 | `MutationRoot` (all api.yaml mutations generated) | ✅ | |
 | Restaurant aggregate (13 commands) | ✅ | Spec invariants (event-stream rehydration) + 25 behaviour tests |
-| Cart (3) · Order (11) · DeliveryJob (4) | ✅ | Round 2a — real invariants + 29 behaviour tests; some Cart line-checks await a Catalog offer read port |
+| Cart (3) · Order (11) · DeliveryJob (4) | ✅ | Round 2a — real invariants + tests; **Cart line-checks now enforced** (OfferUnavailable/InsufficientStock/InvalidOptionSelection) via the catalog offer read port |
 | Catalog (12) · Prospect (3) · RestaurantAccount (3) | ✅ | Round 2b — real invariants + behaviour tests |
 | Customer (14) | ✅ | Wired end-to-end: `customer` read model + Pg repo, fail-closed `AuthProviderGateway` stand-in (real Supabase ACL deferred), injected at the composition root |
-| `placeOrder` (checkout saga) | 🚧 | Handler + `PaymentGateway` port ready; mutation stubbed until the Stripe integration + PlaceOrderProcess saga land (payment legs are inbound webhooks) |
+| `placeOrder` + process managers (4 sagas) | ✅ wired | `placeOrder` live (fail-closed `PaymentGateway` stand-in); in-process PM runtime (`/saga`) — PlaceOrder/Refund/CartBinding/DeliveryDispatch react to payment/delivery facts → `OrderPlaced`/`OrderDelivered`/… **Real Stripe create-intent = 🅑**; ⚠️ **DSL gap** (plan mode): `PaymentIntentCreated` carries no checkout snapshot, so `OrderPlaced` can't be rebuilt from the log → the saga fail-closes until the spec adds it (or a pending-checkout store) |
 | Structured typed errors (vs interim `"Code: detail"`) | 📋 | ADR-0046 follow-up |
 
 ## 🔐 Authorization
@@ -83,11 +84,12 @@ Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhon
 
 | # | Item | Owner | Status |
 |---|---|---|---|
-| 1 | **Checkout saga** — wire `placeOrder` + `PlaceOrderProcess` (react to `PaymentCaptured`/`PaymentFailed` → `OrderPlaced` + `CartCheckedOut`) | 🅐 | 🚧 |
-| — | Stripe **outbound** `PaymentGateway` (create PaymentIntent) in the Stripe adapter crate | 🅑 (owns Stripe) | 📋 |
+| 1 | **Checkout saga** — `placeOrder` + `PlaceOrderProcess` + PM runtime | 🅐 | ✅ wired (fail-closed gateway) |
+| 1a | ⚠️ **DSL gap** — `PaymentIntentCreated` needs a checkout snapshot (or a pending-checkout store) so `OrderPlaced` rebuilds from the log; saga fail-closes until then | plan mode | 📋 |
+| 1b | Stripe **outbound** `PaymentGateway` (create PaymentIntent) in the Stripe adapter crate | 🅑 (owns Stripe) | 📋 |
 | 2 | **HubRise** domain ACL — webhook → `OfferStockUpdated`/`ImportCatalog` (OAuth2 pull + ref-mapping) | 🅑 | 🚧 |
-| 3 | **Process managers** — RefundProcess, CartBindingProcess, DeliveryDispatchProcess + a PM runtime (event-driven, mirrors the projector) | 🅐 | 🚧 |
-| 4 | **Cart line invariants** (OfferUnavailable/InsufficientStock/InvalidOptionSelection) — needs a Catalog **offer read port** + the catalog `tree` projector (currently a hole) | 🅐 | 🚧 |
+| 3 | **Process managers** — Refund/CartBinding/DeliveryDispatch + PM runtime (event-driven, `/saga`) | 🅐 | ✅ (Refund/CartBinding emit [] per spec; partner re-offer + outbound refund = TODO(saga)) |
+| 4 | **Cart line invariants** + catalog `tree` projector + offer read port | 🅐 | ✅ |
 | 5 | **Frontend** — Leptos/WASM SDUI renderer (customer/restaurant/rider apps) | unassigned | 📋 |
 | 6 | GraphQL **subscriptions** codegen (`SubscriptionRoot`) | 🅑 | 🚧 |
 | 7 | **Structured typed errors** (replace interim `"Code: detail"`, ADR-0046) | 🅑 | 📋 |
