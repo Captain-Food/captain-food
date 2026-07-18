@@ -1,7 +1,7 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-18. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-19. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
 ## 🌐 Deployment
 
@@ -24,7 +24,7 @@
 | `pricingPolicy` / `uberEstimationPolicy` / `uberSplitPolicy` | ✅ | **Real seeded data** |
 | `catalog` / `categories` / `carts` / `cart` / `orders` / `order` | ✅ wired | Empty until the write side emits their events |
 | `me` / `favoriteRestaurants` | ✅ | `me` resolves the verified ADR-0047 `Principal` → Customer read model; `favoriteRestaurants` joins the customer's favourites |
-| Projection worker → registry (per-aggregate checkpoints) | ✅ | In-process |
+| Projection worker → registry (per-aggregate checkpoints) | ✅ | In-process; **no batch cap** (drains all pending per tick, loops 1.5s); hardened to **log-skip a poison event** so one bad record can't wedge projection. ⚠️ Free-tier **spin-down** pauses it when the app is idle >15 min → kept warm via **uptimerobot `/ping` every 5 min** |
 
 ## ✍️ Write side (mutations)
 
@@ -72,9 +72,28 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 | **HubRise** — `crates/adapters/hubrise` (`POST /webhooks/hubrise`, `hubrise-webhook` bin) | 🚧 | **Ingress** ✅ (HMAC-SHA256 hex, fail-closed, envelope parse). **Outbound OAuth2 client** ✅ (`api.rs`: `X-Access-Token`, non-expiring token from `HUBRISE_ACCESS_TOKEN`, `exchange_code` connect helper, catalog/inventory pull; 6 tests). **Remaining seam — domain wiring** (callback → pull → `ImportCatalog`/`OfferStockUpdated`): must match the **Catalog aggregate's id + stream conventions** so events project (deterministic UUIDv5-of-`ref` ids, coordinate with write-side) → not done blind |
 | **`/external/graphql`** — M2M standard | ✅ | External entities query/mutate via the `EXTERNAL` role path; API-key auth (`X-External-Api-Key`, ADR-0047); allowlist is per-op `roles: [EXTERNAL]`. **Subscribe** = future (needs `SubscriptionRoot` + WS + `api.yaml`); per-partner keys = future |
 
-## 👤 Pending user actions
+## 👤 Ops / user actions
 
-- ⏳ *(optional)* Set `INTERNAL_TRIGGER_TOKEN` on the Render service **and** as a repo secret to let the CI ingestion ping the worker for an immediate drain. Not required — the worker polls on its own (`RUN_SIRENE_WORKER`, default on).
+- ✅ Keep the web service **warm via uptimerobot `/ping` every 5 min** (prevents free-tier spin-down so the in-process projector + SIRENE worker keep running).
+- 🗑️ `INTERNAL_TRIGGER_TOKEN` / `POST /internal/sirene/drain` — agreed to **remove** (superseded by the `/ping` warmth approach); code removal deferred to avoid colliding with concurrent `routes.rs` edits — harmless meanwhile (fail-closed 503 when the secret is unset).
+
+## 📋 Remaining work — todo & session split
+
+Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhone/other session. Pull-rebase before every push.
+
+| # | Item | Owner | Status |
+|---|---|---|---|
+| 1 | **Checkout saga** — wire `placeOrder` + `PlaceOrderProcess` (react to `PaymentCaptured`/`PaymentFailed` → `OrderPlaced` + `CartCheckedOut`) | 🅐 | 🚧 |
+| — | Stripe **outbound** `PaymentGateway` (create PaymentIntent) in the Stripe adapter crate | 🅑 (owns Stripe) | 📋 |
+| 2 | **HubRise** domain ACL — webhook → `OfferStockUpdated`/`ImportCatalog` (OAuth2 pull + ref-mapping) | 🅑 | 🚧 |
+| 3 | **Process managers** — RefundProcess, CartBindingProcess, DeliveryDispatchProcess + a PM runtime (event-driven, mirrors the projector) | 🅐 | 🚧 |
+| 4 | **Cart line invariants** (OfferUnavailable/InsufficientStock/InvalidOptionSelection) — needs a Catalog **offer read port** + the catalog `tree` projector (currently a hole) | 🅐 | 🚧 |
+| 5 | **Frontend** — Leptos/WASM SDUI renderer (customer/restaurant/rider apps) | unassigned | 📋 |
+| 6 | GraphQL **subscriptions** codegen (`SubscriptionRoot`) | 🅑 | 🚧 |
+| 7 | **Structured typed errors** (replace interim `"Code: detail"`, ADR-0046) | 🅑 | 📋 |
+| 8 | **Per-field nav-edge ACL** (DSL extension → plan mode) | 🅑 | 📋 |
+| 9 | Remove `INTERNAL_TRIGGER_TOKEN`/drain endpoint (use `/ping` warmth) | 🅐 | 🗑️ deferred |
+| 10 | Projection worker robustness (poison-skip) + spin-down mitigation (uptimerobot `/ping`) | 🅐 | ✅ |
 
 ## 🧭 Architecture decisions
 See [`docs/adr/`](adr/) — latest: 0042 (hosting; +DNS ops note), 0043 (migrations), 0044 (license), 0045 (SIRENE redesign), 0046 (write side), 0047 (API auth — Supabase JWT/JWKS), 0036 amendment (realized DNS + host router, 2026-07-18). **ADR ids are now date-time** to avoid concurrent-session collisions (ADR-20260718-135417).

@@ -39,6 +39,10 @@ use crate::persistence::{
 use crate::projection::ProjectionStatus;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(1500);
+// NOTE: the drain fetches ALL pending events per tick (no LIMIT) and loops, so there is no
+// batch cap. If projection appears stuck below the event count, the cause is the app being idle
+// (Render free-tier spin-down pauses the in-process worker after ~15 min) — keep it warm with a
+// periodic /ping — or, historically, a poison event that wedged the loop (now log-skipped below).
 
 /// One materialized read model: resolves the aggregate id from the envelope, loads the current row via
 /// its store, folds the event through its generated `project_*` dispatch + hand-written `…Compute` impl,
@@ -230,23 +234,47 @@ impl ProjectionWorker {
 
         for record in pending {
             let position: i64 = record.try_get("position").map_err(db_err)?;
-            let stream_name: String = record.try_get("stream_name").map_err(db_err)?;
-            let event_type: String = record.try_get("event_type").map_err(db_err)?;
-            let payload: serde_json::Value = record.try_get("payload").map_err(db_err)?;
-            let occurred_at: chrono::DateTime<Utc> = record.try_get("occurred_at").map_err(db_err)?;
-
-            // Rebuild the typed event from the (event_type, payload) columns via the adjacent tag.
-            let event: DomainEvent = serde_json::from_value(serde_json::json!({
-                "eventType": event_type,
-                "payload": payload,
-            }))
-            .map_err(|e| db_err(format!("position {position} ({event_type}): {e}")))?;
-
-            let env = Envelope { stream_name, position, occurred_at, event };
-            for projector in group.projectors {
-                projector.apply(&self.pool, &env).await?;
+            // A per-event failure (unparseable payload, fold/upsert error) is LOGGED and SKIPPED rather
+            // than wedging the whole group: with the old `?` a single poison event re-failed every tick
+            // and halted ALL further projection (one bad SIRENE record could freeze the other ~800). The
+            // checkpoint still advances so the pipeline makes progress; the event stays in domain_events
+            // for a future full reprojection. A failure committing the checkpoint itself DOES propagate —
+            // that's a transient DB error worth retrying next tick, not a poison record.
+            if let Err(e) = self.apply_record(group, &record).await {
+                let event_type: String = record.try_get("event_type").unwrap_or_default();
+                eprintln!(
+                    "projection[{}]: skipped position {position} ({event_type}): {e}",
+                    group.checkpoint
+                );
             }
             self.commit_checkpoint(group.checkpoint, position).await?;
+        }
+        Ok(())
+    }
+
+    /// Fold one `domain_events` row into every read model the group feeds. Returns a per-event error so
+    /// the caller can log-and-skip a poison record without halting the group.
+    async fn apply_record(
+        &self,
+        group: &ProjectorGroup,
+        record: &sqlx::postgres::PgRow,
+    ) -> Result<(), DomainError> {
+        let position: i64 = record.try_get("position").map_err(db_err)?;
+        let stream_name: String = record.try_get("stream_name").map_err(db_err)?;
+        let event_type: String = record.try_get("event_type").map_err(db_err)?;
+        let payload: serde_json::Value = record.try_get("payload").map_err(db_err)?;
+        let occurred_at: chrono::DateTime<Utc> = record.try_get("occurred_at").map_err(db_err)?;
+
+        // Rebuild the typed event from the (event_type, payload) columns via the adjacent tag.
+        let event: DomainEvent = serde_json::from_value(serde_json::json!({
+            "eventType": event_type,
+            "payload": payload,
+        }))
+        .map_err(|e| db_err(format!("position {position} ({event_type}): {e}")))?;
+
+        let env = Envelope { stream_name, position, occurred_at, event };
+        for projector in group.projectors {
+            projector.apply(&self.pool, &env).await?;
         }
         Ok(())
     }
