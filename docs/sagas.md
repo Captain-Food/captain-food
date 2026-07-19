@@ -56,7 +56,6 @@ The process managers run as **state-table orchestrators executing their DSL legs
 | Real Stripe create-intent + outbound refund (replace the fail-closed `PaymentGateway` stand-in) | Stripe adapter (outbound) |
 | Refund API surface: `pendingRefunds` query + `approveRefund`/`denyRefund` mutations, roles [RESTAURANT, ADMIN] (+ story steps, pending-refund read model) | api.yaml planning |
 | Partner re-offer policy on `DeliveryRejectedByPartner` (row flags REOFFER_REQUIRED) | delivery-partner ACL |
-| `OrderTracking.payment_status` feed (payment facts live on `Payment-%`; the worker slices `Order-%`) | cross-stream projector route keyed by payload orderId |
 | Server-side line pricing (frozen snapshot carries best-available amounts) | pricing program (ADR-0016/0017) |
 
 ## References
