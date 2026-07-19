@@ -92,9 +92,9 @@ jobs:
           esac
           jq -n --arg msg "${{ steps.deploy.outputs.status }} @ ${{ steps.deploy.outputs.short }}" --arg color "$color" \
             '{schemaVersion: 1, label: "render", message: $msg, color: $color}' > render-deploy.json
+          git init -q badges-tree && cd badges-tree
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git init -q badges-tree && cd badges-tree
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git checkout -qb badges
           mv ../render-deploy.json .
