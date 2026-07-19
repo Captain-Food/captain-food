@@ -47,6 +47,69 @@ implementation **binding chosen by server configuration**:
    HTTP binding as a deployment option. GraphQL never fronts a service call, and services never
    appear in the GraphQL schema.
 
+## Naming & exposure convention (agreed 2026-07-19)
+
+- **Operations are short domain verbs, snake_case**, grouped under their service — the service
+  carries the noun, the operation is the bare intention (`payment.request`, `payment.refund`,
+  `delivery.offer_job`, `identity.verify_phone_otp`). An operation name must be unambiguous WITHIN
+  its service; observability always emits the qualified `service.operation` form, never the bare op.
+- **Provider vocabulary never appears at the service level** (no `payment.create_payment_intent`) —
+  the ACL translates names as well as payloads.
+- **HTTP binding paths are DERIVED, never hand-picked**: `POST /services/<service>/<op>` with
+  snake_case → kebab-case (`payment.request` → `POST /services/payment/request`,
+  `delivery.offer_job` → `POST /services/delivery/offer-job`). All service operations are `POST` —
+  they are commands with typed bodies; queries stay on GraphQL.
+- **Adapter routes speak the provider's vocabulary** (`/adapters/stripe/payment-intents`, like
+  `/adapters/stripe/webhooks` already does), and the service-op → adapter-route mapping is DECLARED
+  in the spec per implementation — the name-level ACL is spec, not code.
+- **Exposure is two-level: the spec bounds, the config chooses.** `bindings:` declares what a
+  service MAY do — `[local]` = in-process only, its `/services/*` routes must never exist;
+  `[local, http]` = a deployment may consume it remotely and/or expose it. Configuration then
+  selects within those bounds per deployment: `SERVICE_<NAME>=local` (default) or
+  `http:<base-url>` for how this deployable CONSUMES the service, and
+  `EXPOSE_SERVICE_<NAME>=true` for whether it MOUNTS the `/services/<name>/*` routes.
+  Configuration exceeding the spec's `bindings` is a startup error.
+
+### Example — the emitter's input contract (`specs/services.yaml`)
+
+Operations are grouped by service, and the mapping onto the provider adapter's own API is part of
+the declaration:
+
+```yaml
+payment:
+  description: "Payments capability the domain calls — provider-agnostic (ACL: Stripe behind it)."
+  operations:
+    request:
+      description: "Create the payment intent for a priced checkout."
+      input:
+        orderId: { $ref: 'scalars.yaml#/OrderId' }
+        cartId:  { $ref: 'scalars.yaml#/CartId' }
+        amount:  { $ref: 'entities.yaml#/Money' }
+      output:
+        paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
+      errors:
+        - { $ref: 'errors.yaml#/PaymentDeclined' }
+    refund:
+      description: "Request a (possibly partial) refund of a captured intent."
+      input:
+        paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
+        amount:          { $ref: 'entities.yaml#/Money' }
+      errors: []
+  bindings: [local, http]          # what deployments MAY choose; config picks within this set
+  implementations:
+    stripe:                        # the provider adapter (ACL) — translates names AND payloads
+      routes:                      # service op → adapter route, in the PROVIDER's vocabulary
+        request: 'POST /adapters/stripe/payment-intents'
+        refund:  'POST /adapters/stripe/refunds'
+```
+
+From this one block the codegen emits: the `Payment` service trait (`request`/`refund` with the
+typed input/output/error signatures), the HTTP client (`POST /services/payment/request`, …), the
+`/services/payment/*` server routes (mounted only when exposed by config, allowed only because
+`http ∈ bindings`), the Stripe-side route mapping, and the composition-root binding switch — and the
+validator proves every processmanager.yaml `call` step against the catalog (`port: payment,
+operation: refund` must exist, with its declared errors ⊆ the leg's error surface).
+
 ## Alternatives considered
 
 - **Keep ad-hoc port traits** — works (it is today's state) but leaves the catalog implicit, the
