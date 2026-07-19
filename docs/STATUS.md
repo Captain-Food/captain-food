@@ -5,7 +5,7 @@
 
 > 🧭 **Agreed direction (2026-07-19, late):** generalize the spec→codegen approach — ①
 > **service catalog with configurable binding** (ADR-20260719-214500, Proposed): `specs/services.yaml`
-> declares the abstract APIs (`/external/payment` `request`/`refund` → Stripe adapter, delivery,
+> declares the abstract APIs, own spec apart from api.yaml (`/services/payment` `request`/`refund` → Stripe adapter, delivery,
 > identity, catalog_sync, …); config picks local (in-process, no self-HTTP) vs http per service; PM
 > `ports` will `$ref` the catalog. ② **Codegen roadmap** ([docs/codegen-roadmap.md](codegen-roadmap.md)),
 > ranked: aggregate lifecycle state machines → generated behaviour-test harness from tests.yaml →

@@ -19,17 +19,20 @@ forever blocks splitting the deployable later.
 Introduce **services** — a spec-level catalog of the abstract APIs the domain calls — with the
 implementation **binding chosen by server configuration**:
 
-1. **`specs/services.yaml`** (new DSL source): each service declares typed operations in the house
-   style — `payment: { operations: { request: {input/output/errors as $refs}, refund: {…} } }`,
-   `delivery: { offer_job, cancel_job }`, `identity: { verify_phone_otp, verify_email_token }`,
-   `catalog_sync: { import_catalog, sync_inventory }`, `listing_enrichment: { … }`. The abstract
-   service API surface is `/external/<service>/<operation>` (e.g. `/external/payment/request`,
-   `/external/payment/refund`); provider adapters keep their own surface
-   (`/adapters/stripe/intentPayment`, `/adapters/stripe/refund`, `/adapters/avelo37/…`).
+1. **`specs/services.yaml`** (new DSL source, deliberately SEPARATE from api.yaml): each service
+   declares typed operations in the house style — `payment: { operations: { request: {input/output/
+   errors as $refs}, refund: {…} } }`, `delivery: { offer_job, cancel_job }`, `identity:
+   { verify_phone_otp, verify_email_token }`, `catalog_sync: { import_catalog, sync_inventory }`,
+   `listing_enrichment: { … }`. The HTTP binding's surface is **`/services/<service>/<operation>`**
+   (e.g. `/services/payment/request`, `/services/payment/refund`); provider adapters keep their own
+   surface (`/adapters/stripe/intentPayment`, `/adapters/stripe/refund`, `/adapters/avelo37/…`).
+   NOTE the namespace: `/external/*` is NOT used — `EXTERNAL` is an api.yaml ROLE, so
+   `/external/graphql` is already the external partners' GraphQL endpoint (role-as-path); the
+   service transport must not overload it.
 2. **processmanager.yaml `ports:` become `$ref`s into services.yaml** — the validator proves every
    `call` step against the catalog (operation exists, error set declared), same as every other ref.
 3. **Codegen emits per service**: the Rust trait (application), the HTTP client implementation
-   (infrastructure, targeting `/external/<service>/<op>` or the adapter route), the adapter-side
+   (infrastructure, targeting `/services/<service>/<op>` or the adapter route), the adapter-side
    Axum routes, and the composition-root **binding switch** read from configuration
    (`SERVICE_PAYMENT=local` → call the adapter crate in-process; `SERVICE_PAYMENT=http:<base-url>`
    → the generated client). Splitting the monolith becomes deployment configuration, not a rewrite.
@@ -38,6 +41,11 @@ implementation **binding chosen by server configuration**:
    services under this decision, not exceptions.
 5. **C4-L3 and observability bind to the catalog**: service components/relations and the span
    contracts around service calls derive from services.yaml instead of being maintained by hand.
+6. **Relation to the GraphQL API (api.yaml)**: no overlap by design. api.yaml is the PRODUCT API —
+   GraphQL, role-filtered (`/{role}/graphql`), consumed by UIs and external partners. services.yaml
+   is the INTERNAL capability catalog — consumed by the domain through generated traits, with the
+   HTTP binding as a deployment option. GraphQL never fronts a service call, and services never
+   appear in the GraphQL schema.
 
 ## Alternatives considered
 
