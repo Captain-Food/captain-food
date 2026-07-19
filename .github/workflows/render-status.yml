@@ -34,17 +34,31 @@ jobs:
             exit 0
           fi
           if [ -z "$RENDER_SERVICE_ID" ]; then
-            RENDER_SERVICE_ID=$(curl -sSf -H "Authorization: Bearer $RENDER_API_KEY" \
-              "https://api.render.com/v1/services?name=captain-food&limit=1" | jq -r '.[0].service.id // empty')
+            http=$(curl -sS -o /tmp/services.json -w "%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services?name=captain-food&limit=1")
+            if [ "$http" = "401" ]; then
+              echo "::error::Render rejected RENDER_API_KEY (401 Unauthorized) — the secret must be an ACCOUNT API key (Render dashboard → Account Settings → API Keys, value starts with 'rnd_'), copied exactly with no leading/trailing whitespace or newline."
+              exit 1
+            fi
+            if [ "$http" != "200" ]; then
+              echo "::error::Render API /services returned HTTP $http: $(cat /tmp/services.json)"
+              exit 1
+            fi
+            RENDER_SERVICE_ID=$(jq -r '.[0].service.id // empty' /tmp/services.json)
           fi
           if [ -z "$RENDER_SERVICE_ID" ]; then
-            echo "::error::no Render service named 'captain-food' visible to this API key"
+            echo "::error::the API key is valid but no Render service named 'captain-food' is visible to it — is the key from the right Render account/team?"
             exit 1
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "service_id=$RENDER_SERVICE_ID" >> "$GITHUB_OUTPUT"
-          deploy=$(curl -sSf -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1" | jq '.[0].deploy')
+          http=$(curl -sS -o /tmp/deploys.json -w "%{http_code}" -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1")
+          if [ "$http" != "200" ]; then
+            echo "::error::Render API /deploys returned HTTP $http: $(cat /tmp/deploys.json)"
+            exit 1
+          fi
+          deploy=$(jq '.[0].deploy' /tmp/deploys.json)
           status=$(echo "$deploy" | jq -r '.status')
           sha=$(echo "$deploy" | jq -r '.commit.id')
           echo "status=$status" >> "$GITHUB_OUTPUT"
