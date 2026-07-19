@@ -26,15 +26,15 @@ payment_process_manager:
 refund_process_manager:
   description: >
     One RefundProcess run per order. Opened as PENDING_APPROVAL by a refundable fact
-    (rejection / cancellation / customer request); resolved by the admin decision
+    (rejection / cancellation / customer request); resolved by the restaurant/admin decision
     (ApproveRefund / DenyRefund) and, on approval, by the settled PaymentRefunded fact.
   columns:
     order_id:              { type: { $ref: 'scalars.yaml#/OrderId' }, pk: true, note: "The order being refunded — one live run per order." }
     payment_intent_id:     { type: { $ref: 'scalars.yaml#/PaymentIntentId' }, nullable: true, note: "The captured payment to refund (from the order's payment facts)." }
     refund_id:             { type: { $ref: 'scalars.yaml#/RefundId' }, nullable: true, note: "Stripe refund id, set when PaymentRefunded settles the run." }
     process_status:        { type: { $ref: 'scalars.yaml#/RefundProcessStatus' } }
-    approved_amount_cents: { type: { $ref: 'scalars.yaml#/MoneyCents' }, nullable: true, note: "Admin-approved amount (may be partial); null until approved." }
-    reason:                { type: text, nullable: true, note: "Reason carried by the opening fact / admin decision." }
+    approved_amount_cents: { type: { $ref: 'scalars.yaml#/MoneyCents' }, nullable: true, note: "Approved amount (restaurant or admin; may be partial); null until approved." }
+    reason:                { type: text, nullable: true, note: "Reason carried by the opening fact / the decision." }
     last_update_utc:       { type: timestamptz, note: "Maintained by the runtime envelope." }
 
 cart_binding_process_manager:

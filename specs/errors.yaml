@@ -640,7 +640,7 @@ PaymentEventOrphaned:
 
 RefundNotPending:
   description: >
-    The admin refund decision (ApproveRefund / DenyRefund) targets an order with no refund pending
+    The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending
     approval — either no refund run exists for the order, or it was already approved, denied or settled.
   context:
     orderId: { $ref: 'scalars.yaml#/OrderId' }

@@ -1555,7 +1555,7 @@ impl From<PaymentProcessStatus> for ds::PaymentProcessStatus {
     }
 }
 
-/// State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are admin-approved.
+/// State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are approved by the restaurant (own orders) or an admin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
 pub enum RefundProcessStatus {
     #[graphql(name = "PENDING_APPROVAL")]

@@ -799,7 +799,7 @@ pub struct RiderStatusChanged {
     pub status: RiderStatus,
 }
 
-/// An admin approved a refund; the RefundProcess will drive the Stripe refund for this amount.
+/// The restaurant or an admin approved a refund; the RefundProcess will drive the Stripe refund for this amount.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefundApproved {
@@ -808,7 +808,7 @@ pub struct RefundApproved {
     pub reason: Option<String>,
 }
 
-/// An admin denied a pending refund request.
+/// The restaurant or an admin denied a pending refund request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefundDenied {

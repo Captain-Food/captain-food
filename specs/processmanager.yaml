@@ -179,8 +179,9 @@ PlaceOrderProcess:
 RefundProcess:
   type: process-manager
   description: >
-    Admin-approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a
-    pending refund on the state row; an ADMIN decides with ApproveRefund / DenyRefund; on approval the
+    Approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a
+    pending refund on the state row; the RESTAURANT (its own orders) or an ADMIN decides with
+    ApproveRefund / DenyRefund (authz = api.yaml roles when the mutations land); on approval the
     outbound Stripe refund is requested and the run settles when Stripe reports PaymentRefunded (the
     fact itself is recorded by the Payment aggregate). The refund-eligibility window is a config value
     enforced at approval, not a domain rule.
@@ -192,7 +193,7 @@ RefundProcess:
         request_refund: { description: "Request a (possibly partial) refund of the captured PaymentIntent." }
   receives:
     - message: { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
-      description: "The restaurant rejected a paid order — open a pending refund for admin approval."
+      description: "The restaurant rejected a paid order — open a pending refund for a restaurant/admin decision."
       steps:
         - read:
             model: { $ref: 'database/tables/projection_tables.yaml#/OrderTracking' }
@@ -209,7 +210,7 @@ RefundProcess:
               process_status: { const: PENDING_APPROVAL }
               reason: { from: { $ref: 'events.yaml#/OrderRejectedByRestaurant/properties/reason' } }
     - message: { $ref: 'events.yaml#/OrderCancelledByCustomer' }
-      description: "The customer cancelled a paid order — open a pending refund for admin approval."
+      description: "The customer cancelled a paid order — open a pending refund for a restaurant/admin decision."
       steps:
         - read:
             model: { $ref: 'database/tables/projection_tables.yaml#/OrderTracking' }
@@ -226,7 +227,7 @@ RefundProcess:
               process_status: { const: PENDING_APPROVAL }
               reason: { from: { $ref: 'events.yaml#/OrderCancelledByCustomer/properties/reason' } }
     - message: { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
-      description: "The restaurant cancelled a paid order — open a pending refund for admin approval."
+      description: "The restaurant cancelled a paid order — open a pending refund for a restaurant/admin decision."
       steps:
         - read:
             model: { $ref: 'database/tables/projection_tables.yaml#/OrderTracking' }
@@ -245,7 +246,7 @@ RefundProcess:
     - message: { $ref: 'events.yaml#/RefundRequested' }
       description: >
         The customer asked for a refund (the Order aggregate already validated RequestRefund) — open a
-        pending refund for admin approval.
+        pending refund for a restaurant/admin decision.
       steps:
         - read:
             model: { $ref: 'database/tables/projection_tables.yaml#/OrderTracking' }
@@ -264,8 +265,8 @@ RefundProcess:
 
     - message: { $ref: 'commands.yaml#/ApproveRefund' }
       description: >
-        ADMIN approves the pending refund (possibly partial): request the Stripe refund and record the
-        decision on the Payment.
+        The restaurant or an admin approves the pending refund (possibly partial): request the Stripe
+        refund and record the decision on the Payment.
       steps:
         - state:
             by: { order_id: { from: { $ref: 'commands.yaml#/ApproveRefund/properties/orderId' } } }
@@ -291,7 +292,7 @@ RefundProcess:
               reason: { from: { $ref: 'commands.yaml#/ApproveRefund/properties/reason' } }
 
     - message: { $ref: 'commands.yaml#/DenyRefund' }
-      description: "ADMIN denies the pending refund: record the decision on the Payment and close the run."
+      description: "The restaurant or an admin denies the pending refund: record the decision on the Payment and close the run."
       steps:
         - state:
             by: { order_id: { from: { $ref: 'commands.yaml#/DenyRefund/properties/orderId' } } }

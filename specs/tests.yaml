@@ -2117,8 +2117,8 @@ tests:
       - { $ref: '#/fixtures/paymentRefunded' }
 
   TestPaymentRefundApprovedRecorded:
-    name: "The Payment records the admin refund approval delivered by RefundProcess"
-    rules: [{ $ref: 'rules.yaml#/RefundRequiresAdminApproval' }]
+    name: "The Payment records the refund approval (restaurant or admin) delivered by RefundProcess"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
     actor: { $ref: 'actors.yaml#/Payment' }
     given:
       - { $ref: '#/fixtures/paymentIntentCreated' }
@@ -2130,8 +2130,8 @@ tests:
       - { $ref: '#/fixtures/refundApproved' }
 
   TestPaymentRefundDeniedRecorded:
-    name: "The Payment records the admin refund denial delivered by RefundProcess"
-    rules: [{ $ref: 'rules.yaml#/RefundRequiresAdminApproval' }]
+    name: "The Payment records the refund denial (restaurant or admin) delivered by RefundProcess"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
     actor: { $ref: 'actors.yaml#/Payment' }
     given:
       - { $ref: '#/fixtures/paymentIntentCreated' }
@@ -2142,10 +2142,10 @@ tests:
     then:
       - { $ref: '#/fixtures/refundDenied' }
 
-  # ----------------------- RefundProcess (admin decision) ------------
+  # ----------------------- RefundProcess (restaurant/admin decision) -
   TestRefundApprovedByAdmin:
-    name: "An admin approves the pending refund: Stripe refund requested, decision recorded on the Payment"
-    rules: [{ $ref: 'rules.yaml#/RefundRequiresAdminApproval' }]
+    name: "The restaurant or an admin approves the pending refund: Stripe refund requested, decision recorded on the Payment"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
     actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given:
       - { $ref: '#/fixtures/refundRequested' }
@@ -2156,8 +2156,8 @@ tests:
       - { $ref: '#/fixtures/refundApproved' }
 
   TestRefundDeniedByAdmin:
-    name: "An admin denies the pending refund: the run closes with the decision recorded on the Payment"
-    rules: [{ $ref: 'rules.yaml#/RefundRequiresAdminApproval' }]
+    name: "The restaurant or an admin denies the pending refund: the run closes with the decision recorded on the Payment"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
     actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given:
       - { $ref: '#/fixtures/refundRequested' }
@@ -2168,8 +2168,8 @@ tests:
       - { $ref: '#/fixtures/refundDenied' }
 
   TestRefundDecisionRejectedWhenNotPending:
-    name: "An admin decision on an order with no refund pending approval is rejected"
-    rules: [{ $ref: 'rules.yaml#/RefundRequiresAdminApproval' }]
+    name: "A refund decision on an order with no refund pending approval is rejected"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
     actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given: []
     when:

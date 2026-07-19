@@ -3085,15 +3085,15 @@ sequenceDiagram
 <a id="actor-refundprocess"></a>
 #### 🎭 Actor: `RefundProcess`
 
-_⚙️ process manager_ — Admin-approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a pending refund on the state row; an ADMIN decides with ApproveRefund / DenyRefund; on approval the outbound Stripe refund is requested and the run settles when Stripe reports PaymentRefunded (the fact itself is recorded by the Payment aggregate). The refund-eligibility window is a config value enforced at approval, not a domain rule.
+_⚙️ process manager_ — Approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a pending refund on the state row; the RESTAURANT (its own orders) or an ADMIN decides with ApproveRefund / DenyRefund (authz = api.yaml roles when the mutations land); on approval the outbound Stripe refund is requested and the run settles when Stripe reports PaymentRefunded (the fact itself is recorded by the Payment aggregate). The refund-eligibility window is a config value enforced at approval, not a domain rule.
 
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
-| [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant) | _The restaurant rejected a paid order — open a pending refund for admin approval._ | — |
-| [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer) | _The customer cancelled a paid order — open a pending refund for admin approval._ | — |
-| [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | _The restaurant cancelled a paid order — open a pending refund for admin approval._ | — |
-| [⚡ `RefundRequested`](#event-refundrequested) | _The customer asked for a refund (the Order aggregate already validated RequestRefund) — open a pending refund for admin approval.
+| [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant) | _The restaurant rejected a paid order — open a pending refund for a restaurant/admin decision._ | — |
+| [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer) | _The customer cancelled a paid order — open a pending refund for a restaurant/admin decision._ | — |
+| [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | _The restaurant cancelled a paid order — open a pending refund for a restaurant/admin decision._ | — |
+| [⚡ `RefundRequested`](#event-refundrequested) | _The customer asked for a refund (the Order aggregate already validated RequestRefund) — open a pending refund for a restaurant/admin decision.
 _ | — |
 | [📩 `ApproveRefund`](#command-approverefund) | [⚡ `RefundApproved`](#event-refundapproved) | [⛔ `RefundNotPending`](#error-refundnotpending) |
 | [📩 `DenyRefund`](#command-denyrefund) | [⚡ `RefundDenied`](#event-refunddenied) | [⛔ `RefundNotPending`](#error-refundnotpending) |
@@ -3482,7 +3482,7 @@ Bind a cart to a customer (after phone verification). The cart is then owned by 
 <a id="command-approverefund"></a>
 #### 📩 Command: `ApproveRefund`
 
-Admin approves a pending refund (optionally partial); the RefundProcess then drives Stripe.
+The RESTAURANT (its own orders) or an ADMIN approves a pending refund (optionally partial); the RefundProcess then drives Stripe.
 
 - **Dispatched by**: — · **handled by** [🎭 `RefundProcess`](#actor-refundprocess)
 - **Emits**: [⚡ `RefundApproved`](#event-refundapproved)
@@ -3497,7 +3497,7 @@ Admin approves a pending refund (optionally partial); the RefundProcess then dri
 <a id="command-denyrefund"></a>
 #### 📩 Command: `DenyRefund`
 
-Admin denies a pending refund request.
+The RESTAURANT (its own orders) or an ADMIN denies a pending refund request.
 
 - **Dispatched by**: — · **handled by** [🎭 `RefundProcess`](#actor-refundprocess)
 - **Emits**: [⚡ `RefundDenied`](#event-refunddenied)
@@ -3859,7 +3859,7 @@ A captured payment was refunded (e.g. after rejection or cancellation).
 <a id="event-refundapproved"></a>
 #### ⚡ Event: `RefundApproved`
 
-An admin approved a refund; the RefundProcess will drive the Stripe refund for this amount.
+The restaurant or an admin approved a refund; the RefundProcess will drive the Stripe refund for this amount.
 
 - **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
 - **Consumed by**: [🎭 `Payment`](#actor-payment)
@@ -3874,7 +3874,7 @@ An admin approved a refund; the RefundProcess will drive the Stripe refund for t
 <a id="event-refunddenied"></a>
 #### ⚡ Event: `RefundDenied`
 
-An admin denied a pending refund request.
+The restaurant or an admin denied a pending refund request.
 
 - **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
 - **Consumed by**: [🎭 `Payment`](#actor-payment)
@@ -4079,7 +4079,7 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="error-deliveryaddressrequired"></a>⛔ `DeliveryAddressRequired` | serviceType is DELIVERY but no delivery address was provided. | 🇬🇧 A delivery address is required for delivery. | 🇫🇷 Une adresse de livraison est requise pour la livraison. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-outsidedeliveryarea"></a>⛔ `OutsideDeliveryArea` | Delivery address is outside the restaurant's delivery area. | 🇬🇧 This address is outside the delivery area of '{restaurantName}'. | 🇫🇷 Cette adresse est en dehors de la zone de livraison de '{restaurantName}'. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-paymentdeclined"></a>⛔ `PaymentDeclined` | Stripe declined the payment synchronously at checkout (no order placed). | 🇬🇧 Payment was declined. | 🇫🇷 Le paiement a été refusé. | [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-refundnotpending"></a>⛔ `RefundNotPending` | The admin refund decision (ApproveRefund / DenyRefund) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.  | 🇬🇧 No refund is pending approval for this order. | 🇫🇷 Aucun remboursement n'est en attente d'approbation pour cette commande. | [📩 `ApproveRefund`](#command-approverefund), [📩 `DenyRefund`](#command-denyrefund) |
+| <a id="error-refundnotpending"></a>⛔ `RefundNotPending` | The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.  | 🇬🇧 No refund is pending approval for this order. | 🇫🇷 Aucun remboursement n'est en attente d'approbation pour cette commande. | [📩 `ApproveRefund`](#command-approverefund), [📩 `DenyRefund`](#command-denyrefund) |
 | <a id="error-cannotordertestrestaurant"></a>⛔ `CannotOrderTestRestaurant` | A production (LIVE) order was placed against a TEST restaurant (ADR-0038 test-mode isolation). Real customers never reach test data; a TEST order may instead target a LIVE restaurant (receipt validation).  | 🇬🇧 This restaurant is not available. | 🇫🇷 Ce restaurant n'est pas disponible. | [📩 `PlaceOrder`](#command-placeorder) |
 
 ### 📐 Business rules _(16)_
@@ -4171,14 +4171,14 @@ _On payment failure the saga aborts, no order is placed and the cart stays open.
 <a id="rule-refundonrejectionorcancellation"></a>
 #### 📐 Rule: `RefundOnRejectionOrCancellation`
 
-_When a paid order is rejected, cancelled, or a refund is requested, a refund is opened as PENDING_APPROVAL for an admin decision; nothing is refunded without approval._
+_When a paid order is rejected, cancelled, or a refund is requested, a refund is opened as PENDING_APPROVAL for a restaurant/admin decision; nothing is refunded without approval._
 
 - **Verified by**: [🧪 `TestRefundOnOrderRejected`](#test-testrefundonorderrejected), [🧪 `TestRefundOnOrderCancelledByCustomer`](#test-testrefundonordercancelledbycustomer), [🧪 `TestRefundOnOrderCancelledByRestaurant`](#test-testrefundonordercancelledbyrestaurant), [🧪 `TestRefundOnRefundRequested`](#test-testrefundonrefundrequested)
 
-<a id="rule-refundrequiresadminapproval"></a>
-#### 📐 Rule: `RefundRequiresAdminApproval`
+<a id="rule-refundrequiresapproval"></a>
+#### 📐 Rule: `RefundRequiresApproval`
 
-_Only an ADMIN decision resolves a pending refund: ApproveRefund (possibly partial) requests the Stripe refund, DenyRefund closes it; both are rejected when no refund is pending approval for the order._
+_Only an explicit decision — by the RESTAURANT for its own orders, or by an ADMIN — resolves a pending refund: ApproveRefund (possibly partial) requests the Stripe refund, DenyRefund closes it; both are rejected when no refund is pending approval for the order._
 
 - **Verified by**: [🧪 `TestPaymentRefundApprovedRecorded`](#test-testpaymentrefundapprovedrecorded), [🧪 `TestPaymentRefundDeniedRecorded`](#test-testpaymentrefunddeniedrecorded), [🧪 `TestRefundApprovedByAdmin`](#test-testrefundapprovedbyadmin), [🧪 `TestRefundDeniedByAdmin`](#test-testrefunddeniedbyadmin), [🧪 `TestRefundDecisionRejectedWhenNotPending`](#test-testrefunddecisionrejectedwhennotpending)
 
@@ -4497,22 +4497,22 @@ _The Payment records the settled refund fact reported by Stripe (idempotent)_
 <a id="test-testpaymentrefundapprovedrecorded"></a>
 #### 🧪 Test: `TestPaymentRefundApprovedRecorded`
 
-_The Payment records the admin refund approval delivered by RefundProcess_
+_The Payment records the refund approval (restaurant or admin) delivered by RefundProcess_
 
 - **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated), [⚡ `PaymentCaptured`](#event-paymentcaptured)
 - **When**: [📩 `RefundApproved`](#command-refundapproved)
 - **Then**: [⚡ `RefundApproved`](#event-refundapproved)
-- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+- **Verifies**: [📐 `RefundRequiresApproval`](#rule-refundrequiresapproval)
 
 <a id="test-testpaymentrefunddeniedrecorded"></a>
 #### 🧪 Test: `TestPaymentRefundDeniedRecorded`
 
-_The Payment records the admin refund denial delivered by RefundProcess_
+_The Payment records the refund denial (restaurant or admin) delivered by RefundProcess_
 
 - **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated), [⚡ `PaymentCaptured`](#event-paymentcaptured)
 - **When**: [📩 `RefundDenied`](#command-refunddenied)
 - **Then**: [⚡ `RefundDenied`](#event-refunddenied)
-- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+- **Verifies**: [📐 `RefundRequiresApproval`](#rule-refundrequiresapproval)
 
 **[🎭 `PlaceOrderProcess`](#actor-placeorderprocess)**
 
@@ -4631,32 +4631,32 @@ _Records the settled refund fact reported back by Stripe_
 <a id="test-testrefundapprovedbyadmin"></a>
 #### 🧪 Test: `TestRefundApprovedByAdmin`
 
-_An admin approves the pending refund: Stripe refund requested, decision recorded on the Payment_
+_The restaurant or an admin approves the pending refund: Stripe refund requested, decision recorded on the Payment_
 
 - **Given**: [⚡ `RefundRequested`](#event-refundrequested)
 - **When**: [📩 `ApproveRefund`](#command-approverefund)
 - **Then**: [⚡ `RefundApproved`](#event-refundapproved)
-- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+- **Verifies**: [📐 `RefundRequiresApproval`](#rule-refundrequiresapproval)
 
 <a id="test-testrefunddeniedbyadmin"></a>
 #### 🧪 Test: `TestRefundDeniedByAdmin`
 
-_An admin denies the pending refund: the run closes with the decision recorded on the Payment_
+_The restaurant or an admin denies the pending refund: the run closes with the decision recorded on the Payment_
 
 - **Given**: [⚡ `RefundRequested`](#event-refundrequested)
 - **When**: [📩 `DenyRefund`](#command-denyrefund)
 - **Then**: [⚡ `RefundDenied`](#event-refunddenied)
-- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+- **Verifies**: [📐 `RefundRequiresApproval`](#rule-refundrequiresapproval)
 
 <a id="test-testrefunddecisionrejectedwhennotpending"></a>
 #### 🧪 Test: `TestRefundDecisionRejectedWhenNotPending`
 
-_An admin decision on an order with no refund pending approval is rejected_
+_A refund decision on an order with no refund pending approval is rejected_
 
 - **Given**: _(none)_
 - **When**: [📩 `ApproveRefund`](#command-approverefund)
 - **Thrown**: [⛔ `RefundNotPending`](#error-refundnotpending)
-- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+- **Verifies**: [📐 `RefundRequiresApproval`](#rule-refundrequiresapproval)
 
 ### 📡 Observability _(2)_
 
@@ -7090,7 +7090,7 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-deliverystatus"></a>🔤 `DeliveryStatus` | enum (PENDING \| ASSIGNED \| PICKED_UP \| OUT_FOR_DELIVERY \| DELIVERED \| FAILED \| CANCELLED) | Status of one delivery, reported by the partner (inbound) or driven by an independent rider's commands. |
 | <a id="scalar-operationstatus"></a>🔤 `OperationStatus` | enum (PENDING \| SUCCEEDED \| REJECTED \| FAILED) | Live status of a command/operation streamed by the operationStatusChanged subscription: PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."  |
 | <a id="scalar-paymentprocessstatus"></a>🔤 `PaymentProcessStatus` | enum (AWAITING_PAYMENT_RESULT \| ORDER_PLACED \| FAILED) | State of one PlaceOrderProcess checkout run (payment_process_manager row, keyed by cart). |
-| <a id="scalar-refundprocessstatus"></a>🔤 `RefundProcessStatus` | enum (PENDING_APPROVAL \| APPROVED_AWAITING_SETTLEMENT \| DENIED \| REFUNDED) | State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are admin-approved. |
+| <a id="scalar-refundprocessstatus"></a>🔤 `RefundProcessStatus` | enum (PENDING_APPROVAL \| APPROVED_AWAITING_SETTLEMENT \| DENIED \| REFUNDED) | State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are approved by the restaurant (own orders) or an admin. |
 | <a id="scalar-deliverydispatchprocessstatus"></a>🔤 `DeliveryDispatchProcessStatus` | enum (OFFERED \| ACCEPTED \| REOFFER_REQUIRED \| COMPLETED) | State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order). |
 | <a id="scalar-mode"></a>🔤 `Mode` | enum (LIVE \| TEST) | Whether an aggregate is production (LIVE) or a non-production TEST fixture coexisting in prod (ADR-0038, Stripe-`livemode`-style). Set at creation, immutable; absent = LIVE. TEST data is isolated from payouts, analytics and real notifications; a TEST order may target a LIVE restaurant to validate the real receipt path.  |
 | <a id="scalar-usertype"></a>🔤 `UserType` | enum (PUBLIC \| CUSTOMER \| RESTAURANT_ACCOUNT \| RESTAURANT \| RIDER \| ADMIN \| EXTERNAL) |  |

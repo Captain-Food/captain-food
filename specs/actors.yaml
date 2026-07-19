@@ -423,10 +423,10 @@ Payment:
       emits: [{ $ref: 'events.yaml#/PaymentRefunded' }]
     - message: { $ref: 'events.yaml#/RefundApproved' }
       emits: [{ $ref: 'events.yaml#/RefundApproved' }]
-      effect: "RefundProcess delivers the admin approval; the Payment records it (idempotent)."
+      effect: "RefundProcess delivers the approval decision (restaurant or admin); the Payment records it (idempotent)."
     - message: { $ref: 'events.yaml#/RefundDenied' }
       emits: [{ $ref: 'events.yaml#/RefundDenied' }]
-      effect: "RefundProcess delivers the admin denial; the Payment records it (idempotent)."
+      effect: "RefundProcess delivers the denial decision (restaurant or admin); the Payment records it (idempotent)."
 
 
 DeliveryJob:

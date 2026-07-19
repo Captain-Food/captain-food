@@ -511,11 +511,11 @@ PaymentProcessStatus:
 RefundProcessStatus:
   type: string
   enum:
-    - PENDING_APPROVAL          # a refundable fact opened the request; waiting for an admin decision
-    - APPROVED_AWAITING_SETTLEMENT  # admin approved; Stripe refund requested, waiting for PaymentRefunded
+    - PENDING_APPROVAL          # a refundable fact opened the request; waiting for a restaurant/admin decision
+    - APPROVED_AWAITING_SETTLEMENT  # approved (restaurant or admin); Stripe refund requested, waiting for PaymentRefunded
     - DENIED                    # admin denied — terminal
     - REFUNDED                  # Stripe reported the settled refund — terminal (success)
-  description: "State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are admin-approved."
+  description: "State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are approved by the restaurant (own orders) or an admin."
 
 DeliveryDispatchProcessStatus:
   type: string

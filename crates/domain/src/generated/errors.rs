@@ -554,7 +554,7 @@ pub const PAYMENT_EVENT_ORPHANED: ErrorDef = ErrorDef {
     message_fr: "Événement de paiement reçu pour un checkout inconnu.",
 };
 
-/// The admin refund decision (ApproveRefund / DenyRefund) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.
+/// The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.
 /// Context: `orderId`.
 pub const REFUND_NOT_PENDING: ErrorDef = ErrorDef {
     code: "RefundNotPending",

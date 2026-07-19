@@ -1281,11 +1281,11 @@ ChangeRiderStatus:
   required: [riderId, status]
 
 # =====================================================================
-# Refund (admin approval — RefundProcess state PM)
+# Refund (restaurant- or admin-approved — RefundProcess state PM)
 # =====================================================================
 
 ApproveRefund:
-  description: "Admin approves a pending refund (optionally partial); the RefundProcess then drives Stripe."
+  description: "The RESTAURANT (its own orders) or an ADMIN approves a pending refund (optionally partial); the RefundProcess then drives Stripe."
   type: object
   properties:
     orderId: { $ref: 'scalars.yaml#/OrderId' }
@@ -1299,7 +1299,7 @@ ApproveRefund:
   required: [orderId, amount]
 
 DenyRefund:
-  description: "Admin denies a pending refund request."
+  description: "The RESTAURANT (its own orders) or an ADMIN denies a pending refund request."
   type: object
   properties:
     orderId: { $ref: 'scalars.yaml#/OrderId' }

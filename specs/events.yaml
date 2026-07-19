@@ -1473,11 +1473,11 @@ RiderStatusChanged:
   required: [riderId, status]
 
 # =====================================================================
-# Refund (admin-approved; RefundProcess state PM — ADR pending)
+# Refund (restaurant- or admin-approved; RefundProcess state PM)
 # =====================================================================
 
 RefundApproved:
-  description: "An admin approved a refund; the RefundProcess will drive the Stripe refund for this amount."
+  description: "The restaurant or an admin approved a refund; the RefundProcess will drive the Stripe refund for this amount."
   type: object
   properties:
     orderId: { $ref: 'scalars.yaml#/OrderId' }
@@ -1491,7 +1491,7 @@ RefundApproved:
   required: [orderId, amount]
 
 RefundDenied:
-  description: "An admin denied a pending refund request."
+  description: "The restaurant or an admin denied a pending refund request."
   type: object
   properties:
     orderId: { $ref: 'scalars.yaml#/OrderId' }

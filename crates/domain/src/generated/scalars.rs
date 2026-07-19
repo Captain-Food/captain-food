@@ -421,7 +421,7 @@ pub enum PaymentProcessStatus {
     FAILED,
 }
 
-/// State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are admin-approved.
+/// State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are approved by the restaurant (own orders) or an admin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum RefundProcessStatus {
