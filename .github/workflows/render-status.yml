@@ -3,9 +3,9 @@ name: render-status
 # Asks the Render API for the latest deploy of the service and republishes it precisely:
 #   1. a COMMIT STATUS (context `render/deploy`) on the exact deployed SHA — per-commit deploy state;
 #   2. a shields ENDPOINT badge JSON on the `badges` branch — the README shows "live @ <sha>".
-# Needs two repository secrets (Render dashboard → Account Settings → API Keys; service id `srv-…`):
-#   RENDER_API_KEY, RENDER_SERVICE_ID
-# Without them the job SKIPS gracefully (never red) so the repo stays green until they are added.
+# Needs ONE repository secret: RENDER_API_KEY (Render dashboard → Account Settings → API Keys).
+# The service id is discovered from the API by the service name (`captain-food`, render.yaml);
+# RENDER_SERVICE_ID remains an optional override. Without the key the job SKIPS gracefully (never red).
 on:
   workflow_run:
     workflows: ["db-migrate"]   # a deploy follows green ci + migrations on main
@@ -28,12 +28,21 @@ jobs:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
-          if [ -z "$RENDER_API_KEY" ] || [ -z "$RENDER_SERVICE_ID" ]; then
-            echo "::notice::RENDER_API_KEY / RENDER_SERVICE_ID secrets not set — skipping (add them to enable the precise deploy status)."
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "::notice::RENDER_API_KEY secret not set — skipping (add it to enable the precise deploy status)."
             echo "configured=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [ -z "$RENDER_SERVICE_ID" ]; then
+            RENDER_SERVICE_ID=$(curl -sSf -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services?name=captain-food&limit=1" | jq -r '.[0].service.id // empty')
+          fi
+          if [ -z "$RENDER_SERVICE_ID" ]; then
+            echo "::error::no Render service named 'captain-food' visible to this API key"
+            exit 1
+          fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "service_id=$RENDER_SERVICE_ID" >> "$GITHUB_OUTPUT"
           deploy=$(curl -sSf -H "Authorization: Bearer $RENDER_API_KEY" \
             "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1" | jq '.[0].deploy')
           status=$(echo "$deploy" | jq -r '.status')
@@ -55,7 +64,7 @@ jobs:
           gh api "repos/${{ github.repository }}/statuses/${{ steps.deploy.outputs.sha }}" \
             -f state="$state" -f context="render/deploy" \
             -f description="Render: ${{ steps.deploy.outputs.status }}" \
-            -f target_url="https://dashboard.render.com/web/${RENDER_SERVICE_ID:-}" || true
+            -f target_url="https://dashboard.render.com/web/${{ steps.deploy.outputs.service_id }}" || true
 
       - name: Publish the badge JSON on the `badges` branch
         if: steps.deploy.outputs.configured == 'true'

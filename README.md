@@ -39,7 +39,7 @@ checks pass — the **render deploy** badge probes the live service's `/health` 
 the migrated schema version), so green means deployed, migrated, and answering. The **render commit**
 badge is the precise one: the `render-status` workflow asks the Render API for the latest deploy and
 republishes it as `<status> @ <sha>` plus a `render/deploy` commit status on the exact deployed
-commit (needs the `RENDER_API_KEY`/`RENDER_SERVICE_ID` repo secrets; skips gracefully until set).
+commit (needs only the `RENDER_API_KEY` repo secret — the service id is discovered by name; skips gracefully until set).
 
 ## Operating model
 
