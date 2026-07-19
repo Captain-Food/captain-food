@@ -331,12 +331,21 @@ pub struct CustomerRegistered {
     pub timezone: Option<TimeZone>,
 }
 
-/// A returning visitor signed in and was resolved to an existing Customer (authRef → customerId). NOT an auth event (OTP/session live in the auth provider): this records the DOMAIN fact so the visitor's OPEN guest carts can be bound to the customerId — letting carts started on different devices converge under one customer and be merged at checkout.
+/// A returning visitor signed in and was resolved to an existing Customer (authRef → customerId). NOT an auth event (OTP/session live in the auth provider): this records the DOMAIN fact so the visitor's OPEN guest carts can be bound to the customerId — letting carts started on different devices converge under one customer and be merged at checkout. Thanks to the sessionId, the existing open cart(s) can be bound to the customerId and merged at checkout. This is a domain event, not an auth event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomerIdentified {
     pub customer_id: CustomerId,
     pub auth_ref: ExternalReference,
+    pub session_id: SessionId,
+}
+
+/// A cart that was started by a guest visitor (no customerId) was bound to a Customer after sign-in. This is a domain event, not an auth event. The cartId is the same as the original guest cart; the cart's customerId is now set to the signed-in customer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CartBoundToCustomer {
+    pub cart_id: CartId,
+    pub customer_id: CustomerId,
 }
 
 /// Customer marked a restaurant as a favorite.
@@ -431,6 +440,7 @@ pub struct CustomerPaymentMethodSet {
 pub struct CartStarted {
     pub cart_id: CartId,
     pub restaurant_id: RestaurantId,
+    pub session_id: SessionId,
     pub customer_id: Option<CustomerId>,
 }
 
@@ -588,7 +598,7 @@ pub struct RefundRequested {
     pub reason: Option<String>,
 }
 
-/// A payment intent was created at checkout for a pending order.
+/// A payment intent was created at checkout for a pending order. Carries the full priced checkout frozen at intent creation (`checkout`), so PlaceOrderProcess can rebuild OrderPlaced + CartCheckedOut from the event log alone when PaymentCaptured arrives (no out-of-log store). `checkout.restaurantId`/`customerId` duplicate the top-level fields and `checkout.totalAmount == amount == checkout.breakdown.total`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PaymentIntentCreated {
@@ -596,6 +606,7 @@ pub struct PaymentIntentCreated {
     pub restaurant_id: RestaurantId,
     pub customer_id: Option<CustomerId>,
     pub amount: Money,
+    pub checkout: CheckoutSnapshot,
 }
 
 /// Payment was successfully authorized/captured for an order.
@@ -706,6 +717,105 @@ pub struct DeliveryStatusUpdated {
     pub note: Option<String>,
 }
 
+/// A delivery job was assigned to a delivery partner (e.g. Avelo37) for fulfilment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryAssignedToPartner {
+    pub delivery_job_id: DeliveryJobId,
+    pub partner_ref: ExternalReference,
+}
+
+/// A delivery job was unassigned from its partner (e.g. to re-offer it elsewhere).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryUnassignedFromPartner {
+    pub delivery_job_id: DeliveryJobId,
+    pub reason: Option<String>,
+}
+
+/// A partner-driven status change applied to the job by the DeliveryJob aggregate (from the inbound partner report).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryPartnerStatusUpdated {
+    pub delivery_job_id: DeliveryJobId,
+    pub partner_ref: Option<ExternalReference>,
+    pub status: DeliveryStatus,
+    pub occurred_at: Option<String>,
+}
+
+/// An independent rider declined a pending delivery job (stays PENDING, re-offerable).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryDeclinedByRider {
+    pub delivery_job_id: DeliveryJobId,
+    pub rider_id: RiderId,
+    pub reason: Option<String>,
+}
+
+/// An issue was reported on a delivery job (by the rider, partner, or support).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryIssueReported {
+    pub delivery_job_id: DeliveryJobId,
+    pub rider_id: Option<RiderId>,
+    pub issue: String,
+    pub reported_at: Option<String>,
+}
+
+/// A previously reported delivery issue was resolved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryIssueResolved {
+    pub delivery_job_id: DeliveryJobId,
+    pub resolution: String,
+    pub resolved_at: Option<String>,
+}
+
+/// An independent Captain rider registered (linked to the auth provider user).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RiderRegistered {
+    pub rider_id: RiderId,
+    pub auth_ref: ExternalReference,
+    pub display_name: String,
+    pub phone: PhoneNumber,
+    pub status: RiderStatus,
+}
+
+/// One or more editable rider profile fields changed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RiderInfoUpdated {
+    pub rider_id: RiderId,
+    pub display_name: Option<String>,
+    pub phone: Option<PhoneNumber>,
+}
+
+/// A rider's availability/lifecycle status changed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RiderStatusChanged {
+    pub rider_id: RiderId,
+    pub status: RiderStatus,
+}
+
+/// The restaurant or an admin approved a refund; the RefundProcess will drive the Stripe refund for this amount.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundApproved {
+    pub order_id: OrderId,
+    pub amount: Money,
+    pub reason: Option<String>,
+}
+
+/// The restaurant or an admin denied a pending refund request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundDenied {
+    pub order_id: OrderId,
+    pub reason: String,
+}
+
 /// Every business event as a typed, adjacently-tagged union: `{ "eventType": <name>, "payload": { … } }`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "eventType", content = "payload")]
@@ -743,6 +853,7 @@ pub enum DomainEvent {
     CatalogImported(CatalogImported),
     CustomerRegistered(CustomerRegistered),
     CustomerIdentified(CustomerIdentified),
+    CartBoundToCustomer(CartBoundToCustomer),
     RestaurantFavorited(RestaurantFavorited),
     RestaurantUnfavorited(RestaurantUnfavorited),
     CustomerInfoUpdated(CustomerInfoUpdated),
@@ -782,4 +893,15 @@ pub enum DomainEvent {
     DeliveryAcceptedByPartner(DeliveryAcceptedByPartner),
     DeliveryRejectedByPartner(DeliveryRejectedByPartner),
     DeliveryStatusUpdated(DeliveryStatusUpdated),
+    DeliveryAssignedToPartner(DeliveryAssignedToPartner),
+    DeliveryUnassignedFromPartner(DeliveryUnassignedFromPartner),
+    DeliveryPartnerStatusUpdated(DeliveryPartnerStatusUpdated),
+    DeliveryDeclinedByRider(DeliveryDeclinedByRider),
+    DeliveryIssueReported(DeliveryIssueReported),
+    DeliveryIssueResolved(DeliveryIssueResolved),
+    RiderRegistered(RiderRegistered),
+    RiderInfoUpdated(RiderInfoUpdated),
+    RiderStatusChanged(RiderStatusChanged),
+    RefundApproved(RefundApproved),
+    RefundDenied(RefundDenied),
 }

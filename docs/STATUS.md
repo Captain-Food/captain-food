@@ -3,6 +3,59 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-19. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> 🔀 **Parallel session engaged: command sourcing + inbound-event sourcing** (infrastructure
+> journals, branched from main after this branch merges). Two constraints agreed here carry over:
+> journals NEVER write `domain_events` (aggregates own the log — ADR-20260719-193500; hook points =
+> the ACL ingest seams + the server's mutation-dispatch boundary), and the event log stays the single
+> source of truth (a command journal records requests incl. rejections, never replays as state).
+> Journal TABLES still get declared in `specs/database/tables/*.yaml` so their DDL generates.
+>
+> 🧭 **Agreed direction (2026-07-19, late):** generalize the spec→codegen approach — ①
+> **service catalog with configurable binding** (ADR-20260719-214500, Proposed): `specs/services.yaml`
+> declares the abstract APIs, own spec apart from api.yaml (`/services/payment` `request`/`refund` → Stripe adapter, delivery,
+> identity, catalog_sync, …); binding + exposure DECIDED IN THE SPEC (local for all of V0; config carries only addresses); PM
+> `ports` will `$ref` the catalog. ② **Codegen roadmap** ([docs/codegen-roadmap.md](codegen-roadmap.md)),
+> ranked: aggregate lifecycle state machines → generated behaviour-test harness from tests.yaml →
+> PM orchestrator scaffolding → the service catalog → PM state-store generation.
+> ① LANDED (2026-07-19): `specs/services.yaml` + validator §2d (`svc-*` rules) are in, PM `ports` now `$ref` the catalog (ADR Accepted); trait/client/route emitters still to come.
+>
+> ✅ **RUNTIME REIMPLEMENTED (2026-07-19 night) — the state-table PM runtime is live on this branch
+> (ADR-20260719-193500), 266 workspace tests green, `make validate` 0 errors, no drift.** Landed:
+> the `Payment` (stream `Payment-{intentId}`) + `Rider` aggregates and DeliveryJob partner/issue
+> folds; the 4 PM state tables (migration + `pm_state` ports + Pg stores); the full missing command
+> surface (Rider ×3, DeliveryJob ops ×7, `bindCartToCustomer`); `placeOrder` delivers
+> `PaymentIntentCreated` to the Payment stream and opens the run row (concurrent checkout →
+> Conflict); all four orchestrators execute their DSL legs (guards throw typed errors —
+> `PaymentEventOrphaned`, `DeliveryJobNotFound`; refund decisions by RESTAURANT/ADMIN via
+> `approve_refund`/`deny_refund` + fail-closed `request_refund`; cart binding really binds; close
+> order via `send MarkOrderDelivered`); the runner surfaces thrown guards on `/saga`; the Stripe ACL
+> is a stateless translator (no more `StripeEvent-%` streams, `CheckoutSnapshotSource` seam
+> retired). Still open (see docs/sagas.md): real Stripe outbound adapter, refund API surface,
+> partner re-offer policy, `OrderTracking.payment_status` cross-stream feed, server-side pricing.
+>
+> 📣 **Earlier on this branch (2026-07-19 evening):** ① Guard semantics hardened — **in case of error a
+> guard always `throws` a typed exception, on EVENT legs too** (run aborts + error surfaced — e.g.
+> `PaymentEventOrphaned` for an orphan Stripe capture/failure, `DeliveryJobNotFound` for partner
+> reports on an unknown dispatch run); `skip` is strictly for benign alternatives, and the validator
+> enforces exactly-one-outcome per guard. ② The **codegen-consistency CI gate now runs on every
+> branch push** (was main-only), so no branch escapes validate + test + drift. ③ The **per-PM
+> sequence diagrams are now embedded in the product documentation** — `documentation.generated.md`
+> (mermaid fences, renders on GitHub) **and** `documentation.generated.html` (in-page mermaid
+> renderer, offline-degrades to readable source) — generated from the typed steps, zero drift.
+>
+> 🚧 **Feature branch — Process-manager re-architecture: DSL layer DONE, runtime pending.** Process
+> managers are now **state-table orchestrators specified by a TYPED step DSL** (ADR-20260719-172821):
+> `specs/processmanager.yaml` legs are ordered `read`/`guard`/`call`/`deliver`/`send`/`state` steps —
+> every field a `$ref` or enum const, state in declared tables (`process_managers.yaml`), command-leg
+> guards `throws` / event legs `skip`, emits **derived** from steps, sequence diagrams **generated**
+> from steps (`c4.generated.md`). Validator §2b proves the wiring; the ADR-0032 gate applies to PMs
+> unexempted. `make validate` **58 → 0 errors** (behaviour tests added for Rider, DeliveryJob ops,
+> Payment records, admin-approved RefundProcess incl. `RefundNotPending`). `cargo test --workspace`
+> green. The PM **runtime is NOT reimplemented yet** (still the event-sourced runner): see
+> **[docs/process-manager-rearchitecture.md](process-manager-rearchitecture.md)** for the phase plan.
+> Also on the branch (green): the write-side **`Repository`** refactor (ADR-20260719-031136) + the
+> **checkout snapshot** (ADR-20260719-014434) — the runtime rework will rebuild the saga side of these.
+
 ## 🌐 Deployment
 
 | Piece | Status | Notes |
@@ -36,7 +89,7 @@
 | Cart (3) · Order (11) · DeliveryJob (4) | ✅ | Round 2a — real invariants + tests; **Cart line-checks now enforced** (OfferUnavailable/InsufficientStock/InvalidOptionSelection) via the catalog offer read port |
 | Catalog (12) · Prospect (3) · RestaurantAccount (3) | ✅ | Round 2b — real invariants + behaviour tests |
 | Customer (14) | ✅ | Wired end-to-end: `customer` read model + Pg repo, fail-closed `AuthProviderGateway` stand-in (real Supabase ACL deferred), injected at the composition root |
-| `placeOrder` + process managers (4 sagas) | ✅ wired | `placeOrder` live (fail-closed `PaymentGateway` stand-in); in-process PM runtime (`/saga`) — PlaceOrder/Refund/CartBinding/DeliveryDispatch react to payment/delivery facts → `OrderPlaced`/`OrderDelivered`/… **Real Stripe create-intent = 🅑**; ⚠️ **DSL gap** (plan mode): `PaymentIntentCreated` carries no checkout snapshot, so `OrderPlaced` can't be rebuilt from the log → the saga fail-closes until the spec adds it (or a pending-checkout store) |
+| `placeOrder` + process managers (4 sagas) | ✅ wired | `placeOrder` live (fail-closed `PaymentGateway` stand-in); in-process PM runtime (`/saga`) — PlaceOrder/Refund/CartBinding/DeliveryDispatch react to payment/delivery facts → `OrderPlaced`/`OrderDelivered`/… **Real Stripe create-intent = 🅑**; ✅ **checkout-snapshot DSL closed** (ADR-20260719-014434): `PaymentIntentCreated` now carries `checkout` (`CheckoutSnapshot`), frozen by `place_order`, so `OrderPlaced` rebuilds from the log — priced `items`/`breakdown` + retiring the fail-closed `CheckoutSnapshotSource` ride on server-side pricing |
 | Structured typed errors | ✅ | `DomainError::Rejected{code,context}` → GraphQL `extensions.code` + interpolated en/fr message (ADR-20260719-120000) |
 | GraphQL **subscriptions** | ✅ | `SubscriptionRoot` + in-process event bus + WS transport + per-role ACL (`orderStatusChanged`/`operationStatusChanged`); works while the app is warm |
 
@@ -69,9 +122,9 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 
 | Piece | Status | Notes |
 |---|---|---|
-| **Stripe** — `crates/adapters/stripe` (`POST /webhooks/stripe`, `stripe-webhook` bin) | ✅ | `Stripe-Signature` HMAC over raw body (constant-time, 300s replay, fail-closed); ACL → `PaymentCaptured`/`PaymentFailed`/`PaymentRefunded`; idempotent by Stripe event id. 12 tests |
+| **Stripe** — `crates/adapters/stripe` (`POST /adapters/stripe/webhooks`, `stripe-webhook` bin) | ✅ | `Stripe-Signature` HMAC over raw body (constant-time, 300s replay, fail-closed); ACL → `PaymentCaptured`/`PaymentFailed`/`PaymentRefunded`; idempotent by Stripe event id. 12 tests |
 | Checkout must set `metadata.restaurantId` (+`orderId`) on the PaymentIntent/charge | 📋 | Else `charge.refunded` is unmappable (logged + 200-ACKed). Lands with `placeOrder` |
-| **HubRise** — `crates/adapters/hubrise` (`POST /webhooks/hubrise`, `hubrise-webhook` bin) | ✅ | **Ingress** ✅ (HMAC-SHA256 hex, fail-closed, envelope parse). **Outbound OAuth2 client** ✅ (`api.rs`: `X-Access-Token`, non-expiring token from `HUBRISE_ACCESS_TOKEN`, `exchange_code` connect helper, catalog/inventory pull). **Domain wiring** ✅ (`enrich.rs`): verified catalog/inventory callback → API pull → enrichment ACL → `ImportCatalog` / per-SKU `update_offer_stock` handlers. **Deterministic UUIDv5-of-HubRise-id** ids reconciled with the **Catalog aggregate** (offer seeded from the SKU `ref` = inventory's `sku_ref`, so a stock update hits the imported `OfferId`); `"9.80 EUR"`→`Money`, tax-rate strings→`TaxRate`, `data` envelope translated at the boundary; catalog = rejectable command (`CatalogNotFound`→skip), inventory = reported fact (`OfferNotFound`→skip, never rejected). 14 tests. Enricher wired at the server composition root + the standalone bin (both gated on `HUBRISE_ACCESS_TOKEN`). **Open**: the connect flow must create the `Catalog`/`Restaurant` with these derived ids + a token table (→ plan mode) |
+| **HubRise** — `crates/adapters/hubrise` (`POST /adapters/hubrise/webhooks`, `hubrise-webhook` bin) | ✅ | **Ingress** ✅ (HMAC-SHA256 hex, fail-closed, envelope parse). **Outbound OAuth2 client** ✅ (`api.rs`: `X-Access-Token`, non-expiring token from `HUBRISE_ACCESS_TOKEN`, `exchange_code` connect helper, catalog/inventory pull). **Domain wiring** ✅ (`enrich.rs`): verified catalog/inventory callback → API pull → enrichment ACL → `ImportCatalog` / per-SKU `update_offer_stock` handlers. **Deterministic UUIDv5-of-HubRise-id** ids reconciled with the **Catalog aggregate** (offer seeded from the SKU `ref` = inventory's `sku_ref`, so a stock update hits the imported `OfferId`); `"9.80 EUR"`→`Money`, tax-rate strings→`TaxRate`, `data` envelope translated at the boundary; catalog = rejectable command (`CatalogNotFound`→skip), inventory = reported fact (`OfferNotFound`→skip, never rejected). 14 tests. Enricher wired at the server composition root + the standalone bin (both gated on `HUBRISE_ACCESS_TOKEN`). **Open**: the connect flow must create the `Catalog`/`Restaurant` with these derived ids + a token table (→ plan mode) |
 | **`/external/graphql`** — M2M standard | ✅ | External entities query/mutate via the `EXTERNAL` role path; API-key auth (`X-External-Api-Key`, ADR-0047); allowlist is per-op `roles: [EXTERNAL]`. **Subscribe** = future (needs `SubscriptionRoot` + WS + `api.yaml`); per-partner keys = future |
 
 ## 👤 Ops / user actions
@@ -86,10 +139,10 @@ Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhon
 | # | Item | Owner | Status |
 |---|---|---|---|
 | 1 | **Checkout saga** — `placeOrder` + `PlaceOrderProcess` + PM runtime | 🅐 | ✅ wired (fail-closed gateway) |
-| 1a | ⚠️ **DSL gap** — `PaymentIntentCreated` needs a checkout snapshot (or a pending-checkout store) so `OrderPlaced` rebuilds from the log; saga fail-closes until then | plan mode | 📋 |
+| 1a | **Checkout snapshot** on `PaymentIntentCreated` (ADR-20260719-014434) — DSL + `place_order` freeze + tests done | 🅐 | ✅ DSL · runtime population + port retirement ride pricing |
 | 1b | Stripe **outbound** `PaymentGateway` (create PaymentIntent) in the Stripe adapter crate | 🅑 (owns Stripe) | 📋 |
 | 2 | **HubRise** domain ACL — webhook → `ImportCatalog`/`OfferStockUpdated` (OAuth2 pull + deterministic ref-mapping) | 🅐 | ✅ landed (`enrich.rs`, 14 tests) |
-| 2a | ⚠️ **Connect flow** — `CreateCatalog`/register `Restaurant` with the enricher's derived UUIDv5 ids + persist per-location tokens (multi-location `HUBRISE_ACCESS_TOKEN` today = single location); needs a connection/token table | plan mode | 📋 |
+| 2a | ⚠️ **Connect flow** — provision `RegisterRestaurantAccount` + `Restaurant`(s) + `CreateCatalog` with the enricher's derived UUIDv5 ids, and persist the HubRise **account-scoped** token in a connection/token table keyed by `RestaurantAccount` (HubRise Account⇔RestaurantAccount, Location⇔Restaurant; `HUBRISE_ACCESS_TOKEN` today = one account). See `docs/integrations/hubrise-process.md` §0 | plan mode | 📋 |
 | 3 | **Process managers** — Refund/CartBinding/DeliveryDispatch + PM runtime (event-driven, `/saga`) | 🅐 | ✅ (Refund/CartBinding emit [] per spec; partner re-offer + outbound refund = TODO(saga)) |
 | 4 | **Cart line invariants** + catalog `tree` projector + offer read port | 🅐 | ✅ |
 | 5 | **Frontend** — Leptos/WASM SDUI renderer (customer/restaurant/rider apps) | unassigned | 📋 |
@@ -101,6 +154,6 @@ Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhon
 | 10 | Projection worker robustness (poison-skip) + spin-down mitigation (uptimerobot `/ping`) | 🅐 | ✅ |
 
 ## 🧭 Architecture decisions
-See [`docs/adr/`](adr/) — latest: 0042 (hosting; +DNS ops note), 0043 (migrations), 0044 (license), 0045 (SIRENE redesign), 0046 (write side), 0047 (API auth — Supabase JWT/JWKS), 0036 amendment (realized DNS + host router, 2026-07-18). **ADR ids are now date-time** to avoid concurrent-session collisions (ADR-20260718-135417).
+See [`docs/adr/`](adr/) — latest: 0047 (API auth — Supabase JWT/JWKS), 20260719-120000 (structured domain rejections), **20260719-014434 (checkout snapshot on `PaymentIntentCreated`)**, **20260719-031136 (write-side `Repository` / event-sourced actors — handlers + saga runner route through it, never the raw `EventStore`)**, 20260718-145856 amendment (adapter webhook routes → `/adapters/{partner}/webhooks`). **ADR ids are now date-time** to avoid concurrent-session collisions (ADR-20260718-135417).
 
 > Convention: keep this file current with every substantive change, and record cross-cutting decisions as an ADR in the same change.

@@ -515,11 +515,51 @@ pub const DELIVERY_ALREADY_ASSIGNED: ErrorDef = ErrorDef {
     message_fr: "Cette livraison a déjà été prise en charge.",
 };
 
+/// A rider is already registered for this identity (authRef/id).
+/// Context: `riderId`.
+pub const RIDER_ALREADY_REGISTERED: ErrorDef = ErrorDef {
+    code: "RiderAlreadyRegistered",
+    message_en: "You are already registered as a rider.",
+    message_fr: "Vous êtes déjà inscrit en tant que livreur.",
+};
+
+/// No rider with this id.
+/// Context: `riderId`.
+pub const RIDER_NOT_FOUND: ErrorDef = ErrorDef {
+    code: "RiderNotFound",
+    message_en: "Rider not found.",
+    message_fr: "Livreur introuvable.",
+};
+
+/// The rider is not in a status that allows this transition.
+/// Context: `riderId`, `currentStatus`, `targetStatus`.
+pub const INVALID_RIDER_STATUS_TRANSITION: ErrorDef = ErrorDef {
+    code: "InvalidRiderStatusTransition",
+    message_en: "A rider cannot move from '{currentStatus}' to '{targetStatus}'.",
+    message_fr: "Un livreur ne peut pas passer de '{currentStatus}' à '{targetStatus}'.",
+};
+
 /// Stripe declined the payment synchronously at checkout (no order placed).
 pub const PAYMENT_DECLINED: ErrorDef = ErrorDef {
     code: "PaymentDeclined",
     message_en: "Payment was declined.",
     message_fr: "Le paiement a été refusé.",
+};
+
+/// A Stripe payment outcome (capture or failure) references a PaymentIntent that matches no known checkout run. The inbound fact stays recorded on the Payment, but the process manager aborts and surfaces this error for ops attention (money may have been taken with no order to materialize) — an anomaly is never silently skipped.
+/// Context: `paymentIntentId`.
+pub const PAYMENT_EVENT_ORPHANED: ErrorDef = ErrorDef {
+    code: "PaymentEventOrphaned",
+    message_en: "Payment event received for an unknown checkout.",
+    message_fr: "Événement de paiement reçu pour un checkout inconnu.",
+};
+
+/// The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.
+/// Context: `orderId`.
+pub const REFUND_NOT_PENDING: ErrorDef = ErrorDef {
+    code: "RefundNotPending",
+    message_en: "No refund is pending approval for this order.",
+    message_fr: "Aucun remboursement n'est en attente d'approbation pour cette commande.",
 };
 
 /// A production (LIVE) order was placed against a TEST restaurant (ADR-0038 test-mode isolation). Real customers never reach test data; a TEST order may instead target a LIVE restaurant (receipt validation).
@@ -596,7 +636,12 @@ pub const ERRORS: &[ErrorDef] = &[
     DELIVERY_JOB_NOT_FOUND,
     INVALID_DELIVERY_STATUS,
     DELIVERY_ALREADY_ASSIGNED,
+    RIDER_ALREADY_REGISTERED,
+    RIDER_NOT_FOUND,
+    INVALID_RIDER_STATUS_TRANSITION,
     PAYMENT_DECLINED,
+    PAYMENT_EVENT_ORPHANED,
+    REFUND_NOT_PENDING,
     CANNOT_ORDER_TEST_RESTAURANT,
 ];
 

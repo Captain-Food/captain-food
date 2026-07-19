@@ -13,6 +13,7 @@ pub mod event_bus;
 pub mod event_store;
 pub mod order;
 pub mod order_tracking_store;
+pub mod pm_state;
 pub mod prospection;
 pub mod prospection_store;
 pub mod referential;
@@ -26,6 +27,9 @@ pub use delivery::PgDeliveryRepository;
 pub use event_bus::{AppendedEvent, EventBus};
 pub use event_store::PgEventStore;
 pub use order::PgOrderRepository;
+pub use pm_state::{
+    PgCartBindingState, PgDeliveryDispatchState, PgPaymentProcessState, PgRefundProcessState,
+};
 pub use prospection::PgProspectionRepository;
 pub use referential::{
     PgPricingPolicyRepository, PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,

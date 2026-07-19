@@ -16,6 +16,9 @@ pub struct AddCartLineInput {
     pub restaurant_id: RestaurantId,
     #[graphql(name = "line")]
     pub line: CartLineInput,
+    /// Optional session id (ADR-0038) to bind the cart to a session for test-mode carts.
+    #[graphql(name = "sessionId")]
+    pub session_id: SessionId,
 }
 
 /// Visitor removes a line from a cart.
@@ -26,6 +29,9 @@ pub struct RemoveCartLineInput {
     pub cart_id: CartId,
     #[graphql(name = "cartLineId")]
     pub cart_line_id: CartLineId,
+    /// Optional session id (ADR-0038) to bind the cart to a session for test-mode carts.
+    #[graphql(name = "sessionId")]
+    pub session_id: SessionId,
 }
 
 /// Visitor changes the quantity of an existing cart line.
@@ -38,6 +44,9 @@ pub struct ChangeCartLineQuantityInput {
     pub cart_line_id: CartLineId,
     #[graphql(name = "quantity")]
     pub quantity: i64,
+    /// Optional session id (ADR-0038) to bind the cart to a session for test-mode carts.
+    #[graphql(name = "sessionId")]
+    pub session_id: SessionId,
 }
 
 /// Admin creates a restaurant ACCOUNT (HubRise: restaurant) that will own one or more locations. Account-level facts (legal entity, billing contact, currency, default tax, timezone) live here.
@@ -536,6 +545,9 @@ pub struct VerifyPhoneInput {
     pub national_number: NationalPhoneNumber,
     #[graphql(name = "code")]
     pub code: OtpCode,
+    /// The visitor session verifying the phone — carried onto CustomerIdentified so CartBindingProcess binds this session's open carts.
+    #[graphql(name = "sessionId")]
+    pub session_id: SessionId,
     #[graphql(name = "displayName")]
     pub display_name: Option<CustomerDisplayName>,
     /// Persisted on registration; defaults from the dialing code when absent.
@@ -859,7 +871,7 @@ pub struct ConfirmPickupInput {
     pub rider_id: RiderId,
 }
 
-/// The assigned rider records handing the order over to the customer.
+/// The assigned rider marks the delivery complete (handed to the customer).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
 #[serde(rename_all = "camelCase")]
 pub struct CompleteDeliveryInput {

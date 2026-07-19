@@ -103,6 +103,8 @@ RefundRequestByCustomer:
 # --- PlaceOrderProcess (checkout saga) ---
 CheckoutPricesCartCreatesPaymentIntent:
   description: "Checkout reads and prices the open cart and creates a Stripe PaymentIntent; it is rejected on paused restaurant / empty cart / missing or out-of-area address / declined payment."
+CheckoutSnapshotFrozenAtIntent:
+  description: "When it creates the PaymentIntent, PlaceOrderProcess freezes the full priced checkout (cart, contact, service type, delivery address, priced items, breakdown) onto PaymentIntentCreated, so the order can be materialized from the event log alone on payment capture — no out-of-log store."
 OrderTestModeIsolation:
   description: "Test-mode isolation (ADR-0038): a production (LIVE) order is rejected against a TEST restaurant, so real customers never reach test data; a TEST order MAY target a LIVE restaurant to validate the real receipt path, and TEST orders/deliveries are excluded from payouts and analytics."
 OrderMaterializedOnPaymentCapture:
@@ -110,11 +112,15 @@ OrderMaterializedOnPaymentCapture:
 CheckoutAbortsOnPaymentFailure:
   description: "On payment failure the saga aborts, no order is placed and the cart stays open."
 
-# --- RefundProcess ---
+# --- RefundProcess (restaurant- or admin-approved) ---
 RefundOnRejectionOrCancellation:
-  description: "A Stripe refund is requested when an order is rejected, cancelled, or a refund is requested."
+  description: "When a paid order is rejected, cancelled, or a refund is requested, a refund is opened as PENDING_APPROVAL for a restaurant/admin decision; nothing is refunded without approval."
+RefundRequiresApproval:
+  description: "Only an explicit decision — by the RESTAURANT for its own orders, or by an ADMIN — resolves a pending refund: ApproveRefund (possibly partial) requests the Stripe refund, DenyRefund closes it; both are rejected when no refund is pending approval for the order."
 RefundSettledFactRecorded:
   description: "The settled refund fact reported back by Stripe is recorded."
+OrphanPaymentEventFlagged:
+  description: "A Stripe payment outcome that matches no known checkout run is surfaced as a typed error (PaymentEventOrphaned) — the recorded fact stands, but the anomaly is never silently skipped."
 
 # --- CartBindingProcess ---
 GuestCartsBoundOnIdentification:
@@ -135,3 +141,13 @@ PartnerRejectionReoffers:
   description: "When the partner declines (inbound), the job is re-offered or flagged for manual handling."
 OrderClosedOnDeliveryCompletion:
   description: "The order is closed (OrderDelivered) when the partner reports DELIVERED or an independent rider completes the delivery."
+DeliveryPartnerAssignmentLifecycle:
+  description: "A PENDING delivery job can be assigned to a delivery partner (once), unassigned to be re-offered, and partner-reported status changes apply only as valid transitions."
+DeliveryDeclineKeepsJobPending:
+  description: "An independent rider may decline a pending delivery job; the job stays PENDING and re-offerable."
+DeliveryIssueLifecycle:
+  description: "A delivery issue can be reported on a non-delivered job and later resolved."
+
+# --- Rider ---
+RiderLifecycle:
+  description: "A rider registers once (per auth user), may update editable profile fields, and changes availability status only through valid transitions."

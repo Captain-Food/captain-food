@@ -586,6 +586,36 @@ DeliveryAlreadyAssigned:
     fr: "Cette livraison a déjà été prise en charge."
 
 # =====================================================================
+# Rider
+# =====================================================================
+
+RiderAlreadyRegistered:
+  description: "A rider is already registered for this identity (authRef/id)."
+  context:
+    riderId: { $ref: 'scalars.yaml#/RiderId' }
+  messages:
+    en: "You are already registered as a rider."
+    fr: "Vous êtes déjà inscrit en tant que livreur."
+
+RiderNotFound:
+  description: "No rider with this id."
+  context:
+    riderId: { $ref: 'scalars.yaml#/RiderId' }
+  messages:
+    en: "Rider not found."
+    fr: "Livreur introuvable."
+
+InvalidRiderStatusTransition:
+  description: "The rider is not in a status that allows this transition."
+  context:
+    riderId: { $ref: 'scalars.yaml#/RiderId' }
+    currentStatus: { $ref: 'scalars.yaml#/RiderStatus' }
+    targetStatus: { $ref: 'scalars.yaml#/RiderStatus' }
+  messages:
+    en: "A rider cannot move from '{currentStatus}' to '{targetStatus}'."
+    fr: "Un livreur ne peut pas passer de '{currentStatus}' à '{targetStatus}'."
+
+# =====================================================================
 # Payment
 # =====================================================================
 
@@ -595,6 +625,28 @@ PaymentDeclined:
   messages:
     en: "Payment was declined."
     fr: "Le paiement a été refusé."
+
+PaymentEventOrphaned:
+  description: >
+    A Stripe payment outcome (capture or failure) references a PaymentIntent that matches no known
+    checkout run. The inbound fact stays recorded on the Payment, but the process manager aborts and
+    surfaces this error for ops attention (money may have been taken with no order to materialize) —
+    an anomaly is never silently skipped.
+  context:
+    paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
+  messages:
+    en: "Payment event received for an unknown checkout."
+    fr: "Événement de paiement reçu pour un checkout inconnu."
+
+RefundNotPending:
+  description: >
+    The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending
+    approval — either no refund run exists for the order, or it was already approved, denied or settled.
+  context:
+    orderId: { $ref: 'scalars.yaml#/OrderId' }
+  messages:
+    en: "No refund is pending approval for this order."
+    fr: "Aucun remboursement n'est en attente d'approbation pour cette commande."
 
 CannotOrderTestRestaurant:
   description: >

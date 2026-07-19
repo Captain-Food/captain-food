@@ -20,6 +20,10 @@ INSERT INTO ref_order_status (value, sort_order) VALUES ('PLACED',0),('ACCEPTED'
 CREATE TABLE ref_delivery_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_delivery_status (value, sort_order) VALUES ('PENDING',0),('ASSIGNED',1),('PICKED_UP',2),('OUT_FOR_DELIVERY',3),('DELIVERED',4),('FAILED',5),('CANCELLED',6);
 
+-- RiderStatus
+CREATE TABLE ref_rider_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_rider_status (value, sort_order) VALUES ('OFFLINE',0),('AVAILABLE',1),('ON_DELIVERY',2),('SUSPENDED',3);
+
 -- DeliveryProvider
 CREATE TABLE ref_delivery_provider(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_delivery_provider (value, sort_order) VALUES ('PARTNER',0),('INDEPENDENT',1);
@@ -67,6 +71,18 @@ INSERT INTO ref_payment_status (value, sort_order) VALUES ('PENDING',0),('CAPTUR
 -- OperationStatus
 CREATE TABLE ref_operation_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_operation_status (value, sort_order) VALUES ('PENDING',0),('SUCCEEDED',1),('REJECTED',2),('FAILED',3);
+
+-- PaymentProcessStatus
+CREATE TABLE ref_payment_process_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_payment_process_status (value, sort_order) VALUES ('AWAITING_PAYMENT_RESULT',0),('ORDER_PLACED',1),('FAILED',2);
+
+-- RefundProcessStatus
+CREATE TABLE ref_refund_process_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_refund_process_status (value, sort_order) VALUES ('PENDING_APPROVAL',0),('APPROVED_AWAITING_SETTLEMENT',1),('DENIED',2),('REFUNDED',3);
+
+-- DeliveryDispatchProcessStatus
+CREATE TABLE ref_delivery_dispatch_process_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_delivery_dispatch_process_status (value, sort_order) VALUES ('OFFERED',0),('ACCEPTED',1),('REOFFER_REQUIRED',2),('COMPLETED',3);
 
 -- CatalogItemAvailability
 CREATE TABLE ref_catalog_item_availability(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
@@ -141,6 +157,40 @@ CREATE INDEX ON external_sirene_restaurants (etat);
 CREATE INDEX ON external_sirene_restaurants (naf);
 CREATE INDEX ON external_sirene_restaurants (department);
 CREATE INDEX ON external_sirene_restaurants (last_seen_at);
+
+CREATE TABLE payment_process_manager (
+  cart_id UUID PRIMARY KEY,
+  order_id UUID NOT NULL,
+  payment_intent_id TEXT NOT NULL UNIQUE,
+  process_status INTEGER NOT NULL,
+  payment_status INTEGER NOT NULL,
+  last_processed_stripe_event_id TEXT NULL,
+  last_update_utc TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE refund_process_manager (
+  order_id UUID PRIMARY KEY,
+  payment_intent_id TEXT NULL,
+  refund_id TEXT NULL,
+  process_status INTEGER NOT NULL,
+  approved_amount_cents BIGINT NULL,
+  reason TEXT NULL,
+  last_update_utc TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE cart_binding_process_manager (
+  session_id UUID PRIMARY KEY,
+  customer_id UUID NOT NULL,
+  last_update_utc TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE delivery_dispatch_process_manager (
+  order_id UUID PRIMARY KEY,
+  restaurant_id UUID NOT NULL,
+  delivery_job_id UUID NOT NULL UNIQUE,
+  process_status INTEGER NOT NULL,
+  last_update_utc TIMESTAMPTZ NOT NULL
+);
 
 CREATE TABLE PhoneCountry (
   country TEXT PRIMARY KEY,
@@ -253,6 +303,7 @@ CREATE INDEX ON Catalog (restaurant_id);
 CREATE TABLE Cart (
   cart_id UUID PRIMARY KEY,
   restaurant_id UUID NOT NULL,
+  session_id UUID NOT NULL,
   customer_id UUID,
   status INTEGER NOT NULL,
   lines JSONB NOT NULL,
@@ -263,6 +314,7 @@ CREATE TABLE Cart (
   created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
+CREATE INDEX ON Cart (session_id);
 
 CREATE TABLE OrderTracking (
   order_id UUID PRIMARY KEY,
@@ -289,6 +341,7 @@ CREATE TABLE OrderTracking (
   estimated_ready_at TIMESTAMPTZ,
   placed_at TIMESTAMPTZ NOT NULL,
   status_changed_at TIMESTAMPTZ NOT NULL,
+  payment_intent_id TEXT,
   payment_status TEXT NOT NULL,
   restaurant_stars INTEGER,
   rating_comment TEXT,

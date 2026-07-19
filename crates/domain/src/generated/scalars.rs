@@ -21,6 +21,10 @@ pub struct ProductCategoryId(pub uuid::Uuid);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProductId(pub uuid::Uuid);
 
+/// A session is a temporary auth token (ADR-0041) for a visitor or customer, used to bind carts and track the user across devices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SessionId(pub uuid::Uuid);
+
 /// A purchasable offer with its own price (HubRise: SKU).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OfferId(pub uuid::Uuid);
@@ -285,6 +289,16 @@ pub enum DeliveryStatus {
     CANCELLED,
 }
 
+/// Availability/lifecycle status of an independent Captain rider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]
+pub enum RiderStatus {
+    OFFLINE,
+    AVAILABLE,
+    ON_DELIVERY,
+    SUSPENDED,
+}
+
 /// Fulfilment channel of a delivery: PARTNER (e.g. Avelo37) or INDEPENDENT (a Captain rider).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -396,6 +410,35 @@ pub enum OperationStatus {
     SUCCEEDED,
     REJECTED,
     FAILED,
+}
+
+/// State of one PlaceOrderProcess checkout run (payment_process_manager row, keyed by cart).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]
+pub enum PaymentProcessStatus {
+    AWAITING_PAYMENT_RESULT,
+    ORDER_PLACED,
+    FAILED,
+}
+
+/// State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are approved by the restaurant (own orders) or an admin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]
+pub enum RefundProcessStatus {
+    PENDING_APPROVAL,
+    APPROVED_AWAITING_SETTLEMENT,
+    DENIED,
+    REFUNDED,
+}
+
+/// State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]
+pub enum DeliveryDispatchProcessStatus {
+    OFFERED,
+    ACCEPTED,
+    REOFFER_REQUIRED,
+    COMPLETED,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

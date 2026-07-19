@@ -34,6 +34,7 @@ mod projector_dispatch_tests {
     use domain::generated::events::{CartStarted, DomainEvent, RestaurantAccountDeleted};
     use domain::generated::scalars::{
         CartId, CartStatus, CurrencyCode, CustomerId, MoneyCents, RestaurantAccountId, RestaurantId,
+        SessionId,
     };
 
     const NIL: &str = "00000000-0000-0000-0000-000000000000";
@@ -47,7 +48,6 @@ mod projector_dispatch_tests {
     // The hand-written business logic — only Cart's complex columns; the mechanical ones are generated.
     struct Compute;
     impl CartCompute for Compute {
-        fn customer_id(&self, _p: Option<&CartRow>, _e: &Envelope) -> Option<CustomerId> { None }
         fn status(&self, _p: Option<&CartRow>, _e: &Envelope) -> CartStatus { CartStatus::OPEN }
         fn lines(&self, _p: Option<&CartRow>, _e: &Envelope) -> serde_json::Value { serde_json::json!([]) }
         fn total_amount_cents(&self, _p: Option<&CartRow>, _e: &Envelope) -> MoneyCents { MoneyCents(0) }
@@ -61,6 +61,7 @@ mod projector_dispatch_tests {
         let started = DomainEvent::CartStarted(CartStarted {
             cart_id: CartId(NIL.parse().unwrap()),
             restaurant_id: RestaurantId(NIL.parse().unwrap()),
+            session_id: SessionId(NIL.parse().unwrap()),
             customer_id: None,
         });
         let out = project_cart(&Compute, None, &env(started, 1_700_000_000)).unwrap();
@@ -81,6 +82,7 @@ mod projector_dispatch_tests {
         let started = DomainEvent::CartStarted(CartStarted {
             cart_id: CartId(NIL.parse().unwrap()),
             restaurant_id: RestaurantId(NIL.parse().unwrap()),
+            session_id: SessionId(NIL.parse().unwrap()),
             customer_id: None,
         });
         let row = project_cart(&Compute, None, &env(started, 42)).unwrap();

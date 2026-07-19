@@ -1,0 +1,58 @@
+version: 2
+description: >
+  PROCESS-MANAGER STATE TABLES (ADR pending — process managers as state-table orchestrators).
+  One row = one saga run; the pk is the correlation identity of the run. Column `type` is either a SQL
+  primitive or a `$ref` into scalars.yaml (mapped to its Postgres type), exactly like every other table
+  file. These tables are PRIVATE to their process manager (processmanager.yaml `state_table` $ref):
+  no projection reads them and no query serves them — they exist so a PM run can (a) be idempotent
+  (dedup re-delivered triggers), (b) enforce single-flight via optimistic concurrency on the row, and
+  (c) resume after a crash. `last_update_utc` is maintained by the runtime envelope, never by a step.
+
+payment_process_manager:
+  description: >
+    One PlaceOrderProcess checkout run per cart. Created when PlaceOrder creates the Stripe
+    PaymentIntent; resolved by the PaymentCaptured / PaymentFailed outcome. The unique
+    payment_intent_id correlates the inbound Stripe facts back to the run, and
+    last_processed_stripe_event_id dedups Stripe webhook re-delivery.
+  columns:
+    cart_id:                        { type: { $ref: 'scalars.yaml#/CartId' }, pk: true, note: "The cart being checked out — one live run per cart prevents concurrent checkouts." }
+    order_id:                       { type: { $ref: 'scalars.yaml#/OrderId' }, note: "Client-generated id of the order the run will materialize on capture." }
+    payment_intent_id:              { type: { $ref: 'scalars.yaml#/PaymentIntentId' }, unique: true, note: "Stripe PaymentIntent id; correlates PaymentCaptured/PaymentFailed back to this run." }
+    process_status:                 { type: { $ref: 'scalars.yaml#/PaymentProcessStatus' } }
+    payment_status:                 { type: { $ref: 'scalars.yaml#/PaymentStatus' } }
+    last_processed_stripe_event_id: { type: { $ref: 'scalars.yaml#/ExternalReference' }, nullable: true, note: "Dedup key for Stripe webhook re-delivery." }
+    last_update_utc:                { type: timestamptz, note: "Maintained by the runtime envelope." }
+
+refund_process_manager:
+  description: >
+    One RefundProcess run per order. Opened as PENDING_APPROVAL by a refundable fact
+    (rejection / cancellation / customer request); resolved by the restaurant/admin decision
+    (ApproveRefund / DenyRefund) and, on approval, by the settled PaymentRefunded fact.
+  columns:
+    order_id:              { type: { $ref: 'scalars.yaml#/OrderId' }, pk: true, note: "The order being refunded — one live run per order." }
+    payment_intent_id:     { type: { $ref: 'scalars.yaml#/PaymentIntentId' }, nullable: true, note: "The captured payment to refund (from the order's payment facts)." }
+    refund_id:             { type: { $ref: 'scalars.yaml#/RefundId' }, nullable: true, note: "Stripe refund id, set when PaymentRefunded settles the run." }
+    process_status:        { type: { $ref: 'scalars.yaml#/RefundProcessStatus' } }
+    approved_amount_cents: { type: { $ref: 'scalars.yaml#/MoneyCents' }, nullable: true, note: "Approved amount (restaurant or admin; may be partial); null until approved." }
+    reason:                { type: text, nullable: true, note: "Reason carried by the opening fact / the decision." }
+    last_update_utc:       { type: timestamptz, note: "Maintained by the runtime envelope." }
+
+cart_binding_process_manager:
+  description: >
+    One CartBindingProcess run per identified session: records that the visitor's OPEN carts for
+    sessionId were bound to customerId, so a re-delivered CustomerIdentified is a no-op.
+  columns:
+    session_id:      { type: { $ref: 'scalars.yaml#/SessionId' }, pk: true }
+    customer_id:     { type: { $ref: 'scalars.yaml#/CustomerId' }, note: "The customer the session's open carts were bound to." }
+    last_update_utc: { type: timestamptz, note: "Maintained by the runtime envelope." }
+
+delivery_dispatch_process_manager:
+  description: >
+    One DeliveryDispatchProcess run per DELIVERY order. Created on OrderMarkedReady (COLLECTION
+    orders never create a row); tracks the offer lifecycle and closes the order on delivery.
+  columns:
+    order_id:        { type: { $ref: 'scalars.yaml#/OrderId' }, pk: true }
+    restaurant_id:   { type: { $ref: 'scalars.yaml#/RestaurantId' }, note: "Kept so the close-order leg can send MarkOrderDelivered without re-reading." }
+    delivery_job_id: { type: { $ref: 'scalars.yaml#/DeliveryJobId' }, unique: true, note: "Deterministic UUIDv5 from the order id — the idempotency key of the dispatch." }
+    process_status:  { type: { $ref: 'scalars.yaml#/DeliveryDispatchProcessStatus' } }
+    last_update_utc: { type: timestamptz, note: "Maintained by the runtime envelope." }

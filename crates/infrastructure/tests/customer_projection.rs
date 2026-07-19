@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use domain::generated::commands::VerifyPhone;
 use domain::generated::scalars::{
     CustomerId, DialingCode, EmailAddress, EmailVerificationToken, ExternalReference, Locale,
-    NationalPhoneNumber, OtpCode, PhoneNumber,
+    NationalPhoneNumber, OtpCode, PhoneNumber, SessionId,
 };
 use domain::shared::errors::DomainError;
 use infrastructure::{PgCustomerRepository, PgEventStore, ProjectionWorker};
@@ -115,6 +115,7 @@ fn verify_phone_cmd(customer_id: uuid::Uuid) -> VerifyPhone {
         dialing_code: DialingCode("+33".into()),
         national_number: NationalPhoneNumber("0612345678".into()),
         code: OtpCode("123456".into()),
+        session_id: SessionId(uuid::Uuid::new_v4()),
         display_name: None,
         locale: Some(Locale("fr-FR".into())),
         timezone: None,

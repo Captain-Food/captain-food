@@ -212,6 +212,7 @@ fn order_row(order_id: uuid::Uuid, restaurant_id: uuid::Uuid, status: ds::OrderS
         estimated_ready_at: None,
         placed_at: now,
         status_changed_at: now,
+        payment_intent_id: None,
         payment_status: "PENDING".into(),
         restaurant_stars: None,
         rating_comment: None,

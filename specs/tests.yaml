@@ -31,7 +31,7 @@ fixtures:
     data: { customerId: "cust-1", phone: "+33612345678", displayName: "Johnny", locale: "fr-FR", timezone: "Europe/Paris" }
   customerIdentified:
     type: { $ref: 'events.yaml#/CustomerIdentified' }
-    data: { customerId: "cust-1", authRef: "auth-supabase-1" }
+    data: { customerId: "cust-1", authRef: "auth-supabase-1", sessionId: "sess-1" }
   customerInfoUpdated:
     type: { $ref: 'events.yaml#/CustomerInfoUpdated' }
     data: { customerId: "cust-1", displayName: "Johnny B." }
@@ -212,7 +212,7 @@ fixtures:
   # --- Cart ---
   cartStarted:
     type: { $ref: 'events.yaml#/CartStarted' }
-    data: { cartId: "cart-1", restaurantId: "resto-1" }
+    data: { cartId: "cart-1", restaurantId: "resto-1", sessionId: "sess-1" }
   cartLineAdded:
     type: { $ref: 'events.yaml#/CartLineAdded' }
     data: { cartId: "cart-1", line: { cartLineId: "line-1", offerId: "off-1", quantity: 2 } }
@@ -225,6 +225,9 @@ fixtures:
   cartCheckedOut:
     type: { $ref: 'events.yaml#/CartCheckedOut' }
     data: { cartId: "cart-1", orderId: "order-1" }
+  cartBoundToCustomer:
+    type: { $ref: 'events.yaml#/CartBoundToCustomer' }
+    data: { cartId: "cart-1", customerId: "cust-1" }
 
   # --- Order ---
   orderPlaced:
@@ -287,7 +290,43 @@ fixtures:
   # --- Payments (saga) ---
   paymentIntentCreated:
     type: { $ref: 'events.yaml#/PaymentIntentCreated' }
-    data: { paymentIntentId: "pi_123", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
+    data:
+      paymentIntentId: "pi_123"
+      restaurantId: "resto-1"
+      amount: { amountCents: 2019, currency: "EUR" }
+      checkout:
+        orderId: "order-1"
+        cartId: "cart-1"
+        restaurantId: "resto-1"
+        customerContact: { displayName: "Johnny", phone: "+33612345678" }
+        serviceType: "DELIVERY"
+        items:
+          - { offerId: "off-1", name: "Margherita", quantity: 2, unitPrice: { amountCents: 980, currency: "EUR" }, lineTotal: { amountCents: 1960, currency: "EUR" } }
+        totalAmount: { amountCents: 2019, currency: "EUR" }
+        breakdown:
+          articles: { amountCents: 1960, currency: "EUR" }
+          delivery: { amountCents: 0, currency: "EUR" }
+          serviceFee: { amountCents: 59, currency: "EUR" }
+          total: { amountCents: 2019, currency: "EUR" }
+          restaurantContribution: { amountCents: 0, currency: "EUR" }
+          restaurantPayout: { amountCents: 1960, currency: "EUR" }
+          riderPayout: { amountCents: 0, currency: "EUR" }
+          captainNet: { amountCents: 59, currency: "EUR" }
+  paymentCaptured:
+    type: { $ref: 'events.yaml#/PaymentCaptured' }
+    data: { paymentIntentId: "pi_123", orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 2019, currency: "EUR" } }
+  paymentFailed:
+    type: { $ref: 'events.yaml#/PaymentFailed' }
+    data: { paymentIntentId: "pi_123", restaurantId: "resto-1", reason: "card_declined" }
+  paymentRefunded:
+    type: { $ref: 'events.yaml#/PaymentRefunded' }
+    data: { refundId: "re_1", paymentIntentId: "pi_123", orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
+  refundApproved:
+    type: { $ref: 'events.yaml#/RefundApproved' }
+    data: { orderId: "order-1", amount: { amountCents: 1960, currency: "EUR" }, reason: "Order rejected by the restaurant" }
+  refundDenied:
+    type: { $ref: 'events.yaml#/RefundDenied' }
+    data: { orderId: "order-1", reason: "Outside the refund window" }
 
   # --- Delivery (ADR-0031) ---
   deliveryRequested:
@@ -319,6 +358,35 @@ fixtures:
   deliveryStatusUpdatedDelivered:
     type: { $ref: 'events.yaml#/DeliveryStatusUpdated' }
     data: { deliveryJobId: "deliv-1", status: "DELIVERED" }
+  deliveryAssignedToPartner:
+    type: { $ref: 'events.yaml#/DeliveryAssignedToPartner' }
+    data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77" }
+  deliveryUnassignedFromPartner:
+    type: { $ref: 'events.yaml#/DeliveryUnassignedFromPartner' }
+    data: { deliveryJobId: "deliv-1", reason: "Re-offering to another channel" }
+  deliveryPartnerStatusUpdated:
+    type: { $ref: 'events.yaml#/DeliveryPartnerStatusUpdated' }
+    data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77", status: "PICKED_UP" }
+  deliveryDeclinedByRider:
+    type: { $ref: 'events.yaml#/DeliveryDeclinedByRider' }
+    data: { deliveryJobId: "deliv-1", riderId: "rider-1", reason: "Too far" }
+  deliveryIssueReported:
+    type: { $ref: 'events.yaml#/DeliveryIssueReported' }
+    data: { deliveryJobId: "deliv-1", riderId: "rider-1", issue: "Customer unreachable at the door" }
+  deliveryIssueResolved:
+    type: { $ref: 'events.yaml#/DeliveryIssueResolved' }
+    data: { deliveryJobId: "deliv-1", resolution: "Customer called back; order handed over" }
+
+  # --- Rider ---
+  riderRegistered:
+    type: { $ref: 'events.yaml#/RiderRegistered' }
+    data: { riderId: "rider-1", authRef: "auth-supabase-9", displayName: "Léa", phone: "+33611223344", status: "OFFLINE" }
+  riderInfoUpdated:
+    type: { $ref: 'events.yaml#/RiderInfoUpdated' }
+    data: { riderId: "rider-1", displayName: "Léa B." }
+  riderStatusChanged:
+    type: { $ref: 'events.yaml#/RiderStatusChanged' }
+    data: { riderId: "rider-1", status: "AVAILABLE" }
 
 # =====================================================================
 # Tests (Given / When / Then) — grouped by the actor under test
@@ -1096,7 +1164,7 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/VerifyPhone' }
-      data: { customerId: "cust-1", dialingCode: "+33", nationalNumber: "612345678", code: "123456", displayName: "Johnny", locale: "fr-FR", timezone: "Europe/Paris" }
+      data: { customerId: "cust-1", dialingCode: "+33", nationalNumber: "612345678", code: "123456", sessionId: "sess-1", displayName: "Johnny", locale: "fr-FR", timezone: "Europe/Paris" }
     then:
       - { $ref: '#/fixtures/customerRegistered' }
 
@@ -1108,7 +1176,7 @@ tests:
       - { $ref: '#/fixtures/customerRegistered' }
     when:
       type: { $ref: 'commands.yaml#/VerifyPhone' }
-      data: { customerId: "cust-2", dialingCode: "+33", nationalNumber: "612345678", code: "123456" }
+      data: { customerId: "cust-2", dialingCode: "+33", nationalNumber: "612345678", code: "123456", sessionId: "sess-1" }
     then:
       - { $ref: '#/fixtures/customerIdentified' }
 
@@ -1119,7 +1187,7 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/VerifyPhone' }
-      data: { customerId: "cust-1", dialingCode: "+33", nationalNumber: "612345678", code: "000000" }
+      data: { customerId: "cust-1", dialingCode: "+33", nationalNumber: "612345678", code: "000000", sessionId: "sess-1" }
     thrown:
       - { $ref: 'errors.yaml#/InvalidVerificationCode' }
       - { $ref: 'errors.yaml#/VerificationCodeExpired' }
@@ -1348,7 +1416,7 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/AddCartLine' }
-      data: { cartId: "cart-1", restaurantId: "resto-1", line: { cartLineId: "line-1", offerId: "off-1", quantity: 2 } }
+      data: { cartId: "cart-1", restaurantId: "resto-1", sessionId: "sess-1", line: { cartLineId: "line-1", offerId: "off-1", quantity: 2 } }
     then:
       - { $ref: '#/fixtures/cartStarted' }
       - { $ref: '#/fixtures/cartLineAdded' }
@@ -1360,7 +1428,7 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/AddCartLine' }
-      data: { cartId: "cart-1", restaurantId: "resto-1", line: { cartLineId: "line-1", offerId: "off-missing", quantity: 99 } }
+      data: { cartId: "cart-1", restaurantId: "resto-1", sessionId: "sess-1", line: { cartLineId: "line-1", offerId: "off-missing", quantity: 99 } }
     thrown:
       - { $ref: 'errors.yaml#/OfferNotFound' }
       - { $ref: 'errors.yaml#/OfferUnavailable' }
@@ -1373,7 +1441,7 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/AddCartLine' }
-      data: { cartId: "cart-1", restaurantId: "resto-2", line: { cartLineId: "line-1", offerId: "off-1", quantity: 1 } }
+      data: { cartId: "cart-1", restaurantId: "resto-2", sessionId: "sess-1", line: { cartLineId: "line-1", offerId: "off-1", quantity: 1 } }
     thrown:
       - { $ref: 'errors.yaml#/CartNotFound' }
       - { $ref: 'errors.yaml#/CartNotOpen' }
@@ -1390,7 +1458,7 @@ tests:
       - { $ref: '#/fixtures/cartLineAdded' }
     when:
       type: { $ref: 'commands.yaml#/ChangeCartLineQuantity' }
-      data: { cartId: "cart-1", cartLineId: "line-1", quantity: 3 }
+      data: { cartId: "cart-1", cartLineId: "line-1", quantity: 3, sessionId: "sess-1" }
     then:
       - { $ref: '#/fixtures/cartLineQuantityChanged' }
 
@@ -1403,7 +1471,7 @@ tests:
       - { $ref: '#/fixtures/cartLineAdded' }
     when:
       type: { $ref: 'commands.yaml#/RemoveCartLine' }
-      data: { cartId: "cart-1", cartLineId: "line-1" }
+      data: { cartId: "cart-1", cartLineId: "line-1", sessionId: "sess-1" }
     then:
       - { $ref: '#/fixtures/cartLineRemoved' }
 
@@ -1414,7 +1482,7 @@ tests:
     given: []
     when:
       type: { $ref: 'commands.yaml#/RemoveCartLine' }
-      data: { cartId: "cart-missing", cartLineId: "line-missing" }
+      data: { cartId: "cart-missing", cartLineId: "line-missing", sessionId: "sess-1" }
     thrown:
       - { $ref: 'errors.yaml#/CartNotFound' }
       - { $ref: 'errors.yaml#/CartNotOpen' }
@@ -1630,8 +1698,10 @@ tests:
   # ---------------------- PlaceOrderProcess (saga) -------------------
   TestPlaceOrderCreatesPaymentIntent:
     name: "Checkout reads the open cart, prices it, and creates a Stripe payment intent"
-    rules: [{ $ref: 'rules.yaml#/CheckoutPricesCartCreatesPaymentIntent' }]
-    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    rules:
+      - { $ref: 'rules.yaml#/CheckoutPricesCartCreatesPaymentIntent' }
+      - { $ref: 'rules.yaml#/CheckoutSnapshotFrozenAtIntent' }
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/cartStarted' }
       - { $ref: '#/fixtures/cartLineAdded' }
@@ -1651,7 +1721,7 @@ tests:
   TestPlaceOrderIsRejected:
     name: "Rejects checkout when the restaurant is paused, the cart is empty, the delivery address is missing or out of area, or the payment is declined"
     rules: [{ $ref: 'rules.yaml#/CheckoutPricesCartCreatesPaymentIntent' }]
-    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/cartStarted' }
     when:
@@ -1673,7 +1743,7 @@ tests:
   TestPlaceOrderRejectsTestRestaurantForLiveOrder:
     name: "A production (LIVE) order against a TEST restaurant is rejected (test-mode isolation)"
     rules: [{ $ref: 'rules.yaml#/OrderTestModeIsolation' }]
-    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/cartStarted' }
       - { $ref: '#/fixtures/cartLineAdded' }
@@ -1694,12 +1764,12 @@ tests:
   TestPlaceOrderPaymentCapturedPlacesOrder:
     name: "On payment capture the saga materializes the order and closes the cart"
     rules: [{ $ref: 'rules.yaml#/OrderMaterializedOnPaymentCapture' }]
-    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/paymentIntentCreated' }
     when:
       type: { $ref: 'events.yaml#/PaymentCaptured' }
-      data: { paymentIntentId: "pi_123", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
+      data: { paymentIntentId: "pi_123", restaurantId: "resto-1", amount: { amountCents: 2019, currency: "EUR" } }
     then:
       - { $ref: '#/fixtures/orderPlaced' }
       - { $ref: '#/fixtures/cartCheckedOut' }
@@ -1707,7 +1777,7 @@ tests:
   TestPlaceOrderPaymentFailedPlacesNothing:
     name: "On payment failure the saga aborts and places no order (cart stays open)"
     rules: [{ $ref: 'rules.yaml#/CheckoutAbortsOnPaymentFailure' }]
-    actor: { $ref: 'actors.yaml#/PlaceOrderProcess' }
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
     given:
       - { $ref: '#/fixtures/paymentIntentCreated' }
     when:
@@ -1719,7 +1789,7 @@ tests:
   TestRefundOnOrderRejected:
     name: "Requests a Stripe refund when an order is rejected by the restaurant"
     rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
-    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given: []
     when:
       type: { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
@@ -1729,7 +1799,7 @@ tests:
   TestRefundOnOrderCancelledByCustomer:
     name: "Requests a Stripe refund when the customer cancels the order"
     rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
-    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given: []
     when:
       type: { $ref: 'events.yaml#/OrderCancelledByCustomer' }
@@ -1739,7 +1809,7 @@ tests:
   TestRefundOnOrderCancelledByRestaurant:
     name: "Requests a Stripe refund when the restaurant cancels the order"
     rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
-    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given: []
     when:
       type: { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
@@ -1749,7 +1819,7 @@ tests:
   TestRefundOnRefundRequested:
     name: "Validates eligibility and requests a Stripe refund on a customer refund request"
     rules: [{ $ref: 'rules.yaml#/RefundOnRejectionOrCancellation' }]
-    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given: []
     when:
       type: { $ref: 'events.yaml#/RefundRequested' }
@@ -1759,7 +1829,7 @@ tests:
   TestRefundSettledFactRecorded:
     name: "Records the settled refund fact reported back by Stripe"
     rules: [{ $ref: 'rules.yaml#/RefundSettledFactRecorded' }]
-    actor: { $ref: 'actors.yaml#/RefundProcess' }
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
     given: []
     when:
       type: { $ref: 'events.yaml#/PaymentRefunded' }
@@ -1770,11 +1840,11 @@ tests:
   TestCartBindingOnCustomerIdentified:
     name: "Binds a returning visitor's open guest carts when they are identified"
     rules: [{ $ref: 'rules.yaml#/GuestCartsBoundOnIdentification' }]
-    actor: { $ref: 'actors.yaml#/CartBindingProcess' }
+    actor: { $ref: 'processmanager.yaml#/CartBindingProcess' }
     given: []
     when:
       type: { $ref: 'events.yaml#/CustomerIdentified' }
-      data: { customerId: "cust-1", authRef: "auth-supabase-1" }
+      data: { customerId: "cust-1", authRef: "auth-supabase-1", sessionId: "sess-1" }
     then: []
 
   # -------------------------- DeliveryJob (ADR-0031) -----------------
@@ -1864,7 +1934,7 @@ tests:
   TestDispatchOnOrderReady:
     name: "A ready DELIVERY order triggers creation of a delivery job"
     rules: [{ $ref: 'rules.yaml#/ReadyDeliveryOrderTriggersDispatch' }]
-    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/orderPlaced' }
     when:
@@ -1876,7 +1946,7 @@ tests:
   TestDispatchPartnerAccepted:
     name: "Records the assigned courier when the partner accepts (inbound)"
     rules: [{ $ref: 'rules.yaml#/PartnerAcceptanceRecordsCourier' }]
-    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
     when:
@@ -1887,7 +1957,7 @@ tests:
   TestDispatchPartnerRejected:
     name: "Re-offers or flags for manual handling when the partner declines (inbound)"
     rules: [{ $ref: 'rules.yaml#/PartnerRejectionReoffers' }]
-    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
     when:
@@ -1898,7 +1968,7 @@ tests:
   TestDispatchClosesOrderOnPartnerDelivered:
     name: "Closes the order when the partner reports DELIVERED (inbound)"
     rules: [{ $ref: 'rules.yaml#/OrderClosedOnDeliveryCompletion' }]
-    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
     when:
@@ -1910,7 +1980,7 @@ tests:
   TestDispatchClosesOrderOnRiderCompleted:
     name: "Closes the order when an independent rider completes the delivery"
     rules: [{ $ref: 'rules.yaml#/OrderClosedOnDeliveryCompletion' }]
-    actor: { $ref: 'actors.yaml#/DeliveryDispatchProcess' }
+    actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
       - { $ref: '#/fixtures/deliveryAcceptedByRider' }
@@ -1920,3 +1990,405 @@ tests:
       data: { deliveryJobId: "deliv-1" }
     then:
       - { $ref: '#/fixtures/orderDelivered' }
+
+  # ----------------------- Cart (bind + checkout facts) --------------
+  TestCartBoundToCustomer:
+    name: "A guest cart is bound to the identified customer (one-time bind)"
+    rules: [{ $ref: 'rules.yaml#/GuestCartsBoundOnIdentification' }]
+    actor: { $ref: 'actors.yaml#/Cart' }
+    given:
+      - { $ref: '#/fixtures/cartStarted' }
+    when:
+      type: { $ref: 'commands.yaml#/BindCartToCustomer' }
+      data: { cartId: "cart-1", customerId: "cust-1" }
+    then:
+      - { $ref: '#/fixtures/cartBoundToCustomer' }
+
+  TestCartCheckedOutRecorded:
+    name: "The Cart records the checkout fact delivered by PlaceOrderProcess and closes (idempotent)"
+    rules: [{ $ref: 'rules.yaml#/OrderMaterializedOnPaymentCapture' }]
+    actor: { $ref: 'actors.yaml#/Cart' }
+    given:
+      - { $ref: '#/fixtures/cartStarted' }
+      - { $ref: '#/fixtures/cartLineAdded' }
+    when:
+      type: { $ref: 'events.yaml#/CartCheckedOut' }
+      data: { cartId: "cart-1", orderId: "order-1" }
+    then:
+      - { $ref: '#/fixtures/cartCheckedOut' }
+
+  # ----------------------- Order (birth) -----------------------------
+  TestOrderPlacedBirthRecorded:
+    name: "The Order is born by recording the OrderPlaced fact delivered by PlaceOrderProcess (idempotent)"
+    rules: [{ $ref: 'rules.yaml#/OrderMaterializedOnPaymentCapture' }]
+    actor: { $ref: 'actors.yaml#/Order' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/OrderPlaced' }
+      data:
+        orderId: "order-1"
+        restaurantId: "resto-1"
+        customerContact: { displayName: "Johnny", phone: "+33612345678" }
+        serviceType: "DELIVERY"
+        items:
+          - { offerId: "off-1", name: "Margherita", quantity: 2, unitPrice: { amountCents: 980, currency: "EUR" }, lineTotal: { amountCents: 1960, currency: "EUR" } }
+        totalAmount: { amountCents: 2019, currency: "EUR" }
+        breakdown:
+          articles: { amountCents: 1960, currency: "EUR" }
+          delivery: { amountCents: 0, currency: "EUR" }
+          serviceFee: { amountCents: 59, currency: "EUR" }
+          total: { amountCents: 2019, currency: "EUR" }
+          restaurantContribution: { amountCents: 0, currency: "EUR" }
+          restaurantPayout: { amountCents: 1960, currency: "EUR" }
+          riderPayout: { amountCents: 0, currency: "EUR" }
+          captainNet: { amountCents: 59, currency: "EUR" }
+        paymentIntentId: "pi_123"
+    then:
+      - { $ref: '#/fixtures/orderPlaced' }
+
+  # ----------------------- Payment (aggregate — records the payment facts) ---
+  TestPaymentIntentCreatedRecorded:
+    name: "The Payment is born by recording PaymentIntentCreated with the frozen checkout snapshot"
+    rules: [{ $ref: 'rules.yaml#/CheckoutSnapshotFrozenAtIntent' }]
+    actor: { $ref: 'actors.yaml#/Payment' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/PaymentIntentCreated' }
+      data:
+        paymentIntentId: "pi_123"
+        restaurantId: "resto-1"
+        amount: { amountCents: 2019, currency: "EUR" }
+        checkout:
+          orderId: "order-1"
+          cartId: "cart-1"
+          restaurantId: "resto-1"
+          customerContact: { displayName: "Johnny", phone: "+33612345678" }
+          serviceType: "DELIVERY"
+          items:
+            - { offerId: "off-1", name: "Margherita", quantity: 2, unitPrice: { amountCents: 980, currency: "EUR" }, lineTotal: { amountCents: 1960, currency: "EUR" } }
+          totalAmount: { amountCents: 2019, currency: "EUR" }
+          breakdown:
+            articles: { amountCents: 1960, currency: "EUR" }
+            delivery: { amountCents: 0, currency: "EUR" }
+            serviceFee: { amountCents: 59, currency: "EUR" }
+            total: { amountCents: 2019, currency: "EUR" }
+            restaurantContribution: { amountCents: 0, currency: "EUR" }
+            restaurantPayout: { amountCents: 1960, currency: "EUR" }
+            riderPayout: { amountCents: 0, currency: "EUR" }
+            captainNet: { amountCents: 59, currency: "EUR" }
+    then:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+
+  TestPaymentCapturedRecorded:
+    name: "The Payment records the inbound Stripe capture fact (delivered via the ACL, idempotent)"
+    rules: [{ $ref: 'rules.yaml#/OrderMaterializedOnPaymentCapture' }]
+    actor: { $ref: 'actors.yaml#/Payment' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+    when:
+      type: { $ref: 'events.yaml#/PaymentCaptured' }
+      data: { paymentIntentId: "pi_123", orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 2019, currency: "EUR" } }
+    then:
+      - { $ref: '#/fixtures/paymentCaptured' }
+
+  TestPaymentFailedRecorded:
+    name: "The Payment records the inbound Stripe failure fact (cart stays open downstream)"
+    rules: [{ $ref: 'rules.yaml#/CheckoutAbortsOnPaymentFailure' }]
+    actor: { $ref: 'actors.yaml#/Payment' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+    when:
+      type: { $ref: 'events.yaml#/PaymentFailed' }
+      data: { paymentIntentId: "pi_123", restaurantId: "resto-1", reason: "card_declined" }
+    then:
+      - { $ref: '#/fixtures/paymentFailed' }
+
+  TestPaymentRefundedRecorded:
+    name: "The Payment records the settled refund fact reported by Stripe (idempotent)"
+    rules: [{ $ref: 'rules.yaml#/RefundSettledFactRecorded' }]
+    actor: { $ref: 'actors.yaml#/Payment' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+      - { $ref: '#/fixtures/paymentCaptured' }
+    when:
+      type: { $ref: 'events.yaml#/PaymentRefunded' }
+      data: { refundId: "re_1", paymentIntentId: "pi_123", orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
+    then:
+      - { $ref: '#/fixtures/paymentRefunded' }
+
+  TestPaymentRefundApprovedRecorded:
+    name: "The Payment records the refund approval (restaurant or admin) delivered by RefundProcess"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
+    actor: { $ref: 'actors.yaml#/Payment' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+      - { $ref: '#/fixtures/paymentCaptured' }
+    when:
+      type: { $ref: 'events.yaml#/RefundApproved' }
+      data: { orderId: "order-1", amount: { amountCents: 1960, currency: "EUR" }, reason: "Order rejected by the restaurant" }
+    then:
+      - { $ref: '#/fixtures/refundApproved' }
+
+  TestPaymentRefundDeniedRecorded:
+    name: "The Payment records the refund denial (restaurant or admin) delivered by RefundProcess"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
+    actor: { $ref: 'actors.yaml#/Payment' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+      - { $ref: '#/fixtures/paymentCaptured' }
+    when:
+      type: { $ref: 'events.yaml#/RefundDenied' }
+      data: { orderId: "order-1", reason: "Outside the refund window" }
+    then:
+      - { $ref: '#/fixtures/refundDenied' }
+
+  # ----------------------- RefundProcess (restaurant/admin decision) -
+  TestRefundApprovedByAdmin:
+    name: "The restaurant or an admin approves the pending refund: Stripe refund requested, decision recorded on the Payment"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
+    given:
+      - { $ref: '#/fixtures/refundRequested' }
+    when:
+      type: { $ref: 'commands.yaml#/ApproveRefund' }
+      data: { orderId: "order-1", amount: { amountCents: 1960, currency: "EUR" }, reason: "Order rejected by the restaurant" }
+    then:
+      - { $ref: '#/fixtures/refundApproved' }
+
+  TestRefundDeniedByAdmin:
+    name: "The restaurant or an admin denies the pending refund: the run closes with the decision recorded on the Payment"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
+    given:
+      - { $ref: '#/fixtures/refundRequested' }
+    when:
+      type: { $ref: 'commands.yaml#/DenyRefund' }
+      data: { orderId: "order-1", reason: "Outside the refund window" }
+    then:
+      - { $ref: '#/fixtures/refundDenied' }
+
+  TestRefundDecisionRejectedWhenNotPending:
+    name: "A refund decision on an order with no refund pending approval is rejected"
+    rules: [{ $ref: 'rules.yaml#/RefundRequiresApproval' }]
+    actor: { $ref: 'processmanager.yaml#/RefundProcess' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/ApproveRefund' }
+      data: { orderId: "order-unknown", amount: { amountCents: 1960, currency: "EUR" } }
+    thrown:
+      - { $ref: 'errors.yaml#/RefundNotPending' }
+
+  # ----------------------- DeliveryJob (aggregate) -------------------
+  TestDeliveryJobBornOnDeliveryRequested:
+    name: "The DeliveryJob is born by recording the DeliveryRequested fact delivered by DeliveryDispatchProcess (idempotent)"
+    rules: [{ $ref: 'rules.yaml#/ReadyDeliveryOrderTriggersDispatch' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/DeliveryRequested' }
+      data:
+        deliveryJobId: "deliv-1"
+        orderId: "order-1"
+        restaurantId: "resto-1"
+        pickup: { line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }
+        dropoff: { line1: "9 Rue Colbert", postalCode: "37000", city: "Tours", country: "FR" }
+    then:
+      - { $ref: '#/fixtures/deliveryRequested' }
+
+  TestDeliveryJobRecordsPartnerAcceptance:
+    name: "The DeliveryJob records the inbound partner acceptance with its courier (idempotent by partnerRef)"
+    rules: [{ $ref: 'rules.yaml#/PartnerAcceptanceRecordsCourier' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+      data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77", courier: { displayName: "Léa", phone: "+33611223344" } }
+    then:
+      - { $ref: '#/fixtures/deliveryAcceptedByPartner' }
+
+  TestDeliveryJobRecordsPartnerRejection:
+    name: "The DeliveryJob records the inbound partner rejection (the dispatcher re-offers)"
+    rules: [{ $ref: 'rules.yaml#/PartnerRejectionReoffers' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+      data: { deliveryJobId: "deliv-1", reason: "No courier available" }
+    then:
+      - { $ref: '#/fixtures/deliveryRejectedByPartner' }
+
+  TestDeliveryStatusUpdatedByCommand:
+    name: "The delivery status is driven through valid transitions to DELIVERED"
+    rules: [{ $ref: 'rules.yaml#/DeliveryPickupAndCompletionByRider' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+      - { $ref: '#/fixtures/deliveryPickedUp' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateDeliveryStatus' }
+      data: { deliveryJobId: "deliv-1", status: "DELIVERED" }
+    then:
+      - { $ref: '#/fixtures/deliveryStatusUpdatedDelivered' }
+
+  TestDeliveryAssignedToPartner:
+    name: "A pending delivery job is assigned to a delivery partner"
+    rules: [{ $ref: 'rules.yaml#/DeliveryPartnerAssignmentLifecycle' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'commands.yaml#/AssignDeliveryToPartner' }
+      data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77" }
+    then:
+      - { $ref: '#/fixtures/deliveryAssignedToPartner' }
+
+  TestDeliveryUnassignedFromPartner:
+    name: "An assigned delivery job is unassigned from its partner to be re-offered"
+    rules: [{ $ref: 'rules.yaml#/DeliveryPartnerAssignmentLifecycle' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAssignedToPartner' }
+    when:
+      type: { $ref: 'commands.yaml#/UnassignDeliveryFromPartner' }
+      data: { deliveryJobId: "deliv-1", reason: "Re-offering to another channel" }
+    then:
+      - { $ref: '#/fixtures/deliveryUnassignedFromPartner' }
+
+  TestDeliveryPartnerStatusUpdated:
+    name: "A partner-reported status change applies to the job as a valid transition"
+    rules: [{ $ref: 'rules.yaml#/DeliveryPartnerAssignmentLifecycle' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByPartner' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateDeliveryPartnerStatus' }
+      data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77", status: "PICKED_UP" }
+    then:
+      - { $ref: '#/fixtures/deliveryPartnerStatusUpdated' }
+
+  TestDeliveryDeclinedByRider:
+    name: "An independent rider declines a pending job; it stays PENDING and re-offerable"
+    rules: [{ $ref: 'rules.yaml#/DeliveryDeclineKeepsJobPending' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'commands.yaml#/DeclineDelivery' }
+      data: { deliveryJobId: "deliv-1", riderId: "rider-1", reason: "Too far" }
+    then:
+      - { $ref: '#/fixtures/deliveryDeclinedByRider' }
+
+  TestDeliveryIssueReported:
+    name: "An issue is reported on a non-delivered job"
+    rules: [{ $ref: 'rules.yaml#/DeliveryIssueLifecycle' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+    when:
+      type: { $ref: 'commands.yaml#/ReportDeliveryIssue' }
+      data: { deliveryJobId: "deliv-1", riderId: "rider-1", issue: "Customer unreachable at the door" }
+    then:
+      - { $ref: '#/fixtures/deliveryIssueReported' }
+
+  TestDeliveryIssueResolved:
+    name: "A previously reported delivery issue is resolved"
+    rules: [{ $ref: 'rules.yaml#/DeliveryIssueLifecycle' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryAcceptedByRider' }
+      - { $ref: '#/fixtures/deliveryIssueReported' }
+    when:
+      type: { $ref: 'commands.yaml#/ResolveDeliveryIssue' }
+      data: { deliveryJobId: "deliv-1", resolution: "Customer called back; order handed over" }
+    then:
+      - { $ref: '#/fixtures/deliveryIssueResolved' }
+
+  # ----------------------- Rider --------------------------------------
+  TestRiderRegistered:
+    name: "A rider registers (linked to the auth provider user)"
+    rules: [{ $ref: 'rules.yaml#/RiderLifecycle' }]
+    actor: { $ref: 'actors.yaml#/Rider' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/RegisterRider' }
+      data: { riderId: "rider-1", authRef: "auth-supabase-9", displayName: "Léa", phone: "+33611223344" }
+    then:
+      - { $ref: '#/fixtures/riderRegistered' }
+
+  TestRiderRegisterAgainIsRejected:
+    name: "Registering the same rider twice is rejected"
+    rules: [{ $ref: 'rules.yaml#/RiderLifecycle' }]
+    actor: { $ref: 'actors.yaml#/Rider' }
+    given:
+      - { $ref: '#/fixtures/riderRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/RegisterRider' }
+      data: { riderId: "rider-1", authRef: "auth-supabase-9", displayName: "Léa", phone: "+33611223344" }
+    thrown:
+      - { $ref: 'errors.yaml#/RiderAlreadyRegistered' }
+
+  TestRiderInfoUpdated:
+    name: "A rider updates editable profile fields"
+    rules: [{ $ref: 'rules.yaml#/RiderLifecycle' }]
+    actor: { $ref: 'actors.yaml#/Rider' }
+    given:
+      - { $ref: '#/fixtures/riderRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/UpdateRiderInfo' }
+      data: { riderId: "rider-1", displayName: "Léa B." }
+    then:
+      - { $ref: '#/fixtures/riderInfoUpdated' }
+
+  TestRiderUpdateIsRejectedWhenNotFound:
+    name: "Updating an unknown rider is rejected"
+    rules: [{ $ref: 'rules.yaml#/RiderLifecycle' }]
+    actor: { $ref: 'actors.yaml#/Rider' }
+    given: []
+    when:
+      type: { $ref: 'commands.yaml#/UpdateRiderInfo' }
+      data: { riderId: "rider-missing", displayName: "Nobody" }
+    thrown:
+      - { $ref: 'errors.yaml#/RiderNotFound' }
+
+  TestRiderStatusChanged:
+    name: "A rider goes AVAILABLE (valid transition from OFFLINE)"
+    rules: [{ $ref: 'rules.yaml#/RiderLifecycle' }]
+    actor: { $ref: 'actors.yaml#/Rider' }
+    given:
+      - { $ref: '#/fixtures/riderRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ChangeRiderStatus' }
+      data: { riderId: "rider-1", status: "AVAILABLE" }
+    then:
+      - { $ref: '#/fixtures/riderStatusChanged' }
+
+  TestRiderStatusChangeIsRejected:
+    name: "An OFFLINE rider cannot jump straight to ON_DELIVERY (invalid transition)"
+    rules: [{ $ref: 'rules.yaml#/RiderLifecycle' }]
+    actor: { $ref: 'actors.yaml#/Rider' }
+    given:
+      - { $ref: '#/fixtures/riderRegistered' }
+    when:
+      type: { $ref: 'commands.yaml#/ChangeRiderStatus' }
+      data: { riderId: "rider-1", status: "ON_DELIVERY" }
+    thrown:
+      - { $ref: 'errors.yaml#/InvalidRiderStatusTransition' }
+
+  # ----------------------- PlaceOrderProcess (error guards) ----------
+  TestPaymentCaptureOrphanIsFlagged:
+    name: "A capture matching no checkout run aborts the saga with a typed error (never a silent skip)"
+    rules: [{ $ref: 'rules.yaml#/OrphanPaymentEventFlagged' }]
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
+    given: []
+    when:
+      type: { $ref: 'events.yaml#/PaymentCaptured' }
+      data: { paymentIntentId: "pi_unknown", restaurantId: "resto-1", amount: { amountCents: 2019, currency: "EUR" } }
+    thrown:
+      - { $ref: 'errors.yaml#/PaymentEventOrphaned' }

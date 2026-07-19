@@ -35,7 +35,7 @@ use domain::generated::commands::{
     UpdateRestaurant, UpdateRestaurantAccount, UpdateRestaurantGoogleBusinessProfile, VerifyPhone,
     VerifyGoogleBusinessProfileOrderLink,
 };
-use domain::generated::entities::{Money, Product, Stock};
+use domain::generated::entities::{CheckoutSnapshot, Money, PaymentBreakdown, Product, Stock};
 use domain::generated::events::{
     CatalogCategoryAdded, CatalogCategoryRemoved, CatalogCategoryUpdated, CatalogCreated,
     CatalogImported, CustomerAddressRemoved, CustomerAddressSet, CustomerEmailVerified,
@@ -73,27 +73,37 @@ use crate::queries::{
 use domain::cart::{CartState, MAX_LINE_QUANTITY};
 use domain::delivery_job::DeliveryJobState;
 use domain::generated::commands::{
-    AcceptDelivery, AcceptOrder, AddCartLine, CancelDelivery, CancelOrderByCustomer,
-    CancelOrderByRestaurant, ChangeCartLineQuantity, CompleteDelivery, ConfirmPickup,
-    MarkOrderDelivered, MarkOrderReady, PlaceOrder, RateOrder, RateRestaurant, RejectOrder,
-    RemoveCartLine, RequestRefund, StartPreparation, TipOrder,
+    AcceptDelivery, AcceptOrder, AddCartLine, AssignDeliveryToPartner, BindCartToCustomer,
+    CancelDelivery, CancelOrderByCustomer, CancelOrderByRestaurant, ChangeCartLineQuantity,
+    ChangeRiderStatus, CompleteDelivery, ConfirmPickup, DeclineDelivery, MarkOrderDelivered,
+    MarkOrderReady, PlaceOrder, RateOrder, RateRestaurant, RegisterRider, RejectOrder,
+    RemoveCartLine, ReportDeliveryIssue, RequestRefund, ResolveDeliveryIssue, StartPreparation,
+    TipOrder, UnassignDeliveryFromPartner, UpdateDeliveryPartnerStatus, UpdateDeliveryStatus,
+    UpdateRiderInfo,
 };
 use domain::generated::entities::CartLineItem;
 use domain::generated::events::{
-    CartLineAdded, CartLineQuantityChanged, CartLineRemoved, CartStarted, DeliveryAcceptedByRider,
-    DeliveryCancelled, DeliveryCompleted, DeliveryPickedUp, OrderAcceptedByRestaurant,
-    OrderCancelledByCustomer, OrderCancelledByRestaurant, OrderDelivered, OrderMarkedReady,
-    OrderPreparationStarted, OrderRated, OrderRejectedByRestaurant, OrderTipped,
-    PaymentIntentCreated, RefundRequested, RestaurantRated as RestaurantRatedEvent,
+    CartBoundToCustomer, CartLineAdded, CartLineQuantityChanged, CartLineRemoved, CartStarted,
+    DeliveryAcceptedByRider, DeliveryAssignedToPartner, DeliveryCancelled, DeliveryCompleted,
+    DeliveryDeclinedByRider, DeliveryIssueReported, DeliveryIssueResolved,
+    DeliveryPartnerStatusUpdated, DeliveryPickedUp, DeliveryStatusUpdated,
+    DeliveryUnassignedFromPartner, OrderAcceptedByRestaurant, OrderCancelledByCustomer,
+    OrderCancelledByRestaurant, OrderDelivered, OrderMarkedReady, OrderPreparationStarted,
+    OrderRated, OrderRejectedByRestaurant, OrderTipped, PaymentIntentCreated, RefundRequested,
+    RestaurantRated as RestaurantRatedEvent, RiderInfoUpdated, RiderRegistered, RiderStatusChanged,
 };
 use domain::generated::scalars::{
-    CartId, CartStatus, CatalogItemAvailability, DeliveryJobId, DeliveryStatus, Mode,
-    OrderAcceptanceMode, OrderId, OrderStatus, OptionId, ServiceType, TipRecipient, Tipper,
+    CartId, CartStatus, CatalogItemAvailability, DeliveryJobId, DeliveryStatus, Mode, MoneyCents,
+    OrderAcceptanceMode, OrderId, OrderStatus, OptionId, PaymentProcessStatus, PaymentStatus,
+    RiderId, RiderStatus, ServiceType, TipRecipient, Tipper,
 };
 use domain::order::OrderState;
+use domain::rider::RiderState;
 
+use crate::pm_state::{PaymentProcessRow, PaymentProcessStateStore};
 use crate::ports::{CreatedPaymentIntent, PaymentGateway};
 use crate::queries::{CartReadRepository, CatalogReadRepository, OfferView};
+use crate::repository::Repository;
 
 /// Absorb the optimistic-concurrency clash of a CREATION command (expected_version = 0) as success:
 /// the aggregate already exists under this client-generated id, so re-running the command is a no-op.
@@ -135,8 +145,7 @@ async fn load_restaurant(
     store: &dyn EventStore,
     id: &RestaurantId,
 ) -> Result<(Option<RestaurantState>, i64), DomainError> {
-    let (events, version) = store.load(&restaurant_stream(id)).await?;
-    Ok((domain::restaurant::fold(&events), version))
+    Repository::new(store).load::<RestaurantState>(*id).await
 }
 
 /// Rehydrate and require existence, or reject with `errors.yaml#/RestaurantNotFound`.
@@ -161,8 +170,7 @@ async fn load_restaurant_account(
     store: &dyn EventStore,
     id: &RestaurantAccountId,
 ) -> Result<(Option<RestaurantAccountState>, i64), DomainError> {
-    let (events, version) = store.load(&restaurant_account_stream(id)).await?;
-    Ok((domain::restaurant_account::fold(&events), version))
+    Repository::new(store).load::<RestaurantAccountState>(*id).await
 }
 
 /// Rehydrate and require existence (a deleted account no longer exists), or reject with
@@ -208,7 +216,7 @@ pub async fn register_restaurant_account(
         default_tax_rate: cmd.default_tax_rate,
         timezone: cmd.timezone,
     });
-    idempotent_on_existing(store.append(&stream_name, 0, &[event], actor).await)
+    idempotent_on_existing(Repository::new(store).save(&stream_name, 0, &[event], actor).await)
 }
 
 /// Handle `commands.yaml#/UpdateRestaurantAccount` → emit `events.yaml#/RestaurantAccountUpdated`
@@ -235,7 +243,7 @@ pub async fn update_restaurant_account(
         default_tax_rate: cmd.default_tax_rate,
         timezone: cmd.timezone,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/DeleteRestaurantAccount` → emit `events.yaml#/RestaurantAccountDeleted`
@@ -251,7 +259,7 @@ pub async fn delete_restaurant_account(
         restaurant_account_id: cmd.restaurant_account_id,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RegisterRestaurant` → emit `events.yaml#/RestaurantRegistered` on the new
@@ -298,7 +306,7 @@ pub async fn register_restaurant(
         preparation_time_minutes: cmd.preparation_time_minutes,
         opening_hours: cmd.opening_hours,
     });
-    idempotent_on_existing(store.append(&stream_name, 0, &[event], actor).await)
+    idempotent_on_existing(Repository::new(store).save(&stream_name, 0, &[event], actor).await)
 }
 
 /// Handle `commands.yaml#/ActivateRestaurant` → emit `events.yaml#/RestaurantActivated`. Idempotent
@@ -320,7 +328,7 @@ pub async fn activate_restaurant(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UpdateRestaurant` → emit `events.yaml#/RestaurantUpdated` (full replace of
@@ -363,7 +371,7 @@ pub async fn update_restaurant(
         preparation_time_minutes: cmd.preparation_time_minutes,
         opening_hours: cmd.opening_hours,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/DeactivateRestaurant` → emit `events.yaml#/RestaurantDeactivated`.
@@ -383,7 +391,7 @@ pub async fn deactivate_restaurant(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ChangeOrderAcceptanceMode` → emit
@@ -417,7 +425,7 @@ pub async fn change_order_acceptance_mode(
         restaurant_id: cmd.restaurant_id,
         mode: cmd.mode,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RemoveRestaurant` → emit `events.yaml#/RestaurantRemoved` (the location is
@@ -434,7 +442,7 @@ pub async fn remove_restaurant(
         account_id: cmd.account_id,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UpdateRestaurantGoogleBusinessProfile` → emit
@@ -454,7 +462,7 @@ pub async fn update_restaurant_google_business_profile(
             rating: cmd.rating,
             reviews_count: cmd.reviews_count,
         });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/MarkRestaurantClosed` → emit `events.yaml#/RestaurantMarkedClosed` (e.g. a
@@ -470,7 +478,7 @@ pub async fn mark_restaurant_closed(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ClaimRestaurantListing` → emit `events.yaml#/RestaurantListingClaimed`.
@@ -498,7 +506,7 @@ pub async fn claim_restaurant_listing(
         account_id: cmd.account_id,
         proof: Some(cmd.google_ownership_proof),
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/OptOutRestaurantListing` → emit `events.yaml#/RestaurantListingOptedOut`.
@@ -521,7 +529,7 @@ pub async fn opt_out_restaurant_listing(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ChangeRestaurantListingStatus` → emit
@@ -538,7 +546,7 @@ pub async fn change_restaurant_listing_status(
         listing_status: cmd.listing_status,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ConfigureGoogleBusinessProfileOrderLink` → emit
@@ -556,7 +564,7 @@ pub async fn configure_gbp_order_link(
             gbp_order_url: cmd.gbp_order_url,
         },
     );
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/VerifyGoogleBusinessProfileOrderLink` → emit
@@ -581,7 +589,7 @@ pub async fn verify_gbp_order_link(
             status,
         },
     );
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 // ================================================================================================
@@ -599,8 +607,7 @@ async fn load_cart(
     store: &dyn EventStore,
     id: &CartId,
 ) -> Result<(Option<CartState>, i64), DomainError> {
-    let (events, version) = store.load(&cart_stream(id)).await?;
-    Ok((domain::cart::fold(&events), version))
+    Repository::new(store).load::<CartState>(*id).await
 }
 
 /// Rehydrate and require existence, or reject with `errors.yaml#/CartNotFound`.
@@ -760,13 +767,14 @@ pub async fn add_cart_line(
                 DomainEvent::CartStarted(CartStarted {
                     cart_id: cmd.cart_id,
                     restaurant_id: cmd.restaurant_id,
+                    session_id: cmd.session_id,
                     customer_id: None,
                 }),
                 DomainEvent::CartLineAdded(CartLineAdded { cart_id: cmd.cart_id, line }),
             ];
             // A version-0 clash here is a REAL race (two concurrent first adds with different lines),
             // not a replay — do not absorb it; the client retries onto the now-existing cart.
-            store.append(&cart_stream(&cmd.cart_id), 0, &events, actor).await.map(|_| ())
+            Repository::new(store).save(&cart_stream(&cmd.cart_id), 0, &events, actor).await.map(|_| ())
         }
         Some(s) => {
             if s.status != CartStatus::OPEN {
@@ -785,7 +793,7 @@ pub async fn add_cart_line(
             }
             require_orderable_line(catalogs, &cmd.restaurant_id, &line).await?;
             let event = DomainEvent::CartLineAdded(CartLineAdded { cart_id: cmd.cart_id, line });
-            store.append(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
+            Repository::new(store).save(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
         }
     }
 }
@@ -811,7 +819,7 @@ pub async fn remove_cart_line(
         cart_id: cmd.cart_id,
         cart_line_id: cmd.cart_line_id,
     });
-    store.append(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ChangeCartLineQuantity` → emit `events.yaml#/CartLineQuantityChanged`
@@ -849,7 +857,31 @@ pub async fn change_cart_line_quantity(
         cart_line_id: cmd.cart_line_id,
         quantity: cmd.quantity,
     });
-    store.append(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/BindCartToCustomer` → emit `events.yaml#/CartBoundToCustomer` (actors.yaml,
+/// Cart aggregate; sent per OPEN cart by CartBindingProcess reacting to `CustomerIdentified` —
+/// rules.yaml#/GuestCartsBoundOnIdentification). The bind is ONE-TIME, first wins: a cart already
+/// bound to THIS customer is an idempotent replay (no event), and a cart already bound to a DIFFERENT
+/// customer is ALSO a no-op — the earlier bind stands and is never overwritten (the saga may lawfully
+/// re-deliver against a cart a previous identification already claimed; there is nothing to reject,
+/// so no error is declared for it). Only `CartNotFound` throws.
+pub async fn bind_cart_to_customer(
+    store: &dyn EventStore,
+    cmd: BindCartToCustomer,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_cart(store, &cmd.cart_id).await?;
+    if state.customer_id.is_some() {
+        // Already bound (same customer = replay; different customer = first-wins) — no new fact.
+        return Ok(());
+    }
+    let event = DomainEvent::CartBoundToCustomer(CartBoundToCustomer {
+        cart_id: cmd.cart_id,
+        customer_id: cmd.customer_id,
+    });
+    Repository::new(store).save(&cart_stream(&cmd.cart_id), version, &[event], actor).await.map(|_| ())
 }
 
 // ================================================================================================
@@ -869,8 +901,8 @@ async fn require_order(
     order_id: &OrderId,
     restaurant_id: &domain::generated::scalars::RestaurantId,
 ) -> Result<(OrderState, i64), DomainError> {
-    let (events, version) = store.load(&order_stream(order_id)).await?;
-    match domain::order::fold(&events) {
+    let (state, version) = Repository::new(store).load::<OrderState>(*order_id).await?;
+    match state {
         Some(state) if state.restaurant_id == *restaurant_id => Ok((state, version)),
         _ => Err(reject("OrderNotFound", json!({ "orderId": order_id }))),
     }
@@ -897,7 +929,7 @@ pub async fn accept_order(
         restaurant_id: cmd.restaurant_id,
         estimated_ready_at: cmd.estimated_ready_at,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/StartPreparation` → emit `events.yaml#/OrderPreparationStarted`. Only an
@@ -915,7 +947,7 @@ pub async fn start_preparation(
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/MarkOrderReady` → emit `events.yaml#/OrderMarkedReady`. Allowed from
@@ -934,7 +966,7 @@ pub async fn mark_order_ready(
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/MarkOrderDelivered` → emit `events.yaml#/OrderDelivered`. Allowed from READY
@@ -952,7 +984,7 @@ pub async fn mark_order_delivered(
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RejectOrder` → emit `events.yaml#/OrderRejectedByRestaurant`. Only a PLACED
@@ -972,7 +1004,7 @@ pub async fn reject_order(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/CancelOrderByCustomer` → emit `events.yaml#/OrderCancelledByCustomer`. Only
@@ -992,7 +1024,7 @@ pub async fn cancel_order_by_customer(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/CancelOrderByRestaurant` → emit `events.yaml#/OrderCancelledByRestaurant`.
@@ -1012,7 +1044,7 @@ pub async fn cancel_order_by_restaurant(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RateOrder` → emit `events.yaml#/OrderRated`. Only a DELIVERED order, exactly
@@ -1035,7 +1067,7 @@ pub async fn rate_order(
         customer_id: state.customer_id,
         rider_thumb: cmd.rider_thumb,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RateRestaurant` → emit `events.yaml#/RestaurantRated`. Only a DELIVERED
@@ -1059,7 +1091,7 @@ pub async fn rate_restaurant(
         stars: cmd.stars,
         comment: cmd.comment,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/TipOrder` → emit `events.yaml#/OrderTipped` (ADR-012/0029). Additive —
@@ -1103,7 +1135,7 @@ pub async fn tip_order(
         customer_id: if tipped_by == Tipper::CUSTOMER { state.customer_id } else { None },
         tips: cmd.tips,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RequestRefund` → emit `events.yaml#/RefundRequested`. Only a DELIVERED order
@@ -1124,7 +1156,7 @@ pub async fn request_refund(
         customer_id: state.customer_id,
         reason: cmd.reason,
     });
-    store.append(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 // ================================================================================================
@@ -1142,11 +1174,11 @@ async fn require_delivery_job(
     store: &dyn EventStore,
     id: &DeliveryJobId,
 ) -> Result<(DeliveryJobState, i64), DomainError> {
-    let (events, version) = store.load(&delivery_job_stream(id)).await?;
-    match domain::delivery_job::fold(&events) {
-        Some(state) => Ok((state, version)),
-        None => Err(reject("DeliveryJobNotFound", json!({ "deliveryJobId": id }))),
-    }
+    Repository::new(store)
+        .require::<DeliveryJobState>(*id, || {
+            reject("DeliveryJobNotFound", json!({ "deliveryJobId": id }))
+        })
+        .await
 }
 
 /// The `errors.yaml#/InvalidDeliveryStatus` rejection for `id` currently in `current` when the
@@ -1189,7 +1221,7 @@ pub async fn accept_delivery(
         delivery_job_id: cmd.delivery_job_id,
         rider_id: cmd.rider_id,
     });
-    store.append(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ConfirmPickup` → emit `events.yaml#/DeliveryPickedUp`. The job must be
@@ -1225,7 +1257,7 @@ pub async fn confirm_pickup(
         rider_id: cmd.rider_id,
         at: None,
     });
-    store.append(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/CompleteDelivery` → emit `events.yaml#/DeliveryCompleted`. The job must be
@@ -1261,7 +1293,7 @@ pub async fn complete_delivery(
         delivery_job_id: cmd.delivery_job_id,
         at: None,
     });
-    store.append(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/CancelDelivery` → emit `events.yaml#/DeliveryCancelled`. A job can be
@@ -1289,36 +1321,388 @@ pub async fn cancel_delivery(
         delivery_job_id: cmd.delivery_job_id,
         reason: cmd.reason,
     });
-    store.append(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+// ================================================================================================
+// DeliveryJob ops — decline/issue/status/partner commands (ADR-20260719-193500 command surface).
+// ================================================================================================
+
+/// Whether `from` → `to` is a legal delivery status transition: forward along
+/// PENDING → ASSIGNED → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED (with the same PICKED_UP → DELIVERED
+/// shortcut [`complete_delivery`] allows — a hand-over may skip the explicit OUT_FOR_DELIVERY step),
+/// plus CANCELLED/FAILED from any non-terminal state. DELIVERED/CANCELLED/FAILED are terminal.
+fn delivery_can_transition(from: DeliveryStatus, to: DeliveryStatus) -> bool {
+    use DeliveryStatus::*;
+    matches!(
+        (from, to),
+        (PENDING, ASSIGNED)
+            | (ASSIGNED, PICKED_UP)
+            | (PICKED_UP, OUT_FOR_DELIVERY)
+            | (PICKED_UP, DELIVERED)
+            | (OUT_FOR_DELIVERY, DELIVERED)
+    ) || (matches!(to, CANCELLED | FAILED) && !matches!(from, DELIVERED | CANCELLED | FAILED))
+}
+
+/// The status a job "needed to be in" for a transition INTO `to` — the `expectedStatus` diagnostic on
+/// an `InvalidDeliveryStatus` rejection of an invalid transition (the canonical predecessor in the
+/// lifecycle; only `currentStatus` is interpolated into the catalogued message).
+fn canonical_predecessor(to: DeliveryStatus) -> DeliveryStatus {
+    use DeliveryStatus::*;
+    match to {
+        PENDING | ASSIGNED | CANCELLED | FAILED => PENDING,
+        PICKED_UP => ASSIGNED,
+        OUT_FOR_DELIVERY | DELIVERED => PICKED_UP,
+    }
+}
+
+/// Handle `commands.yaml#/DeclineDelivery` → emit `events.yaml#/DeliveryDeclinedByRider`. Only a
+/// PENDING job can be declined; a job already taken (by a rider or partner) rejects with
+/// `DeliveryAlreadyAssigned` (rules.yaml#/DeliveryDeclineKeepsJobPending). The decline is a recorded
+/// fact only — the fold leaves the job PENDING and re-offerable.
+pub async fn decline_delivery(
+    store: &dyn EventStore,
+    cmd: DeclineDelivery,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_delivery_job(store, &cmd.delivery_job_id).await?;
+    match state.status {
+        DeliveryStatus::PENDING => {}
+        DeliveryStatus::ASSIGNED | DeliveryStatus::PICKED_UP | DeliveryStatus::OUT_FOR_DELIVERY
+            if state.assigned =>
+        {
+            return Err(reject(
+                "DeliveryAlreadyAssigned",
+                json!({ "deliveryJobId": cmd.delivery_job_id }),
+            ));
+        }
+        other => {
+            return Err(invalid_delivery_status(&cmd.delivery_job_id, other, DeliveryStatus::PENDING))
+        }
+    }
+    let event = DomainEvent::DeliveryDeclinedByRider(DeliveryDeclinedByRider {
+        delivery_job_id: cmd.delivery_job_id,
+        rider_id: cmd.rider_id,
+        reason: cmd.reason,
+    });
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/ReportDeliveryIssue` → emit `events.yaml#/DeliveryIssueReported`. Any
+/// non-DELIVERED job can report an issue (rules.yaml#/DeliveryIssueLifecycle); `reportedAt` is stamped
+/// server-side (the command carries none — the reporter states the issue, the system records when).
+pub async fn report_delivery_issue(
+    store: &dyn EventStore,
+    cmd: ReportDeliveryIssue,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_delivery_job(store, &cmd.delivery_job_id).await?;
+    if state.status == DeliveryStatus::DELIVERED {
+        return Err(invalid_delivery_status(
+            &cmd.delivery_job_id,
+            state.status,
+            DeliveryStatus::PENDING,
+        ));
+    }
+    let event = DomainEvent::DeliveryIssueReported(DeliveryIssueReported {
+        delivery_job_id: cmd.delivery_job_id,
+        rider_id: cmd.rider_id,
+        issue: cmd.issue,
+        reported_at: Some(chrono::Utc::now().to_rfc3339()),
+    });
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/ResolveDeliveryIssue` → emit `events.yaml#/DeliveryIssueResolved`. Requires
+/// a non-DELIVERED job with an OPEN issue to resolve (rules.yaml#/DeliveryIssueLifecycle; both arms
+/// reject `InvalidDeliveryStatus` — the only status error this message declares); `resolvedAt` is
+/// stamped server-side like `reportedAt`.
+pub async fn resolve_delivery_issue(
+    store: &dyn EventStore,
+    cmd: ResolveDeliveryIssue,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_delivery_job(store, &cmd.delivery_job_id).await?;
+    if state.status == DeliveryStatus::DELIVERED {
+        return Err(invalid_delivery_status(
+            &cmd.delivery_job_id,
+            state.status,
+            DeliveryStatus::PENDING,
+        ));
+    }
+    if !state.open_issue {
+        // `detail` is a diagnostic beyond the spec'd context: there is no open issue to resolve.
+        return Err(reject(
+            "InvalidDeliveryStatus",
+            json!({
+                "deliveryJobId": cmd.delivery_job_id,
+                "currentStatus": state.status,
+                "expectedStatus": state.status,
+                "detail": "no open issue to resolve",
+            }),
+        ));
+    }
+    let event = DomainEvent::DeliveryIssueResolved(DeliveryIssueResolved {
+        delivery_job_id: cmd.delivery_job_id,
+        resolution: cmd.resolution,
+        resolved_at: Some(chrono::Utc::now().to_rfc3339()),
+    });
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/UpdateDeliveryStatus` → emit `events.yaml#/DeliveryStatusUpdated` (the
+/// independent-rider path / admin correction). The requested status must be a legal transition from
+/// the current one per [`delivery_can_transition`]
+/// (rules.yaml#/DeliveryPickupAndCompletionByRider).
+pub async fn update_delivery_status(
+    store: &dyn EventStore,
+    cmd: UpdateDeliveryStatus,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_delivery_job(store, &cmd.delivery_job_id).await?;
+    if !delivery_can_transition(state.status, cmd.status) {
+        return Err(invalid_delivery_status(
+            &cmd.delivery_job_id,
+            state.status,
+            canonical_predecessor(cmd.status),
+        ));
+    }
+    let event = DomainEvent::DeliveryStatusUpdated(DeliveryStatusUpdated {
+        delivery_job_id: cmd.delivery_job_id,
+        partner_ref: None,
+        status: cmd.status,
+        occurred_at: None, // the record time is the envelope's occurred_at; the payload field is for externally reported times
+        note: None,
+    });
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/AssignDeliveryToPartner` → emit `events.yaml#/DeliveryAssignedToPartner`.
+/// Only a PENDING job; a job already taken (rider or partner) rejects with `DeliveryAlreadyAssigned`
+/// (rules.yaml#/DeliveryPartnerAssignmentLifecycle).
+pub async fn assign_delivery_to_partner(
+    store: &dyn EventStore,
+    cmd: AssignDeliveryToPartner,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_delivery_job(store, &cmd.delivery_job_id).await?;
+    match state.status {
+        DeliveryStatus::PENDING => {}
+        DeliveryStatus::ASSIGNED | DeliveryStatus::PICKED_UP | DeliveryStatus::OUT_FOR_DELIVERY
+            if state.assigned =>
+        {
+            return Err(reject(
+                "DeliveryAlreadyAssigned",
+                json!({ "deliveryJobId": cmd.delivery_job_id }),
+            ));
+        }
+        other => {
+            return Err(invalid_delivery_status(&cmd.delivery_job_id, other, DeliveryStatus::PENDING))
+        }
+    }
+    let event = DomainEvent::DeliveryAssignedToPartner(DeliveryAssignedToPartner {
+        delivery_job_id: cmd.delivery_job_id,
+        partner_ref: cmd.partner_ref,
+    });
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/UnassignDeliveryFromPartner` → emit
+/// `events.yaml#/DeliveryUnassignedFromPartner`. Only a job currently ASSIGNED TO A PARTNER (a
+/// rider-assigned or pending/terminal job rejects `InvalidDeliveryStatus`); the fold returns the job
+/// to PENDING so it is re-offerable (rules.yaml#/DeliveryPartnerAssignmentLifecycle).
+pub async fn unassign_delivery_from_partner(
+    store: &dyn EventStore,
+    cmd: UnassignDeliveryFromPartner,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_delivery_job(store, &cmd.delivery_job_id).await?;
+    if state.status != DeliveryStatus::ASSIGNED {
+        return Err(invalid_delivery_status(
+            &cmd.delivery_job_id,
+            state.status,
+            DeliveryStatus::ASSIGNED,
+        ));
+    }
+    if state.partner_ref.is_none() {
+        // `detail` is a diagnostic beyond the spec'd context: the job is rider-assigned, not
+        // partner-assigned — there is no partner to unassign.
+        return Err(reject(
+            "InvalidDeliveryStatus",
+            json!({
+                "deliveryJobId": cmd.delivery_job_id,
+                "currentStatus": state.status,
+                "expectedStatus": DeliveryStatus::ASSIGNED,
+                "detail": "job is not assigned to a partner",
+            }),
+        ));
+    }
+    let event = DomainEvent::DeliveryUnassignedFromPartner(DeliveryUnassignedFromPartner {
+        delivery_job_id: cmd.delivery_job_id,
+        reason: cmd.reason,
+    });
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/UpdateDeliveryPartnerStatus` → emit
+/// `events.yaml#/DeliveryPartnerStatusUpdated` (the avelo37-acl relays the inbound partner report as
+/// this command so the aggregate applies it). The reported status must be a legal transition from the
+/// current one per [`delivery_can_transition`] (rules.yaml#/DeliveryPartnerAssignmentLifecycle).
+pub async fn update_delivery_partner_status(
+    store: &dyn EventStore,
+    cmd: UpdateDeliveryPartnerStatus,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_delivery_job(store, &cmd.delivery_job_id).await?;
+    if !delivery_can_transition(state.status, cmd.status) {
+        return Err(invalid_delivery_status(
+            &cmd.delivery_job_id,
+            state.status,
+            canonical_predecessor(cmd.status),
+        ));
+    }
+    let event = DomainEvent::DeliveryPartnerStatusUpdated(DeliveryPartnerStatusUpdated {
+        delivery_job_id: cmd.delivery_job_id,
+        partner_ref: cmd.partner_ref,
+        status: cmd.status,
+        occurred_at: None, // set only when the partner reported the time; the envelope records ours
+    });
+    Repository::new(store).save(&delivery_job_stream(&cmd.delivery_job_id), version, &[event], actor).await.map(|_| ())
+}
+
+// ================================================================================================
+// Rider aggregate (actors.yaml#/Rider) — rider identity + the availability status machine.
+// ================================================================================================
+
+/// The stream a Rider aggregate lives on.
+fn rider_stream(id: &RiderId) -> String {
+    format!("Rider-{}", id.0)
+}
+
+/// Rehydrate the Rider aggregate and require existence, or reject with `errors.yaml#/RiderNotFound`.
+async fn require_rider(
+    store: &dyn EventStore,
+    id: &RiderId,
+) -> Result<(RiderState, i64), DomainError> {
+    Repository::new(store)
+        .require::<RiderState>(*id, || reject("RiderNotFound", json!({ "riderId": id })))
+        .await
+}
+
+/// Handle `commands.yaml#/RegisterRider` → emit `events.yaml#/RiderRegistered` on the new
+/// `Rider-<id>` stream. A rider registers ONCE: an existing fold — or losing the version-0 race —
+/// rejects with `errors.yaml#/RiderAlreadyRegistered` (the declared throw; unlike the client-id
+/// creation commands this is NOT absorbed as a replay, per tests.yaml
+/// TestRiderRegisterAgainIsRejected). The initial availability status is OFFLINE — the rider goes
+/// AVAILABLE explicitly via ChangeRiderStatus (rules.yaml#/RiderLifecycle).
+pub async fn register_rider(
+    store: &dyn EventStore,
+    cmd: RegisterRider,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let already = |rider_id: &RiderId| {
+        reject("RiderAlreadyRegistered", json!({ "riderId": rider_id }))
+    };
+    let (state, _version) = Repository::new(store).load::<RiderState>(cmd.rider_id).await?;
+    if state.is_some() {
+        return Err(already(&cmd.rider_id));
+    }
+    let event = DomainEvent::RiderRegistered(RiderRegistered {
+        rider_id: cmd.rider_id,
+        auth_ref: cmd.auth_ref,
+        display_name: cmd.display_name,
+        phone: cmd.phone,
+        status: RiderStatus::OFFLINE,
+    });
+    match Repository::new(store).save(&rider_stream(&cmd.rider_id), 0, &[event], actor).await {
+        Ok(_) => Ok(()),
+        Err(e) if is_version_conflict(&e) => Err(already(&cmd.rider_id)),
+        Err(e) => Err(e),
+    }
+}
+
+/// Handle `commands.yaml#/UpdateRiderInfo` → emit `events.yaml#/RiderInfoUpdated` (partial update of
+/// the editable profile fields). An update carrying nothing editable is rejected
+/// (`errors.yaml#/NoEditableFieldProvided`).
+pub async fn update_rider_info(
+    store: &dyn EventStore,
+    cmd: UpdateRiderInfo,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (_state, version) = require_rider(store, &cmd.rider_id).await?;
+    if cmd.display_name.is_none() && cmd.phone.is_none() {
+        return Err(reject("NoEditableFieldProvided", json!({})));
+    }
+    let event = DomainEvent::RiderInfoUpdated(RiderInfoUpdated {
+        rider_id: cmd.rider_id,
+        display_name: cmd.display_name,
+        phone: cmd.phone,
+    });
+    Repository::new(store).save(&rider_stream(&cmd.rider_id), version, &[event], actor).await.map(|_| ())
+}
+
+/// Handle `commands.yaml#/ChangeRiderStatus` → emit `events.yaml#/RiderStatusChanged`. The move must
+/// be legal per the availability machine (`domain::rider::can_transition`) or it rejects with
+/// `errors.yaml#/InvalidRiderStatusTransition` (rules.yaml#/RiderLifecycle).
+pub async fn change_rider_status(
+    store: &dyn EventStore,
+    cmd: ChangeRiderStatus,
+    actor: &Actor,
+) -> Result<(), DomainError> {
+    let (state, version) = require_rider(store, &cmd.rider_id).await?;
+    if !domain::rider::can_transition(state.status, cmd.status) {
+        return Err(reject(
+            "InvalidRiderStatusTransition",
+            json!({
+                "riderId": cmd.rider_id,
+                "currentStatus": state.status,
+                "targetStatus": cmd.status,
+            }),
+        ));
+    }
+    let event = DomainEvent::RiderStatusChanged(RiderStatusChanged {
+        rider_id: cmd.rider_id,
+        status: cmd.status,
+    });
+    Repository::new(store).save(&rider_stream(&cmd.rider_id), version, &[event], actor).await.map(|_| ())
 }
 
 // ================================================================================================
 // PlaceOrderProcess (actors.yaml#/PlaceOrderProcess) — the checkout saga's command leg.
 // ================================================================================================
 
-/// Handle `commands.yaml#/PlaceOrder` → emit `events.yaml#/PaymentIntentCreated` on the (future)
-/// order's stream (actors.yaml, PlaceOrderProcess). This is ONLY the saga's first, command-initiated
-/// leg: validate the checkout, price the cart server-side and create the Stripe PaymentIntent through
-/// the [`PaymentGateway`] seam (a synchronous decline is the canonical
-/// `errors.yaml#/PaymentDeclined`). Returns the created intent so the mutation payload can carry
-/// `paymentIntentId`/`clientSecret` (api.yaml).
+/// Handle `commands.yaml#/PlaceOrder` → DELIVER `events.yaml#/PaymentIntentCreated` to the Payment
+/// aggregate's stream (`Payment-<paymentIntentId>`, ADR-20260719-193500 — the Payment is BORN by this
+/// fact, carrying the frozen checkout snapshot the capture leg reads back from the log) and open the
+/// PlaceOrderProcess run as a `payment_process_manager` row (AWAITING_PAYMENT_RESULT, keyed by cart).
+/// This is ONLY the saga's first, command-initiated leg: validate the checkout, price the cart
+/// server-side and create the Stripe PaymentIntent through the [`PaymentGateway`] seam (a synchronous
+/// decline is the canonical `errors.yaml#/PaymentDeclined`). Returns the created intent so the
+/// mutation payload can carry `paymentIntentId`/`clientSecret` (api.yaml).
+///
+/// Single-flight per cart: a live run still AWAITING_PAYMENT_RESULT for this cart means a concurrent
+/// (or double-submitted) checkout — rejected with the cross-cutting `errors.yaml#/Conflict` (retry
+/// semantics) BEFORE any gateway call, so no second Stripe intent is ever created for the same cart.
+/// A previously FAILED/resolved run does not block: the retry upserts a fresh row (same cart pk).
 ///
 /// The remaining PlaceOrderProcess legs are event-driven and live in
 /// [`crate::process_managers::place_order`] (run by the infrastructure `ProcessManagerRunner`):
 ///   * `events.yaml#/PaymentCaptured` (INBOUND Stripe webhook, CLAUDE.md "Commands vs inbound
 ///     events") → emit `OrderPlaced` on `Order-<orderId>` and `CartCheckedOut` on `Cart-<cartId>`,
-///     from the checkout frozen by the `CheckoutSnapshotSource` seam;
+///     from the checkout snapshot frozen on the Payment stream;
 ///   * `events.yaml#/PaymentFailed` (INBOUND) → abort: no OrderPlaced, the cart stays OPEN.
 pub async fn place_order(
     store: &dyn EventStore,
     carts: &dyn CartReadRepository,
     payments: &dyn PaymentGateway,
+    pm_state: &dyn PaymentProcessStateStore,
     cmd: PlaceOrder,
     actor: &Actor,
 ) -> Result<CreatedPaymentIntent, DomainError> {
     // The restaurant must exist, be ACTIVE and not PAUSED — folded from ITS stream (authoritative,
     // race-free; the saga may read other aggregates' streams through the same EventStore port).
-    let (restaurant_events, _) = store.load(&restaurant_stream(&cmd.restaurant_id)).await?;
+    let (restaurant_events, _) =
+        Repository::new(store).events::<RestaurantState>(cmd.restaurant_id).await?;
     let Some(restaurant) = domain::restaurant::fold(&restaurant_events) else {
         return Err(reject("RestaurantNotFound", json!({ "restaurantId": cmd.restaurant_id })));
     };
@@ -1360,6 +1744,14 @@ pub async fn place_order(
     if cart.line_ids.is_empty() {
         return Err(reject("CartEmpty", json!({ "cartId": cmd.cart_id })));
     }
+    // Single-flight per cart (the row's `by`/`expect` idempotency, ADR-20260719-193500): a run still
+    // awaiting its Stripe outcome means this cart's checkout is already in flight — reject before the
+    // gateway so no second intent is created and no money can be taken twice.
+    if let Some(run) = pm_state.by_cart(cmd.cart_id).await? {
+        if run.process_status == PaymentProcessStatus::AWAITING_PAYMENT_RESULT {
+            return Err(reject("Conflict", json!({})));
+        }
+    }
     // DELIVERY requires an address.
     if cmd.service_type == ServiceType::DELIVERY && cmd.delivery_address.is_none() {
         return Err(reject("DeliveryAddressRequired", json!({})));
@@ -1379,15 +1771,65 @@ pub async fn place_order(
     // Create the Stripe PaymentIntent through the gateway seam; a synchronous decline surfaces as the
     // canonical `PaymentDeclined` rejection (see the PaymentGateway contract).
     let intent = payments.create_payment_intent(&amount, &cmd.payment_method_id).await?;
-    // Record the saga's first fact on the order's stream (client-generated orderId ⇒ replaying the
-    // checkout for the same order id is absorbed instead of duplicating the fact).
+    // Freeze the priced checkout onto the event so PlaceOrderProcess can rebuild OrderPlaced +
+    // CartCheckedOut from the log on capture (rules.yaml#/CheckoutSnapshotFrozenAtIntent). `items` and the
+    // `breakdown` split are best-available until server-side line pricing lands (TODO(pricing): a catalog
+    // read port for priced OrderLineItems + the ADR-0016/0017 fee/split); `amount` is the server-priced
+    // cart total. The saga still resolves the snapshot through the fail-closed CheckoutSnapshotSource seam
+    // until that source (and the pricing) land — nothing reads `checkout` yet.
+    let zero = Money { amount_cents: MoneyCents(0), currency: amount.currency.clone() };
+    let checkout = CheckoutSnapshot {
+        order_id: cmd.order_id,
+        cart_id: cmd.cart_id,
+        restaurant_id: cmd.restaurant_id,
+        customer_id: cmd.customer_id,
+        mode: cmd.mode,
+        r#ref: None,
+        customer_contact: cmd.customer_contact.clone(),
+        service_type: cmd.service_type,
+        delivery_address: cmd.delivery_address.clone(),
+        items: Vec::new(),
+        total_amount: amount.clone(),
+        breakdown: PaymentBreakdown {
+            articles: amount.clone(),
+            delivery: zero.clone(),
+            service_fee: zero.clone(),
+            total: amount.clone(),
+            restaurant_contribution: zero.clone(),
+            restaurant_payout: amount.clone(),
+            rider_payout: zero.clone(),
+            captain_net: zero,
+        },
+        note: cmd.note.clone(),
+    };
+    // Deliver the saga's first fact to the Payment aggregate's stream — its BIRTH (the Order stream
+    // stays empty until the capture leg materializes OrderPlaced). `create` absorbs a version-0 clash:
+    // the gateway is idempotent per payment method+cart replay windows, so re-hitting an existing
+    // `Payment-<intentId>` stream is a re-delivered birth, not a new fact.
     let event = DomainEvent::PaymentIntentCreated(PaymentIntentCreated {
         payment_intent_id: intent.payment_intent_id.clone(),
         restaurant_id: cmd.restaurant_id,
         customer_id: cmd.customer_id,
         amount,
+        checkout,
     });
-    idempotent_on_existing(store.append(&order_stream(&cmd.order_id), 0, &[event], actor).await)?;
+    Repository::new(store)
+        .create(&domain::payment::stream(&intent.payment_intent_id), &[event], actor)
+        .await?;
+    // Open the PM run: one `payment_process_manager` row keyed by cart, AWAITING_PAYMENT_RESULT until
+    // the inbound Stripe outcome resolves it. `last_update_utc` is stamped server-side by the store
+    // (the value below is ignored on write).
+    pm_state
+        .upsert(&PaymentProcessRow {
+            cart_id: cmd.cart_id,
+            order_id: cmd.order_id,
+            payment_intent_id: intent.payment_intent_id.clone(),
+            process_status: PaymentProcessStatus::AWAITING_PAYMENT_RESULT,
+            payment_status: PaymentStatus::PENDING,
+            last_processed_stripe_event_id: None,
+            last_update_utc: chrono::Utc::now(),
+        })
+        .await?;
     Ok(intent)
 }
 
@@ -1405,8 +1847,7 @@ async fn load_prospect(
     store: &dyn EventStore,
     id: &RestaurantId,
 ) -> Result<(Option<ProspectState>, i64), DomainError> {
-    let (events, version) = store.load(&prospect_stream(id)).await?;
-    Ok((domain::prospect::fold(&events), version))
+    Repository::new(store).load::<ProspectState>(*id).await
 }
 
 /// Handle `commands.yaml#/RecordProspectContact` → emit `events.yaml#/ProspectContacted`. The first
@@ -1447,7 +1888,7 @@ pub async fn record_prospect_contact(
         channel: cmd.channel,
         sequence_step: cmd.sequence_step,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/MarkProspectCold` → emit `events.yaml#/ProspectMarkedCold`. Requires a
@@ -1466,7 +1907,7 @@ pub async fn mark_prospect_cold(
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RecordProspectReply` → emit `events.yaml#/ProspectReplied`. Requires a
@@ -1485,7 +1926,7 @@ pub async fn record_prospect_reply(
         restaurant_id: cmd.restaurant_id,
         note: cmd.note,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 // ================================================================================================
@@ -1502,8 +1943,7 @@ async fn load_catalog(
     store: &dyn EventStore,
     id: &CatalogId,
 ) -> Result<(Option<CatalogState>, i64), DomainError> {
-    let (events, version) = store.load(&catalog_stream(id)).await?;
-    Ok((domain::catalog::fold(&events), version))
+    Repository::new(store).load::<CatalogState>(*id).await
 }
 
 /// Rehydrate and require existence, or reject with `errors.yaml#/CatalogNotFound`.
@@ -1579,7 +2019,7 @@ pub async fn create_catalog(
         restaurant_id: cmd.restaurant_id,
         name: cmd.name,
     });
-    idempotent_on_existing(store.append(&stream_name, 0, &[event], actor).await)
+    idempotent_on_existing(Repository::new(store).save(&stream_name, 0, &[event], actor).await)
 }
 
 /// Handle `commands.yaml#/AddProduct` → emit `events.yaml#/ProductAdded`. Enforces `CatalogNotFound`,
@@ -1622,7 +2062,7 @@ pub async fn add_product(
         restaurant_id: cmd.restaurant_id,
         product,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UpdateProduct` → emit `events.yaml#/ProductUpdated` (full replace,
@@ -1654,7 +2094,7 @@ pub async fn update_product(
         restaurant_id: cmd.restaurant_id,
         product: cmd.product,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RemoveProduct` → emit `events.yaml#/ProductRemoved`. `ProductNotFound`
@@ -1675,7 +2115,7 @@ pub async fn remove_product(
         restaurant_id: cmd.restaurant_id,
         product_id: cmd.product_id,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/AddCatalogCategory` → emit `events.yaml#/CatalogCategoryAdded`. Enforces
@@ -1700,7 +2140,7 @@ pub async fn add_catalog_category(
         restaurant_id: cmd.restaurant_id,
         category: cmd.category,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UpdateCatalogCategory` → emit `events.yaml#/CatalogCategoryUpdated` (full
@@ -1732,7 +2172,7 @@ pub async fn update_catalog_category(
         restaurant_id: cmd.restaurant_id,
         category: cmd.category,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RemoveCatalogCategory` → emit `events.yaml#/CatalogCategoryRemoved`.
@@ -1765,7 +2205,7 @@ pub async fn remove_catalog_category(
         restaurant_id: cmd.restaurant_id,
         product_category_id: cmd.product_category_id,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/AddOptionList` → emit `events.yaml#/OptionListAdded`. Enforces
@@ -1799,7 +2239,7 @@ pub async fn add_option_list(
         restaurant_id: cmd.restaurant_id,
         option_list: cmd.option_list,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UpdateOptionList` → emit `events.yaml#/OptionListUpdated` (full replace).
@@ -1826,7 +2266,7 @@ pub async fn update_option_list(
         restaurant_id: cmd.restaurant_id,
         option_list: cmd.option_list,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RemoveOptionList` → emit `events.yaml#/OptionListRemoved`. Enforces
@@ -1855,7 +2295,7 @@ pub async fn remove_option_list(
         restaurant_id: cmd.restaurant_id,
         option_list_id: cmd.option_list_id,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UpdateOfferStock` → emit `events.yaml#/OfferStockUpdated`. Enforces
@@ -1896,7 +2336,7 @@ pub async fn update_offer_stock(
         offer_id: cmd.offer_id,
         stock,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ImportCatalog` → emit `events.yaml#/CatalogImported` (full replace of the
@@ -1931,7 +2371,7 @@ pub async fn import_catalog(
         products: cmd.products,
         option_lists: cmd.option_lists,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 // ================================================================================================
@@ -1950,8 +2390,7 @@ async fn load_customer(
     store: &dyn EventStore,
     id: &CustomerId,
 ) -> Result<(Option<CustomerState>, i64), DomainError> {
-    let (events, version) = store.load(&customer_stream(id)).await?;
-    Ok((domain::customer::fold(&events), version))
+    Repository::new(store).load::<CustomerState>(*id).await
 }
 
 /// Canonical E.164 from the split phone input: dialing code + national number with the trunk `0`
@@ -2014,8 +2453,9 @@ pub async fn verify_phone(
         let event = DomainEvent::CustomerIdentified(CustomerIdentified {
             customer_id: existing.customer_id,
             auth_ref,
+            session_id: cmd.session_id,
         });
-        store.append(&stream_name, version, &[event], actor).await?;
+        Repository::new(store).save(&stream_name, version, &[event], actor).await?;
         return Ok(VerifyPhoneOutcome { customer_id: existing.customer_id, created: false });
     }
     let stream_name = customer_stream(&cmd.customer_id);
@@ -2030,7 +2470,7 @@ pub async fn verify_phone(
         locale: cmd.locale,
         timezone: cmd.timezone,
     });
-    idempotent_on_existing(store.append(&stream_name, 0, &[event], actor).await)?;
+    idempotent_on_existing(Repository::new(store).save(&stream_name, 0, &[event], actor).await)?;
     Ok(VerifyPhoneOutcome { customer_id, created: true })
 }
 
@@ -2079,7 +2519,7 @@ pub async fn confirm_email_verification(
         customer_id: cmd.customer_id,
         email,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RequestPhoneChange` — a pure EFFECT (emits nothing): reject a new phone
@@ -2138,7 +2578,7 @@ pub async fn confirm_phone_change(
         customer_id: cmd.customer_id,
         phone: new_phone,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/ChangeLanguage` → emit `events.yaml#/CustomerLanguageChanged` (the single
@@ -2154,7 +2594,7 @@ pub async fn change_language(
         customer_id: cmd.customer_id,
         locale: cmd.locale,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/MarkRestaurantAsFavorite` → emit `events.yaml#/RestaurantFavorited`. The
@@ -2174,7 +2614,7 @@ pub async fn mark_restaurant_as_favorite(
         customer_id: cmd.customer_id,
         restaurant_id: cmd.restaurant_id,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UnmarkRestaurantAsFavorite` → emit `events.yaml#/RestaurantUnfavorited`.
@@ -2195,7 +2635,7 @@ pub async fn unmark_restaurant_as_favorite(
         customer_id: cmd.customer_id,
         restaurant_id: cmd.restaurant_id,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/UpdateCustomerInfo` → emit `events.yaml#/CustomerInfoUpdated`. An update
@@ -2215,7 +2655,7 @@ pub async fn update_customer_info(
         customer_id: cmd.customer_id,
         display_name: cmd.display_name,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/SetCustomerPreferences` → emit `events.yaml#/CustomerPreferencesSet`
@@ -2233,7 +2673,7 @@ pub async fn set_customer_preferences(
         dietary_tags: cmd.dietary_tags,
         favorite_cuisines: cmd.favorite_cuisines,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/SetCustomerAddress` → emit `events.yaml#/CustomerAddressSet` (add-or-update
@@ -2251,7 +2691,7 @@ pub async fn set_customer_address(
         label: cmd.label,
         address: cmd.address,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/RemoveCustomerAddress` → emit `events.yaml#/CustomerAddressRemoved`.
@@ -2271,7 +2711,7 @@ pub async fn remove_customer_address(
         customer_id: cmd.customer_id,
         address_id: cmd.address_id,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/SetCustomerPaymentMethod` → emit `events.yaml#/CustomerPaymentMethodSet`
@@ -2287,5 +2727,5 @@ pub async fn set_customer_payment_method(
         customer_id: cmd.customer_id,
         payment_method_id: cmd.payment_method_id,
     });
-    store.append(&stream_name, version, &[event], actor).await.map(|_| ())
+    Repository::new(store).save(&stream_name, version, &[event], actor).await.map(|_| ())
 }

@@ -12,7 +12,7 @@
 //! - `/{role}/graphql` (+ `/{role}/voyager`) — the GraphQL BFF (ADR-0006), see `graphql`.
 //! - `POST /internal/sirene/drain` — wakes the SIRENE sync worker after a CI ingestion run (ADR-0045);
 //!   secured by the `INTERNAL_TRIGGER_TOKEN` shared secret (`x-internal-token` header).
-//! - `POST /webhooks/stripe` — Stripe webhook ingestion (inbound payment facts through the ACL);
+//! - `POST /adapters/stripe/webhooks` — Stripe webhook ingestion (inbound payment facts through the ACL);
 //!   secured by `Stripe-Signature` HMAC verification against `STRIPE_WEBHOOK_SECRET` (fail-closed).
 //!
 //! The projection worker (ADR-0040) runs **in-process** here for now (Render Background Workers are paid),
@@ -46,7 +46,7 @@ use infrastructure::{
     PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProcessManagerRunner,
     ProcessManagerStatus, ProjectionStatus, ProjectionWorker, SireneSyncWorker,
-    UnavailableCheckoutSnapshotSource, UnverifiedGbpOrderLinkProbe,
+    UnverifiedGbpOrderLinkProbe,
 };
 use stripe_adapter::StripeWebhookIngestor;
 use shared_types::HealthDto;
@@ -187,6 +187,11 @@ pub fn router() -> Router {
                     // declines every checkout until the real Stripe adapter (integration workstream)
                     // replaces it here.
                     payments: Arc::new(FailClosedPaymentGateway),
+                    // The payment_process_manager state rows placeOrder opens/single-flights on
+                    // (ADR-20260719-193500).
+                    pm_state: Arc::new(infrastructure::persistence::PgPaymentProcessState::new(
+                        pool.clone(),
+                    )),
                 });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.
@@ -199,15 +204,13 @@ pub fn router() -> Router {
                     println!("RUN_PROJECTOR=false — projection worker not started in-process");
                 }
 
-                // In-process saga runner (process managers, actors.yaml) — same pattern as the
-                // projection worker: RUN_PROCESS_MANAGERS=false hands it to a dedicated worker.
-                // PlaceOrderProcess's checkout-snapshot seam is the fail-closed stand-in until the
-                // Stripe adapter provides the real source.
+                // In-process saga runner (the state-table process managers of
+                // specs/processmanager.yaml, ADR-20260719-193500) — same pattern as the projection
+                // worker: RUN_PROCESS_MANAGERS=false hands it to a dedicated worker. The runner
+                // builds its state-table stores and read models over the pool; the delivery-partner
+                // port stays the no-op stand-in until the avelo37 ACL lands (`with_partner`).
                 if std::env::var("RUN_PROCESS_MANAGERS").map(|v| v != "false").unwrap_or(true) {
-                    let runner = ProcessManagerRunner::new(
-                        pool.clone(),
-                        Arc::new(UnavailableCheckoutSnapshotSource),
-                    );
+                    let runner = ProcessManagerRunner::new(pool.clone());
                     saga_status = Some(runner.status());
                     tokio::spawn(runner.run_loop());
                     println!("saga runner: running in-process (set RUN_PROCESS_MANAGERS=false to disable)");
@@ -221,7 +224,7 @@ pub fn router() -> Router {
                 // RUN_SIRENE_WORKER (default on) like the projector.
                 // Stripe webhook ingestor (INBOUND payment facts): records what Stripe reports through
                 // the ordinary event-store append port, idempotently by Stripe event id. The HTTP
-                // endpoint (`POST /webhooks/stripe`) is mounted below with the other non-GraphQL routes.
+                // endpoint (`POST /adapters/stripe/webhooks`) is mounted below with the other non-GraphQL routes.
                 stripe_ingestor = Some(Arc::new(StripeWebhookIngestor::new(Arc::new(
                     PgEventStore::with_bus(pool.clone(), event_bus.clone()),
                 ))));
@@ -238,7 +241,7 @@ pub fn router() -> Router {
                         )));
                     }
                     Err(_) => eprintln!(
-                        "HUBRISE_ACCESS_TOKEN unset — /webhooks/hubrise verifies callbacks but does not enrich"
+                        "HUBRISE_ACCESS_TOKEN unset — /adapters/hubrise/webhooks verifies callbacks but does not enrich"
                     ),
                 }
 
@@ -273,8 +276,8 @@ pub fn router() -> Router {
         // Internal trigger (ADR-0045): the CI ingestion pings this to wake the SIRENE sync worker.
         .merge(graphql::routes::sirene_internal_routes(sirene_worker))
         // Partner webhook adapters (ADR-20260718-213352): self-contained crates under crates/adapters/*,
-        // each mountable here (monolith) or deployable as its own web service. `POST /webhooks/stripe`
-        // (signature-verified inbound payment facts) and `POST /webhooks/hubrise` (HMAC-verified ingress).
+        // each mountable here (monolith) or deployable as its own web service. `POST /adapters/stripe/webhooks`
+        // (signature-verified inbound payment facts) and `POST /adapters/hubrise/webhooks` (HMAC-verified ingress).
         .merge(stripe_adapter::routes(stripe_ingestor))
         .merge(hubrise_adapter::routes(hubrise_enricher))
         // Host-based landing (ADR-0036): any path not matched above is dispatched by the request `Host`

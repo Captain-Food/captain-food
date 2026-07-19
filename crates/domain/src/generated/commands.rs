@@ -345,6 +345,7 @@ pub struct AddCartLine {
     pub cart_id: CartId,
     pub restaurant_id: RestaurantId,
     pub line: CartLine,
+    pub session_id: SessionId,
 }
 
 /// Visitor removes a line from a cart.
@@ -353,6 +354,7 @@ pub struct AddCartLine {
 pub struct RemoveCartLine {
     pub cart_id: CartId,
     pub cart_line_id: CartLineId,
+    pub session_id: SessionId,
 }
 
 /// Visitor changes the quantity of an existing cart line.
@@ -362,6 +364,7 @@ pub struct ChangeCartLineQuantity {
     pub cart_id: CartId,
     pub cart_line_id: CartLineId,
     pub quantity: i64,
+    pub session_id: SessionId,
 }
 
 /// Ask Supabase Auth to send an SMS OTP to a phone (Twilio; a mock provider in dev). Emits no event. `locale` localizes the message; when absent it defaults from the dialing code (e.g. '+33' → fr-FR).
@@ -381,6 +384,7 @@ pub struct VerifyPhone {
     pub dialing_code: DialingCode,
     pub national_number: NationalPhoneNumber,
     pub code: OtpCode,
+    pub session_id: SessionId,
     pub display_name: Option<CustomerDisplayName>,
     pub locale: Option<Locale>,
     pub timezone: Option<TimeZone>,
@@ -620,7 +624,23 @@ pub struct ConfirmPickup {
     pub rider_id: RiderId,
 }
 
-/// The assigned rider records handing the order over to the customer.
+/// Restaurant/admin cancels a delivery job before it completes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelDelivery {
+    pub delivery_job_id: DeliveryJobId,
+    pub reason: Option<String>,
+}
+
+/// Bind a cart to a customer (after phone verification). The cart is then owned by the customer and can be retrieved across sessions. This is a one-time operation per cart.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindCartToCustomer {
+    pub cart_id: CartId,
+    pub customer_id: CustomerId,
+}
+
+/// The assigned rider marks the delivery complete (handed to the customer).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompleteDelivery {
@@ -628,10 +648,105 @@ pub struct CompleteDelivery {
     pub rider_id: RiderId,
 }
 
-/// Restaurant/admin cancels a delivery job before it completes.
+/// An independent rider declines a pending delivery job (it stays PENDING, re-offerable).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CancelDelivery {
+pub struct DeclineDelivery {
+    pub delivery_job_id: DeliveryJobId,
+    pub rider_id: RiderId,
+    pub reason: Option<String>,
+}
+
+/// Report an issue on a delivery job (rider/partner/support).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportDeliveryIssue {
+    pub delivery_job_id: DeliveryJobId,
+    pub rider_id: Option<RiderId>,
+    pub issue: String,
+}
+
+/// Resolve a previously reported delivery issue.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveDeliveryIssue {
+    pub delivery_job_id: DeliveryJobId,
+    pub resolution: String,
+}
+
+/// Drive a delivery job's status (independent-rider path / admin correction).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDeliveryStatus {
+    pub delivery_job_id: DeliveryJobId,
+    pub status: DeliveryStatus,
+}
+
+/// Assign a pending delivery job to a delivery partner for fulfilment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignDeliveryToPartner {
+    pub delivery_job_id: DeliveryJobId,
+    pub partner_ref: ExternalReference,
+}
+
+/// Unassign a delivery job from its partner (to re-offer it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnassignDeliveryFromPartner {
     pub delivery_job_id: DeliveryJobId,
     pub reason: Option<String>,
+}
+
+/// Apply a partner-reported status change to the delivery job (from the avelo37-acl inbound report).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDeliveryPartnerStatus {
+    pub delivery_job_id: DeliveryJobId,
+    pub partner_ref: Option<ExternalReference>,
+    pub status: DeliveryStatus,
+}
+
+/// Register as an independent Captain rider (linked to the auth provider user).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterRider {
+    pub rider_id: RiderId,
+    pub auth_ref: ExternalReference,
+    pub display_name: String,
+    pub phone: PhoneNumber,
+}
+
+/// Update editable rider profile fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRiderInfo {
+    pub rider_id: RiderId,
+    pub display_name: Option<String>,
+    pub phone: Option<PhoneNumber>,
+}
+
+/// Change a rider's availability/lifecycle status.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeRiderStatus {
+    pub rider_id: RiderId,
+    pub status: RiderStatus,
+}
+
+/// The RESTAURANT (its own orders) or an ADMIN approves a pending refund (optionally partial); the RefundProcess then drives Stripe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApproveRefund {
+    pub order_id: OrderId,
+    pub amount: Money,
+    pub reason: Option<String>,
+}
+
+/// The RESTAURANT (its own orders) or an ADMIN denies a pending refund request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DenyRefund {
+    pub order_id: OrderId,
+    pub reason: String,
 }
