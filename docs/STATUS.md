@@ -3,6 +3,14 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-19. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> 🧭 **Agreed direction (2026-07-19, late):** generalize the spec→codegen approach — ①
+> **service catalog with configurable binding** (ADR-20260719-214500, Proposed): `specs/services.yaml`
+> declares the abstract APIs (`/external/payment` `request`/`refund` → Stripe adapter, delivery,
+> identity, catalog_sync, …); config picks local (in-process, no self-HTTP) vs http per service; PM
+> `ports` will `$ref` the catalog. ② **Codegen roadmap** ([docs/codegen-roadmap.md](codegen-roadmap.md)),
+> ranked: aggregate lifecycle state machines → generated behaviour-test harness from tests.yaml →
+> PM orchestrator scaffolding → the service catalog → PM state-store generation.
+>
 > ✅ **RUNTIME REIMPLEMENTED (2026-07-19 night) — the state-table PM runtime is live on this branch
 > (ADR-20260719-193500), 266 workspace tests green, `make validate` 0 errors, no drift.** Landed:
 > the `Payment` (stream `Payment-{intentId}`) + `Rider` aggregates and DeliveryJob partner/issue
