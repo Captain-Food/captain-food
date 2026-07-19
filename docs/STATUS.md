@@ -3,6 +3,13 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-19. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> 🔀 **Parallel session engaged: command sourcing + inbound-event sourcing** (infrastructure
+> journals, branched from main after this branch merges). Two constraints agreed here carry over:
+> journals NEVER write `domain_events` (aggregates own the log — ADR-20260719-193500; hook points =
+> the ACL ingest seams + the server's mutation-dispatch boundary), and the event log stays the single
+> source of truth (a command journal records requests incl. rejections, never replays as state).
+> Journal TABLES still get declared in `specs/database/tables/*.yaml` so their DDL generates.
+>
 > 🧭 **Agreed direction (2026-07-19, late):** generalize the spec→codegen approach — ①
 > **service catalog with configurable binding** (ADR-20260719-214500, Proposed): `specs/services.yaml`
 > declares the abstract APIs, own spec apart from api.yaml (`/services/payment` `request`/`refund` → Stripe adapter, delivery,
