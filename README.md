@@ -1,6 +1,8 @@
 # Captain.Food
 
-[![codegen-consistency](https://github.com/Captain-Food/captain-food/actions/workflows/codegen-consistency.yml/badge.svg?branch=main)](https://github.com/Captain-Food/captain-food/actions/workflows/codegen-consistency.yml)
+[![ci](https://github.com/Captain-Food/captain-food/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Captain-Food/captain-food/actions/workflows/ci.yml)
+[![db-migrate](https://github.com/Captain-Food/captain-food/actions/workflows/db-migrate.yml/badge.svg)](https://github.com/Captain-Food/captain-food/actions/workflows/db-migrate.yml)
+[![render](https://img.shields.io/website?url=https%3A%2F%2Flive.captain.food%2Fhealth&up_message=live&down_message=down&label=render%20deploy)](https://live.captain.food/health)
 
 Local-first food ordering & delivery for independent restaurants and food trucks.
 **V0** validates product–market fit in **Tours**, with a mobile-first web UX and a backend that can
@@ -27,9 +29,13 @@ make validate     # the single blocking gate — must be 0 errors (needs a Rust 
 make generate     # regenerate every artifact from the specs
 ```
 
-The **codegen-consistency** workflow (the badge above) runs `validate` + `generate` on every push/PR and
-fails if the committed artifacts drift from the specs — so `specs/generated/` is always in sync. Its single
-`codegen` job builds + tests the Rust `tools/codegen-rs`, validates, regenerates, and diffs.
+The **ci** workflow (first badge) is the whole gate, on **every branch push and every PR**: it builds
+the full Cargo workspace, runs the complete behaviour-test suite, runs the spec validator (must be
+0 errors), then regenerates every artifact and fails on any spec↔generation drift — so
+`specs/generated/` is always in sync. The **db-migrate** workflow (second badge) applies
+`migrations/*.sql` only after `ci` succeeds on `main` (ADR-0043), and Render auto-deploys once the
+checks pass — the **render deploy** badge probes the live service's `/health` (which also gates on
+the migrated schema version), so green means deployed, migrated, and answering.
 
 ## Operating model
 
