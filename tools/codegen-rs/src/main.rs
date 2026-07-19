@@ -2608,8 +2608,10 @@ fn parse_actors(model: &Model) -> Vec<Actor> {
 /// table, the read models (infrastructure read side), the outbound ports (adapters), and the target
 /// aggregates (owners of the facts). A guard renders as a rejection arrow (command legs) or a skip
 /// note (event legs) — so the diagram proves who may say "no" and who only records.
-fn pm_sequence_blocks(model: &Model) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+/// Returns (name → diagram body, in processmanager.yaml order); callers add their own framing
+/// (Markdown fence, HTML <pre>), so one diagram source feeds every artifact.
+fn pm_sequence_map(model: &Model) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
     let pms = match model.defs.get("processmanager.yaml") {
         Some(Value::Mapping(m)) => m,
         _ => return out,
@@ -2745,7 +2747,16 @@ fn pm_sequence_blocks(model: &Model) -> Vec<String> {
             }
             sl.push("  end".into());
         }
-        for line in [format!("### {}", name), String::new(), "```mermaid".into(), sl.join("\n"), "```".into(), String::new()] {
+        out.push((name.to_string(), sl.join("\n")));
+    }
+    out
+}
+
+/// The per-PM diagrams as `### name` + fenced Markdown blocks (c4.generated.md framing).
+fn pm_sequence_blocks(model: &Model) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (name, body) in pm_sequence_map(model) {
+        for line in [format!("### {}", name), String::new(), "```mermaid".into(), body, "```".into(), String::new()] {
             out.push(line);
         }
     }
@@ -4448,7 +4459,8 @@ fn emit_documentation(model: &Model) -> String {
         ].join("\n") }
     }).collect();
 
-    // actorDocs
+    // actorDocs — process managers also embed their saga sequence diagram (typed steps).
+    let pm_seq: HashMap<String, String> = pm_sequence_map(model).into_iter().collect();
     let actor_docs: Vec<Doc> = actors.iter().map(|a| {
         let rows: Vec<Vec<String>> = a.receives.iter().map(|e| {
             let msg_name = ref_name(&e.message_ref).unwrap_or_else(|| "?".to_string());
@@ -4465,11 +4477,17 @@ fn emit_documentation(model: &Model) -> String {
             vec![msg, emits, throws]
         }).collect();
         let kind = if a.kind == "aggregate" { "🧩 aggregate" } else { "⚙️ process manager" };
-        Doc { ctx: cx.of_actor(&a.name), md: vec![
+        let mut parts = vec![
             item_head("actor", "Actor", &a.name),
             format!("\n_{}_{}\n", kind, a.description.as_deref().map(|d| format!(" — {}", d)).unwrap_or_default()),
             md_table(&["Receives", "Emits →", "Throws"], &rows),
-        ].join("\n") }
+        ];
+        if a.kind != "aggregate" {
+            if let Some(d) = pm_seq.get(&a.name) {
+                parts.push(format!("\nSequence (generated from the typed steps):\n\n```mermaid\n{}\n```", d));
+            }
+        }
+        Doc { ctx: cx.of_actor(&a.name), md: parts.join("\n") }
     }).collect();
 
     // 4. VIEWS
@@ -4858,6 +4876,11 @@ const THEME: &str = r##"<style>
   .cf-node:hover rect { filter:brightness(1.3); }
   .cf-node text { pointer-events:none; }
   .cfmap-info { padding:6px; font-size:.88em; }
+  /* saga sequence diagrams: MERMAID_JS renders pre.mermaid in place; offline the same styling
+     keeps the diagram SOURCE readable (monospace, scrollable, dark-palette border) */
+  .pm-seq { margin:8px 0; }
+  .pm-seq pre.mermaid { background:#262626; border:1px solid var(--line); border-radius:6px; padding:10px 12px; overflow-x:auto; font-size:12.5px; line-height:1.5; color:var(--fg); }
+  .pm-seq pre.mermaid svg { max-width:100%; }
 </style>
 <script>
   function setAll(open){ document.querySelectorAll('details').forEach(d=>d.open=open); }
@@ -4866,6 +4889,26 @@ const THEME: &str = r##"<style>
 const MAP_JS: &str = r##"(function(){var M=__CF_DATA__;var svg=document.getElementById('cf-svg'),crumb=document.getElementById('cf-crumb'),info=document.getElementById('cf-info'),back=document.getElementById('cf-back');if(!svg)return;var NS='http://www.w3.org/2000/svg';var stack=[{key:'system',title:'System'}];function slug(s){return String(s).toLowerCase().replace(/[^a-z0-9_]+/g,'-');}function el(t,a,x){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;}var K={container:'#4ec9b0',external:'#cc7832',context:'#ffc66d',actor:'#4ec9b0','process':'#56a0c0',command:'#dcdcaa',event:'#c586c0',view:'#9cdcfe'};function find(a,id){for(var i=0;i<a.length;i++)if(a[i].id===id)return a[i];return null;}function frame(key){if(key==='system'){var nodes=[];M.containers.forEach(function(c){nodes.push({id:c.id,label:c.id,kind:'container',sub:'container:'+c.id,desc:c.technology+' — '+c.description});});M.externals.forEach(function(x){nodes.push({id:x.id,label:x.id,kind:'external',desc:x.description});});var ids={};nodes.forEach(function(n){ids[n.id]=1;});var edges=M.relationships.filter(function(r){return ids[r.from]&&ids[r.to];}).map(function(r){return {from:r.from,to:r.to,label:r.description};});return {title:'System',nodes:nodes,edges:edges,note:'Containers (teal) and external systems (orange). Click a container to see its bounded contexts.'};}if(key.indexOf('container:')===0){var id=key.slice(10);var c=find(M.containers,id)||{realizes:[]};var nodes=[];M.contexts.forEach(function(ctx){var inIt=(ctx.aggregates||[]).some(function(a){return (c.realizes||[]).indexOf(a)>=0;});if(inIt)nodes.push({id:ctx.id,label:ctx.id,kind:'context',sub:'context:'+ctx.id,desc:ctx.description});});return {title:id,nodes:nodes,edges:[],note:nodes.length?'Bounded contexts running in this container. Click one to see its aggregates.':'No bounded context runs in this container (infrastructure/runtime unit).'};}if(key.indexOf('context:')===0){var id=key.slice(8);var ctx=find(M.contexts,id)||{aggregates:[],processManagers:[]};var nodes=(ctx.aggregates||[]).map(function(a){return {id:a,label:a,kind:'actor',sub:'actor:'+a,anchor:'actor-'+slug(a)};});(ctx.processManagers||[]).forEach(function(a){nodes.push({id:a,label:a,kind:'process',sub:'actor:'+a,anchor:'actor-'+slug(a)});});return {title:id,nodes:nodes,edges:[],note:'Aggregates and process managers (sagas). Click one to see its command → event → view flow.'};}if(key.indexOf('actor:')===0){var name=key.slice(6);var a=M.actors[name]||{receives:[]};var nodes=[],edges=[],seen={};function add(id,label,kind,anchor){if(!seen[id]){seen[id]=1;nodes.push({id:id,label:label,kind:kind,anchor:anchor});}}add('A',name,a.type==='process-manager'?'process':'actor','actor-'+slug(name));a.receives.forEach(function(r){var mid=(r.isCommand?'c:':'e:')+r.message;add(mid,r.message,r.isCommand?'command':'event',(r.isCommand?'command-':'event-')+slug(r.message));edges.push({from:'A',to:mid,label:'receives'});(r.emits||[]).forEach(function(ev){add('e:'+ev,ev,'event','event-'+slug(ev));edges.push({from:mid,to:'e:'+ev,label:'emits'});M.views.forEach(function(v){if((v.fedBy||[]).indexOf(ev)>=0){add('v:'+v.name,v.name,'view','view-'+slug(v.name));edges.push({from:'e:'+ev,to:'v:'+v.name,label:'projects'});}});});});return {title:name,nodes:nodes,edges:edges,note:'Flow: message (yellow=command, purple=event) → emitted events → read models (blue). Click a box to jump to its section.'};}return {title:'?',nodes:[],edges:[]};}function render(){var f=frame(stack[stack.length-1].key);crumb.textContent=stack.map(function(s){return s.title;}).join('  ›  ');back.style.visibility=stack.length>1?'visible':'hidden';while(svg.firstChild)svg.removeChild(svg.firstChild);var defs=el('defs');var mk=el('marker',{id:'cf-arrow',viewBox:'0 0 10 10',refX:'9',refY:'5',markerWidth:'7',markerHeight:'7',orient:'auto'});mk.appendChild(el('path',{d:'M0,0 L10,5 L0,10 z',fill:'#888'}));defs.appendChild(mk);svg.appendChild(defs);var W=960,H=560,n=f.nodes.length||1;var cols=Math.max(1,Math.ceil(Math.sqrt(n)));var rows=Math.ceil(n/cols);var nw=180,nh=48;var gx=(W-cols*nw)/(cols+1),gy=(H-rows*nh)/(rows+1);var pos={};f.nodes.forEach(function(nd,i){var r=Math.floor(i/cols),c=i%cols;pos[nd.id]={x:gx+c*(nw+gx),y:gy+r*(nh+gy)};});f.edges.forEach(function(e){var a=pos[e.from],b=pos[e.to];if(!a||!b)return;var x1=a.x+nw/2,y1=a.y+nh/2,x2=b.x+nw/2,y2=b.y+nh/2;var ln=el('line',{x1:x1,y1:y1,x2:x2,y2:y2,stroke:'#6a6a6a','stroke-width':'1.3','marker-end':'url(#cf-arrow)'});if(e.label)ln.appendChild(el('title',null,e.label));svg.appendChild(ln);});f.nodes.forEach(function(nd){var p=pos[nd.id];var g=el('g',{'class':'cf-node',transform:'translate('+p.x+','+p.y+')'});g.appendChild(el('rect',{width:nw,height:nh,rx:'7',fill:'#313335',stroke:(K[nd.kind]||'#888'),'stroke-width':'1.6'}));var label=nd.label.length>24?nd.label.slice(0,23)+'…':nd.label;g.appendChild(el('text',{x:nw/2,y:nh/2+4,'text-anchor':'middle',fill:'#e6e6e6','font-size':'12'},label));if(nd.desc)g.appendChild(el('title',null,nd.desc));g.addEventListener('click',function(){if(nd.sub){stack.push({key:nd.sub,title:nd.label});render();}else if(nd.anchor){location.hash=nd.anchor;}});svg.appendChild(g);});info.textContent=f.note||'';}back.addEventListener('click',function(){if(stack.length>1){stack.pop();render();}});render();})();"##;
 
 const NAV_JS: &str = r##"<script>(function(){var bar=document.getElementById('cf-crumb'),tip=document.getElementById('cf-tip'),doc=document.querySelector('.doc');if(!bar||!doc)return;var TH=54,cur={};function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}function lab(el){return el?(el.getAttribute('data-crumb')||''):'';}function lastAbove(sel){var e=document.querySelectorAll(sel),f=null;for(var i=0;i<e.length;i++){var s=e[i];if(s.offsetParent===null)continue;if(s.getBoundingClientRect().top<=TH)f=s;}return f;}function upd(){var a=lastAbove('details.sec>summary'),b=lastAbove('details.subsec>summary'),c=lastAbove('details.item>summary');cur.ctx=a?a.parentElement:null;cur.sec=b?b.parentElement:null;cur.item=c?c.parentElement:null;if(cur.sec&&cur.ctx&&!cur.ctx.contains(cur.sec))cur.sec=null;if(cur.item&&cur.sec&&!cur.sec.contains(cur.item))cur.item=null;if(cur.item&&!cur.sec)cur.item=null;var p=[];if(cur.ctx)p.push('<span class="seg" data-role="ctx">'+esc(lab(cur.ctx))+'</span>');if(cur.sec)p.push('<span class="seg" data-role="sec">'+esc(lab(cur.sec))+'</span>');if(cur.item)p.push('<span class="seg" data-role="item">'+esc(lab(cur.item))+'</span>');bar.innerHTML=p.length?p.join('<span class="sep">\u203a</span>'):'<span class="muted">\ud83d\udcd6 Captain.Food \u2014 Product Documentation</span>';}bar.addEventListener('click',function(e){var s=e.target.closest('.seg');if(!s)return;var el=cur[s.getAttribute('data-role')];if(!el)return;var sm=el.querySelector(':scope>summary')||el;var y=sm.getBoundingClientRect().top+window.pageYOffset-TH-8;window.scrollTo({top:y,behavior:'smooth'});});var raf=0;function onScroll(){if(raf)return;raf=requestAnimationFrame(function(){raf=0;upd();});}window.addEventListener('scroll',onScroll,{passive:true});window.addEventListener('resize',onScroll);document.addEventListener('toggle',onScroll,true);upd();var D=window.CF_DESC||{};doc.addEventListener('mouseover',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;var id=decodeURIComponent(a.getAttribute('href').slice(1));if(!(id in D)){tip.style.display='none';return;}var d=D[id];tip.textContent=d||'no description yet';tip.className='cf-tip'+(d?'':' empty');tip.style.display='block';});doc.addEventListener('mousemove',function(e){if(tip.style.display!=='block')return;var x=e.clientX+14,y=e.clientY+16,w=tip.offsetWidth,h=tip.offsetHeight;if(x+w>window.innerWidth-8)x=window.innerWidth-w-8;if(y+h>window.innerHeight-8)y=e.clientY-h-14;tip.style.left=x+'px';tip.style.top=y+'px';});doc.addEventListener('mouseout',function(e){if(e.target.closest('a[href^="#"]'))tip.style.display='none';});})();</script>"##;
+
+// Renders every <pre class="mermaid"> (the saga sequence diagrams). Constraints: the CDN import may
+// be unreachable (offline docs) — then the styled source text must stay as-is; diagrams sit inside
+// <details> that the reader may collapse/re-open — mermaid mis-sizes hidden elements, so only
+// visible ones are rendered and re-opened <details> render lazily on their toggle event, with a
+// data-mermaid-rendered guard against double rendering.
+const MERMAID_JS: &str = r##"<script type="module">
+try {
+  const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+  mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+  const render = (root) => {
+    const nodes = [...root.querySelectorAll('pre.mermaid:not([data-mermaid-rendered])')].filter((n) => n.offsetParent !== null);
+    if (!nodes.length) return;
+    nodes.forEach((n) => n.setAttribute('data-mermaid-rendered', ''));
+    mermaid.run({ nodes }).catch(() => {});
+  };
+  document.addEventListener('toggle', (e) => { if (e.target.open) render(e.target); }, true);
+  render(document);
+} catch (e) { /* offline: the <pre> keeps showing the diagram source */ }
+</script>"##;
 
 fn h_esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
@@ -5079,7 +5122,9 @@ fn emit_documentation_html(model: &Model) -> String {
         HDoc { ctx: cx.of_type(&t.name), html: h_item("type", "Type", &t.name, &body, t.description.as_deref()) }
     }).collect();
 
-    // 3. Actors
+    // 3. Actors — process managers also embed their saga sequence diagram; the <pre class="mermaid">
+    // source is rendered client-side by MERMAID_JS and stays readable as text when offline.
+    let pm_seq: HashMap<String, String> = pm_sequence_map(model).into_iter().collect();
     let actor_docs: Vec<HDoc> = actors.iter().map(|a| {
         let kind = if a.kind == "aggregate" { "🧩 aggregate" } else { "⚙️ process manager" };
         let rows: Vec<Vec<String>> = a.receives.iter().map(|e| {
@@ -5088,7 +5133,10 @@ fn emit_documentation_html(model: &Model) -> String {
             let throws = { let s = e.throws.iter().map(|r| h_link("error", &ref_name(r).unwrap_or_default())).collect::<Vec<_>>().join(", "); if s.is_empty() { "—".to_string() } else { s } };
             vec![h_link(if is_cmd { "command" } else { "event" }, &ref_name(&e.message_ref).unwrap_or_else(|| "?".to_string())), emits, throws]
         }).collect();
-        HDoc { ctx: cx.of_actor(&a.name), html: h_item("actor", "Actor", &a.name, &format!("<div class=\"rel muted\">{}</div>{}", kind, h_table(&["Receives", "Emits →", "Throws"], &rows)), a.description.as_deref()) }
+        let seq = if a.kind == "aggregate" { String::new() } else {
+            pm_seq.get(&a.name).map(|d| format!("<div class=\"pm-seq\"><pre class=\"mermaid\">{}</pre></div>", h_esc(d))).unwrap_or_default()
+        };
+        HDoc { ctx: cx.of_actor(&a.name), html: h_item("actor", "Actor", &a.name, &format!("<div class=\"rel muted\">{}</div>{}{}", kind, h_table(&["Receives", "Emits →", "Throws"], &rows), seq), a.description.as_deref()) }
     }).collect();
 
     // 4. Views
@@ -5398,6 +5446,8 @@ fn emit_documentation_html(model: &Model) -> String {
     out.push_str(&desc_script);
     out.push('\n');
     out.push_str(NAV_JS);
+    out.push('\n');
+    out.push_str(MERMAID_JS);
     out
 }
 

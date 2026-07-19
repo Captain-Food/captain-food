@@ -3,6 +3,16 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-19. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> 📣 **Latest on this branch (2026-07-19 evening):** ① Guard semantics hardened — **in case of error a
+> guard always `throws` a typed exception, on EVENT legs too** (run aborts + error surfaced — e.g.
+> `PaymentEventOrphaned` for an orphan Stripe capture/failure, `DeliveryJobNotFound` for partner
+> reports on an unknown dispatch run); `skip` is strictly for benign alternatives, and the validator
+> enforces exactly-one-outcome per guard. ② The **codegen-consistency CI gate now runs on every
+> branch push** (was main-only), so no branch escapes validate + test + drift. ③ The **per-PM
+> sequence diagrams are now embedded in the product documentation** — `documentation.generated.md`
+> (mermaid fences, renders on GitHub) **and** `documentation.generated.html` (in-page mermaid
+> renderer, offline-degrades to readable source) — generated from the typed steps, zero drift.
+>
 > 🚧 **Feature branch — Process-manager re-architecture: DSL layer DONE, runtime pending.** Process
 > managers are now **state-table orchestrators specified by a TYPED step DSL** (ADR-20260719-172821):
 > `specs/processmanager.yaml` legs are ordered `read`/`guard`/`call`/`deliver`/`send`/`state` steps —

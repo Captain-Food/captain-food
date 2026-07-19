@@ -3034,6 +3034,54 @@ _⚙️ process manager_ — The checkout saga. On PlaceOrder: reads the OPEN ca
 | [⚡ `PaymentCaptured`](#event-paymentcaptured) | [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `CartCheckedOut`](#event-cartcheckedout) | [⛔ `PaymentEventOrphaned`](#error-paymenteventorphaned) |
 | [⚡ `PaymentFailed`](#event-paymentfailed) | _Payment failed: resolve the run; no order is placed and the cart stays OPEN._ | [⛔ `PaymentEventOrphaned`](#error-paymenteventorphaned) |
 
+Sequence (generated from the typed steps):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant IN as Inbox (trigger)
+  participant PM as PlaceOrderProcess (decides)
+  participant ST as payment_process_manager (state)
+  participant RM_Cart as Cart (read model)
+  participant RM_Restaurant as Restaurant (read model)
+  participant PT_payment_gateway as port payment_gateway (adapter)
+  participant AG_Payment as Payment (aggregate)
+  participant AG_Order as Order (aggregate)
+  participant AG_Cart as Cart (aggregate)
+  rect rgb(245,245,245)
+  IN->>PM: PlaceOrder (command)
+  PM->>RM_Cart: read as cart [cart_id=PlaceOrder.cartId]
+  PM--xIN: throws CartNotFound
+  PM--xIN: throws CartNotOpen unless cart.status == OPEN
+  PM--xIN: throws CartEmpty
+  PM->>RM_Restaurant: read as restaurant [restaurant_id=PlaceOrder.restaurantId]
+  PM--xIN: throws RestaurantPaused
+  PM--xIN: throws CannotOrderTestRestaurant
+  PM--xIN: throws DeliveryAddressRequired
+  PM--xIN: throws OutsideDeliveryArea
+  PM->>PT_payment_gateway: create_payment_intent
+  PM--xIN: throws PaymentDeclined
+  PM->>AG_Payment: deliver PaymentIntentCreated — the aggregate records it
+  PM->>ST: set cart_id=PlaceOrder.cartId, order_id=PlaceOrder.orderId, payment_intent_id=payment_gateway.create_payment_intent, process_status=AWAITING_PAYMENT_RESULT, payment_status=PENDING
+  end
+  rect rgb(245,245,245)
+  IN->>PM: PaymentCaptured (event)
+  PM->>ST: by payment_intent_id=PaymentCaptured.paymentIntentId
+  PM--xIN: throws PaymentEventOrphaned
+  PM->>ST: expect process_status=AWAITING_PAYMENT_RESULT
+  PM->>AG_Order: deliver OrderPlaced — the aggregate records it
+  PM->>AG_Cart: deliver CartCheckedOut — the aggregate records it
+  PM->>ST: set payment_status=CAPTURED, process_status=ORDER_PLACED, last_processed_stripe_event_id=envelope.event_id
+  end
+  rect rgb(245,245,245)
+  IN->>PM: PaymentFailed (event)
+  PM->>ST: by payment_intent_id=PaymentFailed.paymentIntentId
+  PM--xIN: throws PaymentEventOrphaned
+  PM->>ST: expect process_status=AWAITING_PAYMENT_RESULT
+  PM->>ST: set payment_status=FAILED, process_status=FAILED, last_processed_stripe_event_id=envelope.event_id
+  end
+```
+
 <a id="actor-refundprocess"></a>
 #### 🎭 Actor: `RefundProcess`
 
@@ -3051,6 +3099,63 @@ _ | — |
 | [📩 `DenyRefund`](#command-denyrefund) | [⚡ `RefundDenied`](#event-refunddenied) | [⛔ `RefundNotPending`](#error-refundnotpending) |
 | [⚡ `PaymentRefunded`](#event-paymentrefunded) | _Stripe reported the settled refund (recorded by the Payment aggregate) — close the run. The fact is already in the log; nothing to emit.
 _ | — |
+
+Sequence (generated from the typed steps):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant IN as Inbox (trigger)
+  participant PM as RefundProcess (decides)
+  participant ST as refund_process_manager (state)
+  participant RM_OrderTracking as OrderTracking (read model)
+  participant PT_payment_gateway as port payment_gateway (adapter)
+  participant AG_Payment as Payment (aggregate)
+  rect rgb(245,245,245)
+  IN->>PM: OrderRejectedByRestaurant (event)
+  PM->>RM_OrderTracking: read as order [order_id=OrderRejectedByRestaurant.orderId]
+  Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>ST: set order_id=OrderRejectedByRestaurant.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=OrderRejectedByRestaurant.reason
+  end
+  rect rgb(245,245,245)
+  IN->>PM: OrderCancelledByCustomer (event)
+  PM->>RM_OrderTracking: read as order [order_id=OrderCancelledByCustomer.orderId]
+  Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>ST: set order_id=OrderCancelledByCustomer.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=OrderCancelledByCustomer.reason
+  end
+  rect rgb(245,245,245)
+  IN->>PM: OrderCancelledByRestaurant (event)
+  PM->>RM_OrderTracking: read as order [order_id=OrderCancelledByRestaurant.orderId]
+  Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>ST: set order_id=OrderCancelledByRestaurant.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=OrderCancelledByRestaurant.reason
+  end
+  rect rgb(245,245,245)
+  IN->>PM: RefundRequested (event)
+  PM->>RM_OrderTracking: read as order [order_id=RefundRequested.orderId]
+  Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>ST: set order_id=RefundRequested.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=RefundRequested.reason
+  end
+  rect rgb(245,245,245)
+  IN->>PM: ApproveRefund (command)
+  PM->>ST: by order_id=ApproveRefund.orderId
+  PM--xIN: throws RefundNotPending unless state.process_status == PENDING_APPROVAL
+  PM->>PT_payment_gateway: request_refund
+  PM->>AG_Payment: deliver RefundApproved — the aggregate records it
+  PM->>ST: set process_status=APPROVED_AWAITING_SETTLEMENT, approved_amount_cents=ApproveRefund.amount, reason=ApproveRefund.reason
+  end
+  rect rgb(245,245,245)
+  IN->>PM: DenyRefund (command)
+  PM->>ST: by order_id=DenyRefund.orderId
+  PM--xIN: throws RefundNotPending unless state.process_status == PENDING_APPROVAL
+  PM->>AG_Payment: deliver RefundDenied — the aggregate records it
+  PM->>ST: set process_status=DENIED, reason=DenyRefund.reason
+  end
+  rect rgb(245,245,245)
+  IN->>PM: PaymentRefunded (event)
+  PM->>ST: by order_id=PaymentRefunded.orderId; expect process_status=APPROVED_AWAITING_SETTLEMENT
+  PM->>ST: set refund_id=PaymentRefunded.refundId, process_status=REFUNDED
+  end
+```
 
 ### 🗄️ Views (read models) _(2)_
 
@@ -4859,6 +4964,24 @@ _⚙️ process manager_ — Binds a returning visitor's OPEN guest carts to the
 | --- | --- | --- |
 | [⚡ `CustomerIdentified`](#event-customeridentified) | [⚡ `CartBoundToCustomer`](#event-cartboundtocustomer) | — |
 
+Sequence (generated from the typed steps):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant IN as Inbox (trigger)
+  participant PM as CartBindingProcess (decides)
+  participant ST as cart_binding_process_manager (state)
+  participant RM_Cart as Cart (read model)
+  participant AG_Cart as Cart (aggregate)
+  rect rgb(245,245,245)
+  IN->>PM: CustomerIdentified (event)
+  PM->>RM_Cart: read as open_carts [session_id=CustomerIdentified.sessionId, status=OPEN]
+  PM->>AG_Cart: send BindCartToCustomer (for each open_carts) — the aggregate validates
+  PM->>ST: set session_id=CustomerIdentified.sessionId, customer_id=CustomerIdentified.customerId
+  end
+```
+
 ### 🗄️ Views (read models) _(1)_
 
 <a id="view-customer"></a>
@@ -5762,6 +5885,58 @@ _ | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound) |
 | [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner) | _The partner declined (inbound): re-offer, or flag for manual handling._ | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound) |
 | [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | [⚡ `OrderDelivered`](#event-orderdelivered) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound) |
 | [⚡ `DeliveryCompleted`](#event-deliverycompleted) | [⚡ `OrderDelivered`](#event-orderdelivered) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound) |
+
+Sequence (generated from the typed steps):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant IN as Inbox (trigger)
+  participant PM as DeliveryDispatchProcess (decides)
+  participant ST as delivery_dispatch_process_manager (state)
+  participant RM_OrderTracking as OrderTracking (read model)
+  participant RM_Restaurant as Restaurant (read model)
+  participant AG_DeliveryJob as DeliveryJob (aggregate)
+  participant PT_delivery_partner as port delivery_partner (adapter)
+  participant AG_Order as Order (aggregate)
+  rect rgb(245,245,245)
+  IN->>PM: OrderMarkedReady (event)
+  PM->>RM_OrderTracking: read as order [order_id=OrderMarkedReady.orderId]
+  Note over PM: skip unless order.service_type == DELIVERY
+  PM->>RM_Restaurant: read as restaurant [restaurant_id=OrderMarkedReady.restaurantId]
+  PM->>AG_DeliveryJob: deliver DeliveryRequested — the aggregate records it
+  PM->>PT_delivery_partner: offer_job
+  PM->>ST: set order_id=OrderMarkedReady.orderId, restaurant_id=OrderMarkedReady.restaurantId, delivery_job_id=DeliveryRequested.deliveryJobId, process_status=OFFERED
+  end
+  rect rgb(245,245,245)
+  IN->>PM: DeliveryAcceptedByPartner (event)
+  PM->>ST: by delivery_job_id=DeliveryAcceptedByPartner.deliveryJobId
+  PM--xIN: throws DeliveryJobNotFound
+  PM->>ST: set process_status=ACCEPTED
+  end
+  rect rgb(245,245,245)
+  IN->>PM: DeliveryRejectedByPartner (event)
+  PM->>ST: by delivery_job_id=DeliveryRejectedByPartner.deliveryJobId
+  PM--xIN: throws DeliveryJobNotFound
+  PM->>ST: set process_status=REOFFER_REQUIRED
+  PM->>PT_delivery_partner: offer_job
+  end
+  rect rgb(245,245,245)
+  IN->>PM: DeliveryStatusUpdated (event)
+  Note over PM: skip unless message.status == DELIVERED
+  PM->>ST: by delivery_job_id=DeliveryStatusUpdated.deliveryJobId
+  PM--xIN: throws DeliveryJobNotFound
+  PM->>AG_Order: send MarkOrderDelivered — the aggregate validates
+  PM->>ST: set process_status=COMPLETED
+  end
+  rect rgb(245,245,245)
+  IN->>PM: DeliveryCompleted (event)
+  PM->>ST: by delivery_job_id=DeliveryCompleted.deliveryJobId
+  PM--xIN: throws DeliveryJobNotFound
+  PM->>AG_Order: send MarkOrderDelivered — the aggregate validates
+  PM->>ST: set process_status=COMPLETED
+  end
+```
 
 ### 🗄️ Views (read models) _(1)_
 
