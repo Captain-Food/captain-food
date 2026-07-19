@@ -188,23 +188,89 @@ impl QueryRoot {
     }
     /// The delivery job of an order (tracking); owning customer, the restaurant/admin, or the assigned rider. Ownership enforced server-side.
     #[graphql(name = "delivery", guard = "RoleGuard::new(ALLOW_CUSTOMER_RESTAURANT_ACCOUNT_RESTAURANT_RIDER_ADMIN)", visible = "visible_customer_restaurant_account_restaurant_rider_admin")]
-    async fn delivery(&self, input: DeliveryQueryInput) -> async_graphql::Result<Option<DeliveryJob>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn delivery(&self, ctx: &async_graphql::Context<'_>, input: DeliveryQueryInput) -> async_graphql::Result<Option<DeliveryJob>> {
+        let deliveries = ctx.data::<std::sync::Arc<dyn application::queries::DeliveryReadRepository>>()?;
+        let orders = ctx.data::<std::sync::Arc<dyn application::queries::OrderReadRepository>>()?;
+        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;
+        let Some(job) = deliveries.by_order(input.order_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))? else {
+            return Ok(None);
+        };
+        let order = orders
+            .by_id(job.order_id)
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?
+            .ok_or_else(|| async_graphql::Error::new("delivery references an unknown order"))?;
+        let restaurant = restaurants
+            .by_id(job.restaurant_id)
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?
+            .ok_or_else(|| async_graphql::Error::new("delivery references an unknown restaurant"))?;
+        Ok(Some(DeliveryJob::from((job, order, restaurant))))
     }
     /// The independent rider's assigned/available delivery jobs (rider app).
     #[graphql(name = "myDeliveries", guard = "RoleGuard::new(ALLOW_RIDER)", visible = "visible_rider")]
-    async fn my_deliveries(&self, input: Option<MyDeliveriesQueryInput>) -> async_graphql::Result<Vec<DeliveryJob>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn my_deliveries(&self, ctx: &async_graphql::Context<'_>, input: Option<MyDeliveriesQueryInput>) -> async_graphql::Result<Vec<DeliveryJob>> {
+        // The rider's identity is the verified session principal (ADR-0047): the rider app acts
+        // under its Supabase subject, which serves as the RiderId until a dedicated rider identity
+        // read model lands. No principal (schema executed outside a request) or an anonymous one →
+        // no jobs, not an error.
+        let Some(rider_id) = ctx
+            .data_opt::<crate::auth::Principal>()
+            .and_then(|p| p.user_id.as_deref())
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        else {
+            return Ok(Vec::new());
+        };
+        let deliveries = ctx.data::<std::sync::Arc<dyn application::queries::DeliveryReadRepository>>()?;
+        let orders = ctx.data::<std::sync::Arc<dyn application::queries::OrderReadRepository>>()?;
+        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;
+        let rows = deliveries
+            .for_rider(domain::generated::scalars::RiderId(rider_id), input.and_then(|i| i.status).map(Into::into))
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        // Non-null `order`/`restaurant` navigation fields: join by id (a job is only dispatched for a
+        // projected order+restaurant, so a missing target simply drops the job).
+        let mut out = Vec::new();
+        for job in rows {
+            let Some(order) = orders.by_id(job.order_id).await.map_err(|e| async_graphql::Error::new(e.to_string()))? else { continue };
+            let Some(restaurant) = restaurants.by_id(job.restaurant_id).await.map_err(|e| async_graphql::Error::new(e.to_string()))? else { continue };
+            out.push(DeliveryJob::from((job, order, restaurant)));
+        }
+        Ok(out)
     }
     /// A restaurant's active delivery jobs (delivery board; ownership enforced server-side).
     #[graphql(name = "restaurantDeliveries", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_RESTAURANT)", visible = "visible_restaurant_account_restaurant")]
-    async fn restaurant_deliveries(&self, input: RestaurantDeliveriesQueryInput) -> async_graphql::Result<Vec<DeliveryJob>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn restaurant_deliveries(&self, ctx: &async_graphql::Context<'_>, input: RestaurantDeliveriesQueryInput) -> async_graphql::Result<Vec<DeliveryJob>> {
+        let deliveries = ctx.data::<std::sync::Arc<dyn application::queries::DeliveryReadRepository>>()?;
+        let orders = ctx.data::<std::sync::Arc<dyn application::queries::OrderReadRepository>>()?;
+        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;
+        let restaurant_id: domain::generated::scalars::RestaurantId = input.restaurant_id.into();
+        let rows = deliveries
+            .by_restaurant(restaurant_id, input.status.map(Into::into))
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+        // One board = one restaurant: hydrate the non-null `restaurant` navigation target once.
+        let restaurant = restaurants
+            .by_id(restaurant_id)
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?
+            .ok_or_else(|| async_graphql::Error::new("delivery references an unknown restaurant"))?;
+        let mut out = Vec::new();
+        for job in rows {
+            let Some(order) = orders.by_id(job.order_id).await.map_err(|e| async_graphql::Error::new(e.to_string()))? else { continue };
+            out.push(DeliveryJob::from((job, order, restaurant.clone())));
+        }
+        Ok(out)
     }
     /// All restaurant locations under an account (back-office; ownership enforced server-side).
     #[graphql(name = "restaurantLocationsByAccount", guard = "RoleGuard::new(ALLOW_RESTAURANT_ACCOUNT_ADMIN)", visible = "visible_restaurant_account_admin")]
-    async fn restaurant_locations_by_account(&self, input: RestaurantLocationsByAccountQueryInput) -> async_graphql::Result<Vec<Restaurant>> {
-        Err(async_graphql::Error::new("not implemented"))
+    async fn restaurant_locations_by_account(&self, ctx: &async_graphql::Context<'_>, input: RestaurantLocationsByAccountQueryInput) -> async_graphql::Result<Vec<Restaurant>> {
+        let repo = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;
+        let rows = repo.by_account(input.account_id.into()).await.map_err(|e| async_graphql::Error::new(e.to_string()))?;
+        Ok(rows.into_iter().map(Restaurant::from).collect())
     }
     /// B2B prospection pipeline (admin): scored prospects, optionally filtered by minimum score / pipeline status.
     #[graphql(name = "prospectionPipeline", guard = "RoleGuard::new(ALLOW_ADMIN)", visible = "visible_admin")]

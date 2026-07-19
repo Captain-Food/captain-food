@@ -6,9 +6,10 @@ use async_trait::async_trait;
 
 use domain::generated::entities::{Money, OptionList, Product};
 use domain::generated::scalars::{
-    CartId, CatalogItemAvailability, CuisineCategory, CurrencyCode, CustomerId, EmailAddress,
-    ExternalReference, OfferId, OfferName, OptionId, OptionListId, OrderId, OrderStatus,
-    PhoneNumber, ProductId, ProductName, ProspectPipelineStatus, Quantity, RestaurantId, Slug,
+    CartId, CatalogItemAvailability, CuisineCategory, CurrencyCode, CustomerId, DeliveryJobId,
+    DeliveryProvider, DeliveryStatus, EmailAddress, ExternalReference, OfferId, OfferName,
+    OptionId, OptionListId, OrderId, OrderStatus, PhoneNumber, ProductId, ProductName,
+    ProspectPipelineStatus, Quantity, RestaurantAccountId, RestaurantId, RiderId, Slug,
     StockStatus,
 };
 use domain::shared::errors::DomainError;
@@ -38,6 +39,21 @@ pub trait RestaurantReadRepository: Send + Sync {
     async fn by_slug(&self, slug: Slug) -> Result<Option<RestaurantRow>, DomainError>;
     /// A single restaurant by id — the FK-navigation join other read slices hydrate from.
     async fn by_id(&self, id: RestaurantId) -> Result<Option<RestaurantRow>, DomainError>;
+
+    /// All restaurant locations under an account (back-office; api.yaml `restaurantLocationsByAccount`).
+    /// Provided: filters [`Self::list`] in memory; the Pg adapter overrides with an SQL predicate over
+    /// the `restaurant_account_id` column.
+    async fn by_account(
+        &self,
+        account_id: RestaurantAccountId,
+    ) -> Result<Vec<RestaurantRow>, DomainError> {
+        Ok(self
+            .list(RestaurantFilter::default())
+            .await?
+            .into_iter()
+            .filter(|r| r.restaurant_account_id.as_ref() == Some(&account_id))
+            .collect())
+    }
 }
 
 /// One option list (modifier group) as the Cart line checks need it: the selection bounds plus the
@@ -189,6 +205,57 @@ pub trait OrderReadRepository: Send + Sync {
     async fn list(&self, filter: OrderFilter) -> Result<Vec<OrderTrackingRow>, DomainError>;
     /// A single order by id (tracking), or `None` if absent.
     async fn by_id(&self, id: OrderId) -> Result<Option<OrderTrackingRow>, DomainError>;
+}
+
+/// One `View_DeliveryJob` row (ADR-0031/0039) — hand-written: this read model is a SQL VIEW
+/// (projection-on-read over `domain_events`), not a materialized projection table, so no `…Row` is
+/// generated for it (`generated/rows.rs` covers `tables/projection_tables.yaml` only). Field order and
+/// types mirror the view's columns: enum columns come back as INTEGER ordinals (ADR-0037), addresses
+/// and the courier as jsonb.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeliveryJobRow {
+    pub delivery_job_id: DeliveryJobId,
+    pub order_id: OrderId,
+    pub restaurant_id: RestaurantId,
+    pub status: DeliveryStatus,
+    /// INDEPENDENT (rider accepted) or PARTNER (partner accepted); `None` while PENDING.
+    pub provider: Option<DeliveryProvider>,
+    /// Set for an independent-rider delivery; `None` for a partner delivery.
+    pub rider_id: Option<RiderId>,
+    /// Courier `{ displayName, phone?, riderId? }` jsonb; from the partner on acceptance.
+    pub courier: Option<serde_json::Value>,
+    /// Partner-side delivery id; idempotent key for inbound updates.
+    pub partner_ref: Option<ExternalReference>,
+    pub pickup_address: serde_json::Value,
+    pub dropoff_address: serde_json::Value,
+    pub estimated_pickup_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub estimated_dropoff_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub requested_at: chrono::DateTime<chrono::Utc>,
+    pub picked_up_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub delivered_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Read port over the `View_DeliveryJob` read model (ADR-0031/0039). Backs the `delivery` /
+/// `myDeliveries` / `restaurantDeliveries` GraphQL queries — order tracking, the rider job list and
+/// the restaurant delivery board.
+#[async_trait]
+pub trait DeliveryReadRepository: Send + Sync {
+    /// The delivery job of an order (tracking), or `None` before dispatch / for a COLLECTION order.
+    /// A re-dispatched order keeps one live job per DeliveryRequested; the latest wins.
+    async fn by_order(&self, order_id: OrderId) -> Result<Option<DeliveryJobRow>, DomainError>;
+    /// The independent rider's job list (rider app): jobs assigned to them PLUS the available pool
+    /// (PENDING, unassigned), honouring the optional status filter, newest first.
+    async fn for_rider(
+        &self,
+        rider_id: RiderId,
+        status: Option<DeliveryStatus>,
+    ) -> Result<Vec<DeliveryJobRow>, DomainError>;
+    /// A restaurant's delivery board, honouring the optional status filter, newest first.
+    async fn by_restaurant(
+        &self,
+        restaurant_id: RestaurantId,
+        status: Option<DeliveryStatus>,
+    ) -> Result<Vec<DeliveryJobRow>, DomainError>;
 }
 
 /// Optional filters for the admin prospection pipeline — mirrors the `prospectionPipeline` query args

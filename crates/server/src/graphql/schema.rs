@@ -11,9 +11,9 @@ use application::ports::{
     AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier, PaymentGateway,
 };
 use application::queries::{
-    CartReadRepository, CatalogReadRepository, CustomerReadRepository, OrderReadRepository,
-    PricingPolicyReadRepository, ProspectionReadRepository, RestaurantReadRepository,
-    UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
+    CartReadRepository, CatalogReadRepository, CustomerReadRepository, DeliveryReadRepository,
+    OrderReadRepository, PricingPolicyReadRepository, ProspectionReadRepository,
+    RestaurantReadRepository, UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 
 use super::generated::mutation::MutationRoot;
@@ -33,6 +33,7 @@ pub struct ReadDeps {
     pub carts: Arc<dyn CartReadRepository>,
     pub orders: Arc<dyn OrderReadRepository>,
     pub customers: Arc<dyn CustomerReadRepository>,
+    pub deliveries: Arc<dyn DeliveryReadRepository>,
 }
 
 /// Write-side ports injected into the mutation resolvers' context (ADR-0035 composition root): the
@@ -64,6 +65,7 @@ pub fn build_schema(deps: Option<ReadDeps>, writes: Option<WriteDeps>) -> Captai
         builder = builder.data(d.carts);
         builder = builder.data(d.orders);
         builder = builder.data(d.customers);
+        builder = builder.data(d.deliveries);
     }
     if let Some(w) = writes {
         builder = builder.data(w.event_store);

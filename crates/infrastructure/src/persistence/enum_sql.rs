@@ -7,9 +7,9 @@
 //! `specs/scalars.yaml`, the same source the `ref_*` seed rows come from).
 
 use domain::generated::scalars::{
-    CartStatus, ComparisonBasis, CuisineCategory, DeliveryStatus, GbpLinkStatus, OrderAcceptanceMode,
-    OrderStatus, ProspectPipelineStatus, RestaurantListingStatus, RestaurantStatus, ServiceType,
-    ThumbRating,
+    CartStatus, ComparisonBasis, CuisineCategory, DeliveryProvider, DeliveryStatus, GbpLinkStatus,
+    OrderAcceptanceMode, OrderStatus, ProspectPipelineStatus, RestaurantListingStatus,
+    RestaurantStatus, ServiceType, ThumbRating,
 };
 use domain::shared::errors::DomainError;
 
@@ -77,6 +77,7 @@ enum_ord!(DeliveryStatus {
     FAILED => 5,
     CANCELLED => 6,
 });
+enum_ord!(DeliveryProvider { PARTNER => 0, INDEPENDENT => 1 });
 enum_ord!(ComparisonBasis { ESTIMATED => 0, REAL => 1 });
 enum_ord!(ThumbRating { UP => 0, DOWN => 1 });
 
@@ -115,6 +116,8 @@ mod tests {
         assert_eq!(OrderStatus::CANCELLED_BY_RESTAURANT.to_ord(), 8);
         assert_eq!(OrderStatus::from_ord(4).unwrap(), OrderStatus::READY);
         assert_eq!(DeliveryStatus::CANCELLED.to_ord(), 6);
+        assert_eq!(DeliveryProvider::PARTNER.to_ord(), 0);
+        assert_eq!(DeliveryProvider::from_ord(1).unwrap(), DeliveryProvider::INDEPENDENT);
         assert_eq!(ComparisonBasis::REAL.to_ord(), 1);
         assert_eq!(ThumbRating::DOWN.to_ord(), 1);
         assert!(RestaurantStatus::from_ord(99).is_err());

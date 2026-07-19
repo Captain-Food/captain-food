@@ -14,15 +14,15 @@ use application::ports::{
     AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier, PaymentGateway,
 };
 use application::queries::{
-    CartReadRepository, CatalogReadRepository, CustomerReadRepository, OrderReadRepository,
-    PricingPolicyReadRepository, ProspectionReadRepository, RestaurantReadRepository,
-    UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
+    CartReadRepository, CatalogReadRepository, CustomerReadRepository, DeliveryReadRepository,
+    OrderReadRepository, PricingPolicyReadRepository, ProspectionReadRepository,
+    RestaurantReadRepository, UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 use infrastructure::{
     FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, FailClosedPaymentGateway,
     PgCartRepository,
-    PgCatalogRepository, PgCustomerRepository, PgEventStore, PgOrderRepository,
-    PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
+    PgCatalogRepository, PgCustomerRepository, PgDeliveryRepository, PgEventStore,
+    PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, UnverifiedGbpOrderLinkProbe,
 };
 use sqlx::PgPool;
@@ -102,6 +102,7 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
     let carts: Arc<dyn CartReadRepository> = Arc::new(PgCartRepository::new(pool.clone()));
     let orders: Arc<dyn OrderReadRepository> = Arc::new(PgOrderRepository::new(pool.clone()));
     let customers: Arc<dyn CustomerReadRepository> = Arc::new(PgCustomerRepository::new(pool.clone()));
+    let deliveries: Arc<dyn DeliveryReadRepository> = Arc::new(PgDeliveryRepository::new(pool.clone()));
     let event_store: Arc<dyn EventStore> = Arc::new(PgEventStore::new(pool.clone()));
     let ownership: Arc<dyn GoogleOwnershipVerifier> = Arc::new(FailClosedGoogleOwnershipVerifier);
     let gbp_probe: Arc<dyn GbpOrderLinkProbe> = Arc::new(UnverifiedGbpOrderLinkProbe);
@@ -118,6 +119,7 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
             carts,
             orders,
             customers,
+            deliveries,
         }),
         Some(server::graphql_schema::WriteDeps {
             event_store,

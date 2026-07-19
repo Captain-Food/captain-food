@@ -6,7 +6,7 @@
 #![allow(non_camel_case_types)]
 
 use application::projections::{CartRow, CatalogRow, CustomerRow, OrderTrackingRow, ProspectionPipelineRow, RestaurantRow};
-use application::queries::{PricingPolicyRow, UberEstimationPolicyRow, UberSplitPolicyRow};
+use application::queries::{DeliveryJobRow, PricingPolicyRow, UberEstimationPolicyRow, UberSplitPolicyRow};
 use domain::generated::scalars as ds;
 
 use super::scalars::*;
@@ -937,6 +937,34 @@ impl From<(OrderTrackingRow, RestaurantRow)> for Order {
             estimated_dropoff_at: row.estimated_dropoff_at,
             rated_at: row.rated_at,
             delivery_jobs: Vec::new(),
+            restaurant: restaurant.into(),
+        }
+    }
+}
+
+/// Read-model rows → API type: the `View_DeliveryJob` row (ADR-0031/0039) plus the joined
+/// OrderTracking + Restaurant rows (the FK-derived `order`/`restaurant` navigation fields are
+/// non-null, so the resolver hydrates them — all three are projections of the same domain log).
+/// Addresses and the courier deserialize out of the view's jsonb columns.
+impl From<(DeliveryJobRow, OrderTrackingRow, RestaurantRow)> for DeliveryJob {
+    fn from((row, order, restaurant): (DeliveryJobRow, OrderTrackingRow, RestaurantRow)) -> Self {
+        Self {
+            id: row.delivery_job_id.into(),
+            order_id: row.order_id.into(),
+            restaurant_id: row.restaurant_id.into(),
+            status: row.status.into(),
+            provider: row.provider.map(Into::into),
+            courier: row.courier.and_then(|v| serde_json::from_value(v).ok()),
+            pickup_address: serde_json::from_value(row.pickup_address)
+                .expect("DeliveryJob.pickupAddress: invalid jsonb"),
+            dropoff_address: serde_json::from_value(row.dropoff_address)
+                .expect("DeliveryJob.dropoffAddress: invalid jsonb"),
+            estimated_pickup_at: row.estimated_pickup_at,
+            estimated_dropoff_at: row.estimated_dropoff_at,
+            requested_at: row.requested_at,
+            picked_up_at: row.picked_up_at,
+            delivered_at: row.delivered_at,
+            order: (order, restaurant.clone()).into(),
             restaurant: restaurant.into(),
         }
     }

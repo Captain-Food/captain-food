@@ -5,7 +5,9 @@
 use application::ports::RestaurantRepository;
 use application::queries::{RestaurantFilter, RestaurantReadRepository, RestaurantRow};
 use async_trait::async_trait;
-use domain::generated::scalars::{OrderAcceptanceMode, RestaurantListingStatus, RestaurantStatus, Slug};
+use domain::generated::scalars::{
+    OrderAcceptanceMode, RestaurantAccountId, RestaurantListingStatus, RestaurantStatus, Slug,
+};
 use domain::shared::errors::DomainError;
 use domain::shared::identifiers::RestaurantId;
 use sqlx::{PgPool, Postgres, QueryBuilder};
@@ -92,5 +94,23 @@ impl RestaurantReadRepository for PgRestaurantRepository {
             .await
             .map_err(db_err)?;
         row.as_ref().map(restaurant_store::decode).transpose()
+    }
+
+    /// All locations under an account (back-office `restaurantLocationsByAccount`), newest-first —
+    /// overrides the provided in-memory default with an SQL predicate.
+    async fn by_account(
+        &self,
+        account_id: RestaurantAccountId,
+    ) -> Result<Vec<RestaurantRow>, DomainError> {
+        let sql = format!(
+            "SELECT {} FROM restaurant WHERE restaurant_account_id = $1 ORDER BY created_at DESC",
+            restaurant_store::COLUMNS
+        );
+        let rows = sqlx::query(&sql)
+            .bind(account_id.0)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+        rows.iter().map(restaurant_store::decode).collect()
     }
 }
