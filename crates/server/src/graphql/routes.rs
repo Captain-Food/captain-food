@@ -2,16 +2,22 @@
 //! role is parsed from the path and injected into the request context, where the generated per-field
 //! `guard`/`visible` ACL bindings (see `acl` + `generated/acl.rs`) enforce it: unauthorized operations
 //! are FORBIDDEN, and introspection only shows the fields/types the role can reach. `GET /{role}/graphql`
-//! renders GraphiQL, `POST` executes (introspection included — so `GET /{role}/voyager`, GraphQL Voyager's
-//! interactive schema graph, sees that role's filtered schema).
+//! upgrades to GraphQL-over-WebSocket (subscriptions) when the request is a WS handshake and renders
+//! GraphiQL otherwise; `POST` executes (introspection included — so `GET /{role}/voyager`, GraphQL
+//! Voyager's interactive schema graph, sees that role's filtered schema).
+//!
+//! Free-tier caveat (subscriptions): the WebSocket — and the in-process event bus feeding it — lives
+//! only while the app instance is warm; the uptimerobot ping keeps the free-tier instance from idling,
+//! but a restart/redeploy still drops connections, so clients must resubscribe and re-sync via the
+//! pull queries.
 
 use std::sync::Arc;
 
-use async_graphql::http::GraphiQLSource;
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+use async_graphql::http::{GraphiQLSource, ALL_WEBSOCKET_PROTOCOLS};
+use async_graphql_axum::{GraphQLProtocol, GraphQLRequest, GraphQLResponse, GraphQLWebSocket};
 use axum::{
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    extract::{ws::WebSocketUpgrade, FromRequestParts, Path, Request, State},
+    http::{header::AUTHORIZATION, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{any, get, post},
     Extension, Json, Router,
@@ -27,7 +33,7 @@ use super::schema::CaptainSchema;
 /// schema is applied as state) so it can be merged into the main router.
 pub fn graphql_routes(schema: CaptainSchema) -> Router {
     Router::new()
-        .route("/{role}/graphql", get(graphiql).post(graphql_handler))
+        .route("/{role}/graphql", get(graphql_get).post(graphql_handler))
         .route("/{role}/voyager", get(voyager))
         // Convenience: bare paths redirect to the PUBLIC role (307 preserves method/body for POST).
         .route("/graphql", any(|| async { Redirect::temporary("/public/graphql") }))
@@ -105,16 +111,77 @@ async fn graphql_handler(
     resp.into_response()
 }
 
-async fn graphiql(Path(role_seg): Path<String>) -> Response {
-    match RequestRole::from_segment(&role_seg) {
-        Some(role) => Html(
+/// `GET /{role}/graphql`: the GraphQL-over-WebSocket upgrade (subscriptions, `graphql-ws` /
+/// `graphql-transport-ws`) when the request is a WS handshake; GraphiQL otherwise (its subscription
+/// endpoint points back at this same URL, so subscriptions work in the IDE).
+///
+/// Auth on the WS leg (ADR-0047): browsers cannot set an `Authorization` header on a WebSocket, so the
+/// token is taken from the `connection_init` payload (`{"Authorization": "Bearer …"}`, the graphql-ws
+/// convention) with the upgrade request's headers as fallback for header-capable clients — then
+/// verified by the SAME `AuthContext` as POST. The verified `RequestRole` + `Principal` are injected
+/// into the connection data, so the generated per-field `guard`/`visible` ACL applies identically to
+/// every operation on the socket; a failed verification rejects the connection at init.
+async fn graphql_get(
+    State(schema): State<CaptainSchema>,
+    Extension(auth): Extension<Arc<AuthContext>>,
+    Path(role_seg): Path<String>,
+    req: Request,
+) -> Response {
+    let Some(role) = RequestRole::from_segment(&role_seg) else {
+        return (StatusCode::NOT_FOUND, "unknown role path").into_response();
+    };
+    // Run the WS extractors by hand (neither implements axum's `OptionalFromRequestParts`, so they
+    // can't be `Option<...>` handler params): both succeed only on a WS handshake carrying a GraphQL
+    // subprotocol.
+    let (mut parts, _body) = req.into_parts();
+    let headers = parts.headers.clone();
+    let protocol = GraphQLProtocol::from_request_parts(&mut parts, &()).await.ok();
+    let upgrade = WebSocketUpgrade::from_request_parts(&mut parts, &()).await.ok();
+    let (Some(upgrade), Some(protocol)) = (upgrade, protocol) else {
+        // Not a WebSocket handshake → GraphiQL for this role.
+        let endpoint = format!("/{}/graphql", role.segment());
+        return Html(
             GraphiQLSource::build()
-                .endpoint(&format!("/{}/graphql", role.segment()))
+                .endpoint(&endpoint)
+                .subscription_endpoint(&endpoint)
                 .finish(),
         )
-        .into_response(),
-        None => (StatusCode::NOT_FOUND, "unknown role path").into_response(),
-    }
+        .into_response();
+    };
+    upgrade.protocols(ALL_WEBSOCKET_PROTOCOLS).on_upgrade(move |stream| async move {
+        GraphQLWebSocket::new(stream, schema, protocol)
+            .on_connection_init(move |payload| async move {
+                // Prefer the init-payload token (the only channel a browser has); fall back to the
+                // upgrade request's headers so header-capable (server-side) clients keep working.
+                let mut headers = headers;
+                if let Some(token) = payload
+                    .get("Authorization")
+                    .or_else(|| payload.get("authorization"))
+                    .and_then(|v| v.as_str())
+                {
+                    if let Ok(value) = token.parse() {
+                        headers.insert(AUTHORIZATION, value);
+                    }
+                }
+                let principal = auth.authorize(role, &headers).await.map_err(|e| {
+                    async_graphql::Error::new(match e {
+                        crate::auth::AuthError::Unauthorized => {
+                            "unauthorized: valid bearer token required (connection_init payload `Authorization`)"
+                        }
+                        crate::auth::AuthError::Forbidden => {
+                            "forbidden: token role not permitted for this path"
+                        }
+                        crate::auth::AuthError::Unavailable => "auth unavailable",
+                    })
+                })?;
+                let mut data = async_graphql::Data::default();
+                data.insert(role);
+                data.insert(principal);
+                Ok(data)
+            })
+            .serve()
+            .await
+    })
 }
 
 /// GraphQL Voyager — an interactive graph of the schema — introspecting this role's `/{role}/graphql`.

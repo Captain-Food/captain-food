@@ -23,9 +23,10 @@ uuid = { workspace = true, features = ["v5"] }
 # workspace-pinned runtime/tls/postgres features (queries run over the session pooler, so plain
 # prepared statements are fine).
 sqlx = { workspace = true, features = ["chrono", "uuid", "json"] }
-# Only the timer is needed at runtime (the projection/sirene workers' polling loops); the workspace
+# The timer backs the projection/sirene workers' polling loops; `sync` adds the broadcast channel
+# behind the in-process EventBus (appended-event fan-out for GraphQL subscriptions); the workspace
 # feature set also carries rt/macros used by the integration test.
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 # reqwest moved out with the SIRENE HTTP client to `sirene_ingest` (ADR-0045) — no direct HTTP here.
 # Stripe webhook signature verification (integrations/stripe): HMAC-SHA256 over the RAW body with a
 # constant-time comparison (`Mac::verify_slice`). All three are already in-tree transitively (sqlx's

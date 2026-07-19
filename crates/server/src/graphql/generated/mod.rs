@@ -5,3 +5,4 @@ pub mod inputs;
 pub mod acl;
 pub mod query;
 pub mod mutation;
+pub mod subscription;

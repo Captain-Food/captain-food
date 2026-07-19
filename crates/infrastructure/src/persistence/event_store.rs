@@ -11,14 +11,24 @@ use domain::shared::errors::DomainError;
 use sqlx::{PgPool, Row};
 
 use crate::persistence::db_err;
+use crate::persistence::event_bus::{AppendedEvent, EventBus};
 
 pub struct PgEventStore {
     pool: PgPool,
+    /// Optional in-process fan-out: when present, every successfully committed append is published as
+    /// a lightweight [`AppendedEvent`] envelope (AFTER the commit — a notification, never a write
+    /// dependency). `None` keeps the store silent (workers/tests that need no push).
+    bus: Option<EventBus>,
 }
 
 impl PgEventStore {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self { pool, bus: None }
+    }
+
+    /// A store that also broadcasts each committed append on `bus` (the GraphQL subscription feed).
+    pub fn with_bus(pool: PgPool, bus: EventBus) -> Self {
+        Self { pool, bus: Some(bus) }
     }
 }
 
@@ -35,9 +45,20 @@ impl EventStore for PgEventStore {
         // version clash on ANY row rolls the whole batch back.
         let mut tx = self.pool.begin().await.map_err(db_err)?;
 
+        // Envelopes to broadcast once (and only if) the transaction commits.
+        let mut published: Vec<AppendedEvent> = Vec::new();
+
         for (index, event) in events.iter().enumerate() {
             let version = expected_version + index as i64 + 1;
             let (event_type, payload) = split_event(event)?;
+            if self.bus.is_some() {
+                published.push(AppendedEvent {
+                    stream_name: stream_name.to_owned(),
+                    event_type: event_type.clone(),
+                    correlation_id: actor.correlation_id,
+                    position: version,
+                });
+            }
 
             let insert = sqlx::query(
                 "INSERT INTO domain_events \
@@ -68,6 +89,13 @@ impl EventStore for PgEventStore {
         }
 
         tx.commit().await.map_err(db_err)?;
+        // Publish AFTER the commit: subscribers only ever hear about durable facts. Best effort —
+        // no subscribers / a closed channel is a no-op (the bus is a notification, not a ledger).
+        if let Some(bus) = &self.bus {
+            for envelope in published {
+                bus.publish(envelope);
+            }
+        }
         Ok(expected_version + events.len() as i64)
     }
 

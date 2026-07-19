@@ -19,8 +19,9 @@ pub use integrations::payments::{FailClosedPaymentGateway, UnavailableCheckoutSn
 pub use integrations::supabase_auth::FailClosedAuthProviderGateway;
 pub use integrations::sync_sirene_worker::{SireneSyncSummary, SireneSyncWorker};
 pub use persistence::{
-    PgCartRepository, PgCatalogRepository, PgCustomerRepository, PgDeliveryRepository, PgEventStore,
-    PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
+    AppendedEvent, EventBus, PgCartRepository, PgCatalogRepository, PgCustomerRepository,
+    PgDeliveryRepository, PgEventStore, PgOrderRepository, PgPricingPolicyRepository,
+    PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,
 };
 pub use process_manager::{ProcessManagerRunner, ProcessManagerStatus};

@@ -41,7 +41,7 @@ use application::queries::{
     RestaurantReadRepository, UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 use infrastructure::{
-    FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, FailClosedPaymentGateway,
+    EventBus, FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, FailClosedPaymentGateway,
     PgCartRepository, PgCatalogRepository, PgCustomerRepository, PgDeliveryRepository, PgEventStore,
     PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProcessManagerRunner,
@@ -114,6 +114,11 @@ pub struct AppState {
 /// into GraphQL), and the in-process projection worker.
 pub fn router() -> Router {
     let snap = Arc::new(Mutex::new(Snapshot::default()));
+    // In-process appended-event bus: every event-store append in THIS process (GraphQL mutations,
+    // Stripe/HubRise inbound facts) is broadcast after commit, feeding the GraphQL subscriptions.
+    // Constructed unconditionally so the schema always carries a bus (subscriptions without a DB
+    // simply never receive anything).
+    let event_bus = EventBus::default();
     let mut read_deps: Option<ReadDeps> = None;
     let mut write_deps: Option<WriteDeps> = None;
     let mut projector_status: Option<Arc<Mutex<ProjectionStatus>>> = None;
@@ -174,7 +179,7 @@ pub fn router() -> Router {
                 // Google and Supabase Auth seam adapters (fail-closed stand-ins until the real
                 // integrations land).
                 write_deps = Some(WriteDeps {
-                    event_store: Arc::new(PgEventStore::new(pool.clone())),
+                    event_store: Arc::new(PgEventStore::with_bus(pool.clone(), event_bus.clone())),
                     ownership: Arc::new(FailClosedGoogleOwnershipVerifier),
                     gbp_probe: Arc::new(UnverifiedGbpOrderLinkProbe),
                     auth_provider: Arc::new(FailClosedAuthProviderGateway),
@@ -217,8 +222,9 @@ pub fn router() -> Router {
                 // Stripe webhook ingestor (INBOUND payment facts): records what Stripe reports through
                 // the ordinary event-store append port, idempotently by Stripe event id. The HTTP
                 // endpoint (`POST /webhooks/stripe`) is mounted below with the other non-GraphQL routes.
-                stripe_ingestor =
-                    Some(Arc::new(StripeWebhookIngestor::new(Arc::new(PgEventStore::new(pool.clone())))));
+                stripe_ingestor = Some(Arc::new(StripeWebhookIngestor::new(Arc::new(
+                    PgEventStore::with_bus(pool.clone(), event_bus.clone()),
+                ))));
 
                 // HubRise domain enrichment (ADR-20260718-145856): a verified catalog/inventory callback
                 // triggers an OAuth API pull → ACL map → `ImportCatalog` / per-SKU stock update. Only
@@ -227,7 +233,7 @@ pub fn router() -> Router {
                 match hubrise_adapter::api::HubRiseApiClient::from_env() {
                     Ok(api) => {
                         hubrise_enricher = Some(Arc::new(hubrise_adapter::HubRiseEnricher::new(
-                            Arc::new(PgEventStore::new(pool.clone())),
+                            Arc::new(PgEventStore::with_bus(pool.clone(), event_bus.clone())),
                             api,
                         )));
                     }
@@ -259,7 +265,11 @@ pub fn router() -> Router {
         .route("/saga", get(saga))
         .with_state(AppState { snap, projector_status, saga_status });
 
-    base.merge(graphql::routes::graphql_routes(graphql::schema::build_schema(read_deps, write_deps)))
+    base.merge(graphql::routes::graphql_routes(graphql::schema::build_schema(
+        read_deps,
+        write_deps,
+        Some(event_bus),
+    )))
         // Internal trigger (ADR-0045): the CI ingestion pings this to wake the SIRENE sync worker.
         .merge(graphql::routes::sirene_internal_routes(sirene_worker))
         // Partner webhook adapters (ADR-20260718-213352): self-contained crates under crates/adapters/*,

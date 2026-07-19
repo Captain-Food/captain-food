@@ -1,6 +1,6 @@
 //! Per-role GraphQL ACL enforcement (ADR-0006 "role = path"), spec-derived from api.yaml `roles`.
 //! Executes against the schema directly with a `RequestRole` in the request context (what
-//! `/{role}/graphql` injects from the URL path) — no DB needed (`build_schema(None, None)`):
+//! `/{role}/graphql` injects from the URL path) — no DB needed (`build_schema(None, None, None)`):
 //! - EXECUTION: a role calling an operation outside its api.yaml `roles` gets a FORBIDDEN error
 //!   (extension `code`) and the resolver never runs; an authorized role reaches the resolver.
 //! - INTROSPECTION: a role only sees its authorized fields, and (via async-graphql's
@@ -14,8 +14,8 @@ use server::graphql_acl::RequestRole;
 use server::graphql_schema::{build_schema, CaptainSchema};
 
 fn schema() -> CaptainSchema {
-    // No read/write deps: ACL runs before resolvers, and introspection needs none.
-    build_schema(None, None)
+    // No read/write deps (nor event bus): ACL runs before resolvers, and introspection needs none.
+    build_schema(None, None, None)
 }
 
 /// Execute `query` under `role` (mirrors routes.rs' `request.data(role)`).

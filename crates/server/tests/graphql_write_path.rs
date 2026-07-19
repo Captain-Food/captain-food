@@ -128,6 +128,8 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
             auth_provider,
             payments,
         }),
+        // No event bus: this test exercises the POST write path, not subscriptions.
+        None,
     )
 }
 

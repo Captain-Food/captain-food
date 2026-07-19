@@ -26,15 +26,25 @@ chrono = { workspace = true }
 # HTTP surface + DB health probe (ADR-0042) + GraphQL BFF (ADR-0006 role-as-path, with the generated
 # per-role guard/visible ACL enforced at runtime). The tenant/auth (identity) middleware lands later;
 # today the server binds $PORT, serves /health, and exposes the role-filtered GraphQL schema per path.
-axum = { workspace = true }
+# `ws` on top of the workspace features: the GraphQL-over-WebSocket upgrade on `/{role}/graphql`
+# (subscriptions — async-graphql-axum's GraphQLWebSocket runs over axum's WebSocket).
+axum = { workspace = true, features = ["ws"] }
 # `sync` (RwLock) added for the JWKS cache in the ADR-0047 auth verifier, on top of the workspace features.
 tokio = { workspace = true, features = ["sync"] }
 sqlx = { workspace = true }
 serde_json = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-axum = { workspace = true }
+# The generated SubscriptionRoot resolvers are hand-shaped `stream! { ... }` state machines over the
+# in-process EventBus (subscribe → filter by correlation → re-resolve the read model) — `async-stream`
+# keeps that generated code readable instead of hand-rolled `unfold` plumbing.
+async-stream = "0.3"
 # API auth (ADR-0047): verify Supabase-issued JWTs against the project's PUBLIC keys (JWKS) — the signing
 # secret never touches this server. `jsonwebtoken` does the signature/claims verification; `reqwest` fetches
 # the JWKS (default-features off + native-tls, matching the workspace sqlx/infra TLS choice).
 jsonwebtoken = "9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+
+[dev-dependencies]
+# In-memory read-repository stand-ins for the subscription tests (no DB needed).
+async-trait = { workspace = true }

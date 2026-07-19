@@ -1,12 +1,14 @@
 //! The GraphQL master schema (ADR-0006), built over the GENERATED type layer (`generated/` — wrapper
 //! scalars, SimpleObject output types, InputObject inputs, the QueryRoot exposing every api.yaml
-//! query, and the MutationRoot exposing every api.yaml mutation). Read-model repositories and the
-//! write-side ports are injected via `.data(...)` so the wired resolvers (e.g. `restaurants`,
-//! `registerRestaurant`) resolve them from `ctx`; unwired operations still stub `not implemented`.
+//! query, the MutationRoot exposing every api.yaml mutation, and the SubscriptionRoot exposing every
+//! api.yaml subscription). Read-model repositories, the write-side ports and the in-process
+//! `EventBus` (the appended-event feed the subscription resolvers stream over) are injected via
+//! `.data(...)` so the wired resolvers resolve them from `ctx`; unwired operations still stub
+//! `not implemented`.
 
 use std::sync::Arc;
 
-use async_graphql::{EmptySubscription, Schema};
+use async_graphql::Schema;
 use application::ports::{
     AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier, PaymentGateway,
 };
@@ -16,10 +18,13 @@ use application::queries::{
     RestaurantReadRepository, UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 
+use infrastructure::EventBus;
+
 use super::generated::mutation::MutationRoot;
 use super::generated::query::QueryRoot;
+use super::generated::subscription::SubscriptionRoot;
 
-pub type CaptainSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
+pub type CaptainSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 
 /// Read-model repositories injected into every resolver's context (ADR-0035 composition root). Grows as
 /// more read models are wired.
@@ -52,9 +57,15 @@ pub struct WriteDeps {
 
 /// Build the master schema served under every role path. With `Some(deps)`/`Some(writes)` the
 /// read-model repos and write-side ports are attached, so wired resolvers work; with `None` (no DB)
-/// the schema still builds/introspects and those resolvers error at runtime.
-pub fn build_schema(deps: Option<ReadDeps>, writes: Option<WriteDeps>) -> CaptainSchema {
-    let mut builder = Schema::build(QueryRoot, MutationRoot, EmptySubscription);
+/// the schema still builds/introspects and those resolvers error at runtime. `events` is the
+/// in-process appended-event bus the subscription resolvers stream over (the same bus handed to
+/// `PgEventStore::with_bus`); `None` makes subscriptions error at runtime like any missing dep.
+pub fn build_schema(
+    deps: Option<ReadDeps>,
+    writes: Option<WriteDeps>,
+    events: Option<EventBus>,
+) -> CaptainSchema {
+    let mut builder = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot);
     if let Some(d) = deps {
         builder = builder.data(d.restaurants);
         builder = builder.data(d.prospection);
@@ -74,6 +85,9 @@ pub fn build_schema(deps: Option<ReadDeps>, writes: Option<WriteDeps>) -> Captai
         builder = builder.data(w.auth_provider);
         builder = builder.data(w.payments);
     }
+    if let Some(bus) = events {
+        builder = builder.data(bus);
+    }
     builder.finish()
 }
 
@@ -84,7 +98,7 @@ mod tests {
     /// wrapper scalars, mirror enums, the sanitized `Option` type, FK-nav fields and every query field.
     #[test]
     fn schema_builds_and_matches_generated_sdl_shape() {
-        let sdl = super::build_schema(None, None).sdl();
+        let sdl = super::build_schema(None, None, None).sdl();
         for expected in [
             "scalar RestaurantId",
             "scalar MoneyCents",
@@ -103,6 +117,10 @@ mod tests {
             "registerRestaurant(input: RegisterRestaurantInput!): RegisterRestaurantPayload!",
             "correlationId: CorrelationId!",
             "verifyPhone(input: VerifyPhoneInput!): VerifyPhonePayload!",
+            // Subscriptions (subscription_block's runtime mirror).
+            "type Subscription {",
+            "orderStatusChanged(input: OrderStatusChangedSubscriptionInput!): Order!",
+            "operationStatusChanged(input: OperationStatusChangedSubscriptionInput!): Operation!",
         ] {
             assert!(sdl.contains(expected), "runtime SDL missing `{}`:\n{}", expected, sdl);
         }
