@@ -1,0 +1,24 @@
+name: ⚓ Feature request
+description: Propose a new capability or a change to the domain model
+title: "⚓ "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem / use case
+      description: Who needs this (customer, restaurateur, rider, admin) and what business intention does it serve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Remember the operating model — features land as spec changes first (commands/events/stories), then generated & implemented.
+    validations:
+      required: true
+  - type: textarea
+    id: specs
+    attributes:
+      label: Specs likely affected
+      placeholder: e.g. specs/commands.yaml, specs/events.yaml, specs/stories.yaml, specs/api.yaml…

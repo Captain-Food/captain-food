@@ -1,0 +1,46 @@
+name: 🐛 Bug report
+description: Something is broken — in the runtime, the codegen, or the specs
+title: "🐛 "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, with the actual vs expected behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Runtime (crates/…)
+        - Codegen / validator (tools/codegen-rs)
+        - Specs (specs/*.yaml)
+        - CI / deploy (workflows, Render)
+        - Live service (live.captain.food)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant specs, ADRs or logs
+      description: Link the spec files / ADRs involved, or paste `make validate` / CI output.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: This is not a security vulnerability (those go through Security → Report a vulnerability)
+          required: true
