@@ -7,8 +7,9 @@
 //! `specs/scalars.yaml`, the same source the `ref_*` seed rows come from).
 
 use domain::generated::scalars::{
-    CartStatus, ComparisonBasis, CuisineCategory, DeliveryProvider, DeliveryStatus, GbpLinkStatus,
-    OrderAcceptanceMode, OrderStatus, ProspectPipelineStatus, RestaurantListingStatus,
+    CartStatus, ComparisonBasis, CuisineCategory, DeliveryDispatchProcessStatus, DeliveryProvider,
+    DeliveryStatus, GbpLinkStatus, OrderAcceptanceMode, OrderStatus, PaymentProcessStatus,
+    PaymentStatus, ProspectPipelineStatus, RefundProcessStatus, RestaurantListingStatus,
     RestaurantStatus, ServiceType, ThumbRating,
 };
 use domain::shared::errors::DomainError;
@@ -80,6 +81,20 @@ enum_ord!(DeliveryStatus {
 enum_ord!(DeliveryProvider { PARTNER => 0, INDEPENDENT => 1 });
 enum_ord!(ComparisonBasis { ESTIMATED => 0, REAL => 1 });
 enum_ord!(ThumbRating { UP => 0, DOWN => 1 });
+enum_ord!(PaymentStatus { PENDING => 0, CAPTURED => 1, FAILED => 2, REFUNDED => 3 });
+enum_ord!(PaymentProcessStatus { AWAITING_PAYMENT_RESULT => 0, ORDER_PLACED => 1, FAILED => 2 });
+enum_ord!(RefundProcessStatus {
+    PENDING_APPROVAL => 0,
+    APPROVED_AWAITING_SETTLEMENT => 1,
+    DENIED => 2,
+    REFUNDED => 3,
+});
+enum_ord!(DeliveryDispatchProcessStatus {
+    OFFERED => 0,
+    ACCEPTED => 1,
+    REOFFER_REQUIRED => 2,
+    COMPLETED => 3,
+});
 
 /// `to_ord` through an `Option` (nullable enum column).
 pub fn opt_to_ord<E: EnumOrd>(v: &Option<E>) -> Option<i32> {
@@ -120,6 +135,23 @@ mod tests {
         assert_eq!(DeliveryProvider::from_ord(1).unwrap(), DeliveryProvider::INDEPENDENT);
         assert_eq!(ComparisonBasis::REAL.to_ord(), 1);
         assert_eq!(ThumbRating::DOWN.to_ord(), 1);
+        assert_eq!(PaymentStatus::REFUNDED.to_ord(), 3);
+        assert_eq!(PaymentStatus::from_ord(1).unwrap(), PaymentStatus::CAPTURED);
+        assert_eq!(PaymentProcessStatus::FAILED.to_ord(), 2);
+        assert_eq!(
+            PaymentProcessStatus::from_ord(0).unwrap(),
+            PaymentProcessStatus::AWAITING_PAYMENT_RESULT
+        );
+        assert_eq!(RefundProcessStatus::REFUNDED.to_ord(), 3);
+        assert_eq!(
+            RefundProcessStatus::from_ord(1).unwrap(),
+            RefundProcessStatus::APPROVED_AWAITING_SETTLEMENT
+        );
+        assert_eq!(DeliveryDispatchProcessStatus::COMPLETED.to_ord(), 3);
+        assert_eq!(
+            DeliveryDispatchProcessStatus::from_ord(2).unwrap(),
+            DeliveryDispatchProcessStatus::REOFFER_REQUIRED
+        );
         assert!(RestaurantStatus::from_ord(99).is_err());
     }
 }
