@@ -31,6 +31,24 @@ Mirrors the projection worker:
 - Decisions are **pure sync functions** returning `Act(StreamAppend)` / `Skip(reason)` / `Nothing` over
   pre-loaded stream slices — all I/O lives in the runner (same split as the projectors' `Compute`).
 
+```mermaid
+sequenceDiagram
+    participant R as ProcessManagerRunner (per tick)
+    participant DB as domain_events
+    participant PM as Process manager (pure)
+    participant ES as EventStore
+    R->>DB: events WHERE event_type IN triggers AND position > pm:&lt;Name&gt; checkpoint
+    DB-->>R: pending events (ordered)
+    loop each event
+        R->>DB: load the streams the decision needs
+        R->>PM: decide(trigger, state)
+        PM-->>R: Act(emits) / Skip(reason) / Nothing
+        R->>ES: append emits (correlation propagated, cause = trigger id)
+        R->>DB: advance pm:&lt;Name&gt; checkpoint
+    end
+    Note over R: poison event → log-skip + advance · version conflict → abort group, retry next tick
+```
+
 ## The four process managers
 
 ### 1. PlaceOrderProcess (checkout) — `place_order.rs`
@@ -42,6 +60,25 @@ Mirrors the projection worker:
 - Real Stripe **create-intent** (outbound) is the Stripe adapter's job (`crates/adapters/stripe`); a
   **fail-closed `PaymentGateway` stand-in** declines meanwhile so nothing is silently charged.
 
+```mermaid
+sequenceDiagram
+    actor C as Customer
+    participant GQL as GraphQL placeOrder
+    participant PG as PaymentGateway (Stripe, outbound)
+    participant ES as domain_events
+    participant SW as Stripe webhook ACL
+    participant PM as PlaceOrderProcess
+    C->>GQL: placeOrder(cart, address, paymentMethod)
+    GQL->>PG: create PaymentIntent
+    PG-->>GQL: clientSecret
+    GQL->>ES: PaymentIntentCreated (Order-&lt;id&gt;)
+    GQL-->>C: { paymentIntentId, clientSecret }
+    C->>PG: confirm payment (Stripe.js)
+    SW->>ES: PaymentCaptured  (inbound webhook fact)
+    PM->>ES: OrderPlaced (Order-&lt;id&gt;) + CartCheckedOut (Cart-&lt;id&gt;)
+    Note over PM: ⚠️ needs a checkout snapshot to rebuild OrderPlaced → fail-closes today
+```
+
 ### 2. RefundProcess — `refund.rs`
 - **Reactions:** `OrderRejectedByRestaurant` / `OrderCancelledByCustomer` / `OrderCancelledByRestaurant` /
   `RefundRequested` → request a refund; `PaymentRefunded` → `Nothing` (the fact is already recorded by the
@@ -49,10 +86,31 @@ Mirrors the projection worker:
 - **Status:** done per actors.yaml (all legs `emits: []`). The **outbound Stripe refund call** is a
   `TODO(saga)` awaiting the Stripe adapter (an inbound `PaymentRefunded` still closes the loop).
 
+```mermaid
+sequenceDiagram
+    participant A as Restaurant / Customer
+    participant ES as domain_events
+    participant PM as RefundProcess
+    participant SA as Stripe adapter (outbound)
+    A->>ES: OrderRejectedByRestaurant / OrderCancelledBy* / RefundRequested
+    PM->>SA: request refund   (TODO saga)
+    SA->>ES: PaymentRefunded   (inbound webhook fact)
+    PM-->>PM: Nothing (fact already recorded)
+```
+
 ### 3. CartBindingProcess — `cart_binding.rs`
 - **Reaction:** `CustomerIdentified` → bind the guest cart to the now-known customer.
 - **Status:** done per spec (`emits: []` — "no new event in V0"). The actual bind awaits the Cart
   projection's cross-stream routing (`CartProjector::customer_id` `TODO(runtime)`).
+
+```mermaid
+sequenceDiagram
+    actor G as Guest → Customer
+    participant ES as domain_events
+    participant PM as CartBindingProcess
+    G->>ES: CustomerIdentified (login/verify)
+    PM-->>PM: bind guest cart → customer (TODO runtime: CartProjector cross-stream)
+```
 
 ### 4. DeliveryDispatchProcess — `delivery_dispatch.rs` (ADR-0031)
 - **Reactions:** `OrderMarkedReady` → **`DeliveryRequested`** for DELIVERY orders (pickup = restaurant
@@ -62,6 +120,20 @@ Mirrors the projection worker:
   `DeliveryCompleted` → **`OrderDelivered`** (idempotent; a terminal cancelled/rejected order is never
   resurrected).
 - **Status:** dispatch + close-order legs functional from the log; re-offer awaits the partner ACL.
+
+```mermaid
+sequenceDiagram
+    participant R as Restaurant
+    participant ES as domain_events
+    participant PM as DeliveryDispatchProcess
+    participant DP as Delivery partner (ACL)
+    R->>ES: OrderMarkedReady
+    PM->>ES: DeliveryRequested (DeliveryJob-&lt;uuidv5(orderId)&gt;)  [DELIVERY only]
+    DP->>ES: DeliveryAcceptedByPartner (courier)
+    DP->>ES: DeliveryStatusUpdated(DELIVERED)
+    PM->>ES: OrderDelivered
+    Note over PM,DP: DeliveryRejectedByPartner → re-offer (TODO saga: partner ACL)
+```
 
 ## ⚠️ Open gap — checkout snapshot (needs a `specs/**` decision → plan mode)
 

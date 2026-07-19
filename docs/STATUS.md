@@ -37,7 +37,8 @@
 | Catalog (12) · Prospect (3) · RestaurantAccount (3) | ✅ | Round 2b — real invariants + behaviour tests |
 | Customer (14) | ✅ | Wired end-to-end: `customer` read model + Pg repo, fail-closed `AuthProviderGateway` stand-in (real Supabase ACL deferred), injected at the composition root |
 | `placeOrder` + process managers (4 sagas) | ✅ wired | `placeOrder` live (fail-closed `PaymentGateway` stand-in); in-process PM runtime (`/saga`) — PlaceOrder/Refund/CartBinding/DeliveryDispatch react to payment/delivery facts → `OrderPlaced`/`OrderDelivered`/… **Real Stripe create-intent = 🅑**; ⚠️ **DSL gap** (plan mode): `PaymentIntentCreated` carries no checkout snapshot, so `OrderPlaced` can't be rebuilt from the log → the saga fail-closes until the spec adds it (or a pending-checkout store) |
-| Structured typed errors (vs interim `"Code: detail"`) | 📋 | ADR-0046 follow-up |
+| Structured typed errors | ✅ | `DomainError::Rejected{code,context}` → GraphQL `extensions.code` + interpolated en/fr message (ADR-20260719-120000) |
+| GraphQL **subscriptions** | ✅ | `SubscriptionRoot` + in-process event bus + WS transport + per-role ACL (`orderStatusChanged`/`operationStatusChanged`); works while the app is warm |
 
 ## 🔐 Authorization
 
@@ -92,9 +93,10 @@ Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhon
 | 3 | **Process managers** — Refund/CartBinding/DeliveryDispatch + PM runtime (event-driven, `/saga`) | 🅐 | ✅ (Refund/CartBinding emit [] per spec; partner re-offer + outbound refund = TODO(saga)) |
 | 4 | **Cart line invariants** + catalog `tree` projector + offer read port | 🅐 | ✅ |
 | 5 | **Frontend** — Leptos/WASM SDUI renderer (customer/restaurant/rider apps) | unassigned | 📋 |
-| 6 | GraphQL **subscriptions** codegen (`SubscriptionRoot`) | 🅑 | 🚧 |
-| 7 | **Structured typed errors** (replace interim `"Code: detail"`, ADR-0046) | 🅑 | 📋 |
-| 8 | **Per-field nav-edge ACL** (DSL extension → plan mode) | 🅑 | 📋 |
+| 6 | GraphQL **subscriptions** (`SubscriptionRoot` + bus + WS + ACL) | 🅐 | ✅ |
+| 7 | **Structured typed errors** (ADR-20260719-120000) | 🅐 | ✅ |
+| 8 | **Per-field nav-edge ACL** — optional `roles:` on nav fields (default public), same guard/visible as ops; design agreed | 🅐 | 📋 plan mode (after ACL emitter free) |
+| 8b | Delivery/account read queries + catalog `tree` + `me`/favorites | 🅐 | ✅ (read surface complete except `phoneCountries`=client-const, `operation`) |
 | 9 | Remove `INTERNAL_TRIGGER_TOKEN`/drain endpoint (use `/ping` warmth) | 🅐 | 🗑️ deferred |
 | 10 | Projection worker robustness (poison-skip) + spin-down mitigation (uptimerobot `/ping`) | 🅐 | ✅ |
 
