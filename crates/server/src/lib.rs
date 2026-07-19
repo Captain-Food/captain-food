@@ -192,6 +192,10 @@ pub fn router() -> Router {
                     pm_state: Arc::new(infrastructure::persistence::PgPaymentProcessState::new(
                         pool.clone(),
                     )),
+                    // The refund_process_manager rows the approveRefund/denyRefund decisions run on.
+                    refund_state: Arc::new(infrastructure::persistence::PgRefundProcessState::new(
+                        pool.clone(),
+                    )),
                 });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.

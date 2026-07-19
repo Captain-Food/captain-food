@@ -30,8 +30,12 @@
 > `approve_refund`/`deny_refund` + fail-closed `request_refund`; cart binding really binds; close
 > order via `send MarkOrderDelivered`); the runner surfaces thrown guards on `/saga`; the Stripe ACL
 > is a stateless translator (no more `StripeEvent-%` streams, `CheckoutSnapshotSource` seam
-> retired). Still open (see docs/sagas.md): real Stripe outbound adapter, refund API surface,
-> partner re-offer policy, `OrderTracking.payment_status` cross-stream feed, server-side pricing.
+> retired). Since then the **refund decision API surface landed**: `approveRefund`/`denyRefund`
+> mutations (api.yaml, roles RESTAURANT+ADMIN, V0; story steps in ManageOrders + admin
+> ArbitrateRefunds), emitted resolvers call the RefundProcess orchestrator legs over the new
+> `WriteDeps.refund_state` (`PgRefundProcessState`) + the PaymentGateway. Still open (see
+> docs/sagas.md): real Stripe outbound adapter, partner re-offer policy,
+> `OrderTracking.payment_status` cross-stream feed, server-side pricing.
 >
 > 📣 **Earlier on this branch (2026-07-19 evening):** ① Guard semantics hardened — **in case of error a
 > guard always `throws` a typed exception, on EVENT legs too** (run aborts + error surfaced — e.g.
