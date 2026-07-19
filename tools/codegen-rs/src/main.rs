@@ -7146,12 +7146,14 @@ fn wired_mutation_body(name: &str, payload: &str) -> Option<String> {
     // placeOrder's payload carries the Stripe-assigned values (paymentIntentId + clientSecret): the
     // handler returns the CreatedPaymentIntent the resolver maps into the payload, and it needs the
     // CartReadRepository (server-side pricing) + PaymentGateway (create-intent seam; the composition
-    // root injects the fail-closed Stripe stand-in until the real adapter lands) — so it gets a
-    // bespoke body like verifyPhone. The saga's event legs (PaymentCaptured/PaymentFailed) run in the
-    // infrastructure ProcessManagerRunner, not here.
+    // root injects the fail-closed Stripe stand-in until the real adapter lands) + the
+    // PaymentProcessStateStore (the payment_process_manager row the handler opens
+    // AWAITING_PAYMENT_RESULT and single-flights concurrent checkouts of the same cart on,
+    // ADR-20260719-193500) — so it gets a bespoke body like verifyPhone. The saga's event legs
+    // (PaymentCaptured/PaymentFailed) run in the infrastructure ProcessManagerRunner, not here.
     if name == "placeOrder" {
         return Some(format!(
-            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;\n        let carts = ctx.data::<std::sync::Arc<dyn application::queries::CartReadRepository>>()?;\n        let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?;\n        let cmd: domain::generated::commands::PlaceOrder = to_command(&input)?;\n        let actor = request_actor(ctx);\n        let intent = application::commands::place_order(store.as_ref(), carts.as_ref(), payments.as_ref(), cmd, &actor)\n            .await\n            .map_err(domain_error)?;\n        Ok({payload} {{\n            correlation_id: CorrelationId(actor.correlation_id),\n            payment_intent_id: intent.payment_intent_id.into(),\n            client_secret: intent.client_secret,\n        }})"
+            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;\n        let carts = ctx.data::<std::sync::Arc<dyn application::queries::CartReadRepository>>()?;\n        let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?;\n        let pm_state = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?;\n        let cmd: domain::generated::commands::PlaceOrder = to_command(&input)?;\n        let actor = request_actor(ctx);\n        let intent = application::commands::place_order(store.as_ref(), carts.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, &actor)\n            .await\n            .map_err(domain_error)?;\n        Ok({payload} {{\n            correlation_id: CorrelationId(actor.correlation_id),\n            payment_intent_id: intent.payment_intent_id.into(),\n            client_secret: intent.client_secret,\n        }})"
         ));
     }
     // (domain command, application::commands handler, extra port beyond the EventStore).

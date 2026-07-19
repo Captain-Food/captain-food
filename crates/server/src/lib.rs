@@ -187,6 +187,11 @@ pub fn router() -> Router {
                     // declines every checkout until the real Stripe adapter (integration workstream)
                     // replaces it here.
                     payments: Arc::new(FailClosedPaymentGateway),
+                    // The payment_process_manager state rows placeOrder opens/single-flights on
+                    // (ADR-20260719-193500).
+                    pm_state: Arc::new(infrastructure::persistence::PgPaymentProcessState::new(
+                        pool.clone(),
+                    )),
                 });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.

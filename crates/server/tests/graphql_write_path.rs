@@ -108,6 +108,8 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
     let gbp_probe: Arc<dyn GbpOrderLinkProbe> = Arc::new(UnverifiedGbpOrderLinkProbe);
     let auth_provider: Arc<dyn AuthProviderGateway> = Arc::new(FailClosedAuthProviderGateway);
     let payments: Arc<dyn PaymentGateway> = Arc::new(FailClosedPaymentGateway);
+    let pm_state: Arc<dyn application::pm_state::PaymentProcessStateStore> =
+        Arc::new(infrastructure::persistence::PgPaymentProcessState::new(pool.clone()));
     server::graphql_schema::build_schema(
         Some(server::graphql_schema::ReadDeps {
             restaurants,
@@ -127,6 +129,7 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
             gbp_probe,
             auth_provider,
             payments,
+            pm_state,
         }),
         // No event bus: this test exercises the POST write path, not subscriptions.
         None,

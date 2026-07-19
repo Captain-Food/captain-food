@@ -15,19 +15,24 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use application::commands::{add_cart_line, change_cart_line_quantity, rejection_code, remove_cart_line};
+use application::commands::{
+    add_cart_line, bind_cart_to_customer, change_cart_line_quantity, rejection_code,
+    remove_cart_line,
+};
 use application::ports::{version_conflict, Actor, EventStore};
 use application::projections::{project_catalog, Envelope};
 use application::projectors::catalog::CatalogProjector;
 use application::queries::{CatalogReadRepository, CatalogRow};
 use domain::cart::MAX_LINE_QUANTITY;
-use domain::generated::commands::{AddCartLine, CartLine, ChangeCartLineQuantity, RemoveCartLine};
+use domain::generated::commands::{
+    AddCartLine, BindCartToCustomer, CartLine, ChangeCartLineQuantity, RemoveCartLine,
+};
 use domain::generated::entities::{
     CartLineItem, Money, Offer, OptionList, Product, ProductItemOption, Stock, TaxRate,
 };
 use domain::generated::events::{
-    CartCheckedOut, CartLineAdded, CartStarted, CatalogCreated, DomainEvent, OptionListAdded,
-    ProductAdded,
+    CartBoundToCustomer, CartCheckedOut, CartLineAdded, CartStarted, CatalogCreated, DomainEvent,
+    OptionListAdded, ProductAdded,
 };
 use domain::generated::scalars::*;
 use domain::shared::errors::DomainError;
@@ -633,4 +638,65 @@ async fn rejects_changing_quantity_on_invalid_cart_line_over_the_limit_or_beyond
     )
     .await
     .expect("offer gone from catalog — change still recorded");
+}
+
+// ------------------------------------------------------------------------------------------------
+// Customer binding (rules.yaml#/GuestCartsBoundOnIdentification)
+// ------------------------------------------------------------------------------------------------
+
+/// tests.yaml#/cases/TestCartBoundToCustomer — rules.yaml#/GuestCartsBoundOnIdentification
+#[tokio::test]
+async fn a_guest_cart_is_bound_to_the_identified_customer_one_time() {
+    let store = MemStore::default();
+    let (cart, resto) = (CartId(uuid::Uuid::new_v4()), RestaurantId(uuid::Uuid::new_v4()));
+    let customer = CustomerId(uuid::Uuid::new_v4());
+    store.seed(&stream(cart), vec![cart_started(cart, resto)]);
+
+    bind_cart_to_customer(
+        &store,
+        BindCartToCustomer { cart_id: cart, customer_id: customer },
+        &actor(),
+    )
+    .await
+    .expect("bind");
+
+    let events = store.stream(&stream(cart));
+    assert_eq!(events.len(), 2);
+    assert!(matches!(
+        &events[1],
+        DomainEvent::CartBoundToCustomer(e) if e.customer_id == customer
+    ));
+
+    // Re-delivering the SAME bind is an idempotent no-op (no duplicate fact).
+    bind_cart_to_customer(
+        &store,
+        BindCartToCustomer { cart_id: cart, customer_id: customer },
+        &actor(),
+    )
+    .await
+    .expect("idempotent replay");
+    assert_eq!(store.stream(&stream(cart)).len(), 2, "no duplicate fact");
+
+    // The bind is ONE-TIME, first wins: a DIFFERENT customer is also a no-op — the earlier bind
+    // stands and is never overwritten (nothing to reject; no error declared for it).
+    let other = CustomerId(uuid::Uuid::new_v4());
+    bind_cart_to_customer(&store, BindCartToCustomer { cart_id: cart, customer_id: other }, &actor())
+        .await
+        .expect("first wins — silent no-op");
+    let events = store.stream(&stream(cart));
+    assert_eq!(events.len(), 2, "no re-bind fact");
+    assert!(matches!(
+        &events[1],
+        DomainEvent::CartBoundToCustomer(e) if e.customer_id == customer
+    ));
+
+    // A missing cart rejects with CartNotFound (the only declared throw).
+    let err = bind_cart_to_customer(
+        &store,
+        BindCartToCustomer { cart_id: CartId(uuid::Uuid::new_v4()), customer_id: customer },
+        &actor(),
+    )
+    .await
+    .expect_err("missing cart");
+    assert_eq!(rejection_code(&err), Some("CartNotFound"));
 }

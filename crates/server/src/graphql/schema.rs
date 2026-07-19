@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use async_graphql::Schema;
+use application::pm_state::PaymentProcessStateStore;
 use application::ports::{
     AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier, PaymentGateway,
 };
@@ -53,6 +54,9 @@ pub struct WriteDeps {
     /// The Stripe create-intent seam `placeOrder` needs (fail-closed stand-in until the real Stripe
     /// adapter lands — a checkout is declined, never silently "paid").
     pub payments: Arc<dyn PaymentGateway>,
+    /// The `payment_process_manager` state rows `placeOrder` opens (AWAITING_PAYMENT_RESULT) and
+    /// single-flights concurrent checkouts of the same cart on (ADR-20260719-193500).
+    pub pm_state: Arc<dyn PaymentProcessStateStore>,
 }
 
 /// Build the master schema served under every role path. With `Some(deps)`/`Some(writes)` the
@@ -84,6 +88,7 @@ pub fn build_schema(
         builder = builder.data(w.gbp_probe);
         builder = builder.data(w.auth_provider);
         builder = builder.data(w.payments);
+        builder = builder.data(w.pm_state);
     }
     if let Some(bus) = events {
         builder = builder.data(bus);
