@@ -3,6 +3,7 @@
 [![ci](https://github.com/Captain-Food/captain-food/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Captain-Food/captain-food/actions/workflows/ci.yml)
 [![db-migrate](https://github.com/Captain-Food/captain-food/actions/workflows/db-migrate.yml/badge.svg)](https://github.com/Captain-Food/captain-food/actions/workflows/db-migrate.yml)
 [![render](https://img.shields.io/website?url=https%3A%2F%2Flive.captain.food%2Fhealth&up_message=live&down_message=down&label=render%20deploy)](https://live.captain.food/health)
+[![render commit](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FCaptain-Food%2Fcaptain-food%2Fbadges%2Frender-deploy.json)](https://github.com/Captain-Food/captain-food/actions/workflows/render-status.yml)
 
 Local-first food ordering & delivery for independent restaurants and food trucks.
 **V0** validates product–market fit in **Tours**, with a mobile-first web UX and a backend that can
@@ -35,7 +36,10 @@ the full Cargo workspace, runs the complete behaviour-test suite, runs the spec 
 `specs/generated/` is always in sync. The **db-migrate** workflow (second badge) applies
 `migrations/*.sql` only after `ci` succeeds on `main` (ADR-0043), and Render auto-deploys once the
 checks pass — the **render deploy** badge probes the live service's `/health` (which also gates on
-the migrated schema version), so green means deployed, migrated, and answering.
+the migrated schema version), so green means deployed, migrated, and answering. The **render commit**
+badge is the precise one: the `render-status` workflow asks the Render API for the latest deploy and
+republishes it as `<status> @ <sha>` plus a `render/deploy` commit status on the exact deployed
+commit (needs the `RENDER_API_KEY`/`RENDER_SERVICE_ID` repo secrets; skips gracefully until set).
 
 ## Operating model
 
