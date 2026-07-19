@@ -16,9 +16,11 @@ pub mod customer;
 pub mod delivery_job;
 pub mod generated;
 pub mod order;
+pub mod payment;
 pub mod prospect;
 pub mod restaurant;
 pub mod restaurant_account;
+pub mod rider;
 pub mod shared;
 
 #[cfg(test)]

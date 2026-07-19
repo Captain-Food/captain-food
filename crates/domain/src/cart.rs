@@ -8,7 +8,7 @@
 //! `status` column can never disagree: `CartStarted` → OPEN, `CartCheckedOut` → CHECKED_OUT.
 
 use crate::generated::events::DomainEvent;
-use crate::generated::scalars::{CartLineId, CartStatus, OfferId, RestaurantId};
+use crate::generated::scalars::{CartLineId, CartStatus, CustomerId, OfferId, RestaurantId};
 
 /// Per-line quantity cap enforced on AddCartLine / ChangeCartLineQuantity
 /// (`errors.yaml#/QuantityExceedsLimit`). V0 policy default: the spec declares the error but no
@@ -38,6 +38,9 @@ pub struct CartState {
     pub line_ids: Vec<CartLineId>,
     /// The lines with the offer each points at — the live-stock re-check on quantity changes.
     pub lines: Vec<CartLineRef>,
+    /// The customer the cart belongs to — set at `CartStarted` for a signed-in visitor, or later by
+    /// `CartBoundToCustomer` when a guest cart is claimed after sign-in; `None` on a guest cart.
+    pub customer_id: Option<CustomerId>,
 }
 
 /// Fold a Cart stream (events in version order) into its current state. `None` ⇔ the stream has no
@@ -55,6 +58,7 @@ fn apply(state: Option<CartState>, event: &DomainEvent) -> Option<CartState> {
             restaurant_id: e.restaurant_id,
             line_ids: Vec::new(),
             lines: Vec::new(),
+            customer_id: e.customer_id,
         });
     }
     let mut s = state?;
@@ -72,8 +76,48 @@ fn apply(state: Option<CartState>, event: &DomainEvent) -> Option<CartState> {
             s.line_ids.retain(|id| id != &e.cart_line_id);
             s.lines.retain(|line| line.cart_line_id != e.cart_line_id);
         }
+        DomainEvent::CartBoundToCustomer(e) => s.customer_id = Some(e.customer_id),
         DomainEvent::CartCheckedOut(_) => s.status = CartStatus::CHECKED_OUT,
         _ => {}
     }
     Some(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generated::events::{CartBoundToCustomer, CartStarted};
+    use crate::generated::scalars::{CartId, SessionId};
+
+    fn started(customer_id: Option<CustomerId>) -> DomainEvent {
+        DomainEvent::CartStarted(CartStarted {
+            cart_id: CartId(uuid::Uuid::nil()),
+            restaurant_id: RestaurantId(uuid::Uuid::nil()),
+            session_id: SessionId(uuid::Uuid::nil()),
+            customer_id,
+        })
+    }
+    fn bound(customer_id: CustomerId) -> DomainEvent {
+        DomainEvent::CartBoundToCustomer(CartBoundToCustomer {
+            cart_id: CartId(uuid::Uuid::nil()),
+            customer_id,
+        })
+    }
+
+    #[test]
+    fn guest_cart_has_no_customer_until_bound() {
+        let customer = CustomerId(uuid::Uuid::nil());
+        assert_eq!(fold(&[started(None)]).unwrap().customer_id, None);
+        let s = fold(&[started(None), bound(customer)]).unwrap();
+        assert_eq!(s.customer_id, Some(customer));
+    }
+
+    #[test]
+    fn signed_in_start_carries_the_customer_and_rebinding_folds_to_the_same() {
+        let customer = CustomerId(uuid::Uuid::nil());
+        let s = fold(&[started(Some(customer))]).unwrap();
+        assert_eq!(s.customer_id, Some(customer));
+        // Re-delivering the bind is a harmless duplicate: same customer, same state.
+        assert_eq!(fold(&[started(Some(customer)), bound(customer), bound(customer)]), Some(s));
+    }
 }

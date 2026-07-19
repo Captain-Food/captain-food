@@ -11,7 +11,7 @@
 
 use crate::generated::events::DomainEvent;
 use crate::generated::scalars::{
-    CartId, CatalogId, CustomerId, DeliveryJobId, OrderId, RestaurantAccountId, RestaurantId,
+    CartId, CatalogId, CustomerId, DeliveryJobId, OrderId, RestaurantAccountId, RestaurantId, RiderId,
 };
 
 /// An event-sourced aggregate (a persistent actor): a typed identity + rehydration from its own stream.
@@ -57,6 +57,9 @@ impl_aggregate!(crate::order::OrderState, OrderId, "Order", crate::order::fold);
 impl_aggregate!(crate::catalog::CatalogState, CatalogId, "Catalog", crate::catalog::fold);
 impl_aggregate!(crate::customer::CustomerState, CustomerId, "Customer", crate::customer::fold);
 impl_aggregate!(crate::delivery_job::DeliveryJobState, DeliveryJobId, "DeliveryJob", crate::delivery_job::fold);
+impl_aggregate!(crate::rider::RiderState, RiderId, "Rider", crate::rider::fold);
+// Payment is NOT an `Aggregate` impl: its identity is the Stripe PaymentIntentId (a String provider
+// reference, not a Copy uuid newtype) — see `crate::payment::{CATEGORY, stream, fold}`.
 // A Prospect is keyed by the prospected Restaurant's id (ADR-0020) — same id type as Restaurant, distinct stream.
 impl_aggregate!(crate::prospect::ProspectState, RestaurantId, "Prospect", crate::prospect::fold);
 
