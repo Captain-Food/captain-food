@@ -20,6 +20,7 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
         group "order" {
           a_Cart = component "Cart" "Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe)." "Aggregate"
           a_Order = component "Order" "Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe)." "Aggregate"
+          a_Payment = component "Payment" "Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe)." "Aggregate"
           a_PlaceOrderProcess = component "PlaceOrderProcess" "Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe)." "ProcessManager"
           a_RefundProcess = component "RefundProcess" "Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe)." "ProcessManager"
         }
@@ -29,6 +30,7 @@ workspace "Captain.Food" "Local-first food ordering & delivery for independent r
         }
         group "delivery" {
           a_DeliveryJob = component "DeliveryJob" "Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031)." "Aggregate"
+          a_Rider = component "Rider" "Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031)." "Aggregate"
           a_DeliveryDispatchProcess = component "DeliveryDispatchProcess" "Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031)." "ProcessManager"
         }
         group "Infrastructure" {

@@ -626,6 +626,16 @@ PaymentDeclined:
     en: "Payment was declined."
     fr: "Le paiement a été refusé."
 
+RefundNotPending:
+  description: >
+    The admin refund decision (ApproveRefund / DenyRefund) targets an order with no refund pending
+    approval — either no refund run exists for the order, or it was already approved, denied or settled.
+  context:
+    orderId: { $ref: 'scalars.yaml#/OrderId' }
+  messages:
+    en: "No refund is pending approval for this order."
+    fr: "Aucun remboursement n'est en attente d'approbation pour cette commande."
+
 CannotOrderTestRestaurant:
   description: >
     A production (LIVE) order was placed against a TEST restaurant (ADR-0038 test-mode isolation). Real

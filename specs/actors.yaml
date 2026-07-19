@@ -337,6 +337,9 @@ Cart:
       - $ref: 'events.yaml#/CartBoundToCustomer'
       throws:
         - { $ref: 'errors.yaml#/CartNotFound' }
+    - message: { $ref: 'events.yaml#/CartCheckedOut' }
+      emits: [{ $ref: 'events.yaml#/CartCheckedOut' }]
+      effect: "PlaceOrderProcess delivers the checkout fact on payment capture; the Cart records it and closes (idempotent)."
 
 Order:
   type: aggregate
@@ -418,6 +421,12 @@ Payment:
     - message:
         $ref: 'events.yaml#/PaymentRefunded'
       emits: [{ $ref: 'events.yaml#/PaymentRefunded' }]
+    - message: { $ref: 'events.yaml#/RefundApproved' }
+      emits: [{ $ref: 'events.yaml#/RefundApproved' }]
+      effect: "RefundProcess delivers the admin approval; the Payment records it (idempotent)."
+    - message: { $ref: 'events.yaml#/RefundDenied' }
+      emits: [{ $ref: 'events.yaml#/RefundDenied' }]
+      effect: "RefundProcess delivers the admin denial; the Payment records it (idempotent)."
 
 
 DeliveryJob:
@@ -431,6 +440,12 @@ DeliveryJob:
     - message: { $ref: 'events.yaml#/DeliveryRequested' }
       emits: [{ $ref: 'events.yaml#/DeliveryRequested' }]
       effect: "Birth: DeliveryDispatchProcess delivers DeliveryRequested; the DeliveryJob records it (idempotent)."
+    - message: { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+      emits: [{ $ref: 'events.yaml#/DeliveryAcceptedByPartner' }]
+      effect: "Inbound partner acceptance (via the avelo37 ACL use case): the DeliveryJob records the assigned courier (idempotent by partnerRef)."
+    - message: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+      emits: [{ $ref: 'events.yaml#/DeliveryRejectedByPartner' }]
+      effect: "Inbound partner rejection (via the avelo37 ACL use case): the DeliveryJob records it; DeliveryDispatchProcess re-offers."
     - message: { $ref: 'commands.yaml#/AcceptDelivery' }
       emits: [{ $ref: 'events.yaml#/DeliveryAcceptedByRider' }]
       throws:

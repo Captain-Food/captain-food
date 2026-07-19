@@ -11,6 +11,7 @@ scalar RestaurantId
 scalar CatalogId
 scalar ProductCategoryId
 scalar ProductId
+scalar SessionId
 scalar OfferId
 scalar OptionListId
 scalar OptionId
@@ -115,6 +116,13 @@ enum DeliveryStatus {
   CANCELLED
 }
 
+enum RiderStatus {
+  OFFLINE
+  AVAILABLE
+  ON_DELIVERY
+  SUSPENDED
+}
+
 enum DeliveryProvider {
   PARTNER
   INDEPENDENT
@@ -187,6 +195,26 @@ enum OperationStatus {
   SUCCEEDED
   REJECTED
   FAILED
+}
+
+enum PaymentProcessStatus {
+  AWAITING_PAYMENT_RESULT
+  ORDER_PLACED
+  FAILED
+}
+
+enum RefundProcessStatus {
+  PENDING_APPROVAL
+  APPROVED_AWAITING_SETTLEMENT
+  DENIED
+  REFUNDED
+}
+
+enum DeliveryDispatchProcessStatus {
+  OFFERED
+  ACCEPTED
+  REOFFER_REQUIRED
+  COMPLETED
 }
 
 enum CatalogItemAvailability {
@@ -625,17 +653,20 @@ input AddCartLineInput {
   cartId: CartId!
   restaurantId: RestaurantId!
   line: CartLineInput!
+  sessionId: SessionId!
 }
 
 input RemoveCartLineInput {
   cartId: CartId!
   cartLineId: CartLineId!
+  sessionId: SessionId!
 }
 
 input ChangeCartLineQuantityInput {
   cartId: CartId!
   cartLineId: CartLineId!
   quantity: Int!
+  sessionId: SessionId!
 }
 
 input RegisterRestaurantAccountInput {
@@ -872,6 +903,7 @@ input VerifyPhoneInput {
   dialingCode: DialingCode!
   nationalNumber: NationalPhoneNumber!
   code: OtpCode!
+  sessionId: SessionId!
   displayName: CustomerDisplayName
   locale: Locale
   timezone: TimeZone

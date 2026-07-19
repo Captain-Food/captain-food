@@ -268,6 +268,7 @@ fn verify_phone_cmd(id: CustomerId, code: &str) -> VerifyPhone {
         dialing_code: DialingCode("+33".into()),
         national_number: NationalPhoneNumber("612345678".into()),
         code: OtpCode(code.into()),
+        session_id: SessionId(uuid::Uuid::new_v4()),
         display_name: Some(CustomerDisplayName("Johnny".into())),
         locale: Some(Locale("fr-FR".into())),
         timezone: Some(TimeZone("Europe/Paris".into())),

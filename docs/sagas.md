@@ -1,8 +1,16 @@
 # 🔗 Sagas / Process Managers
 
-> Hand-maintained. Source of truth = `crates/application/src/process_managers/*` (pure decisions) +
-> `crates/infrastructure/src/process_manager/*` (runtime). Realizes ADR-0046 (write side) & ADR-0031
-> (delivery); actors.yaml declares each process manager's inbox (`receives` → `emits`/`throws`).
+> **Behaviour source of truth = [`specs/processmanager.yaml`](../specs/processmanager.yaml)** — the
+> TYPED step DSL (ADR-20260719-172821): each process manager declares its state table
+> (`specs/database/tables/process_managers.yaml`), its outbound ports, and per-message ordered
+> `read`/`guard`/`call`/`deliver`/`send`/`state` steps. The **sequence diagrams are GENERATED from
+> those steps** into [`specs/generated/c4.generated.md`](../specs/generated/c4.generated.md) (§ Saga
+> sequences) — do not hand-draw them here. This file keeps the hand-maintained NARRATIVE (why, status,
+> gaps). ⚠️ The runtime described below is the CURRENT event-sourced implementation
+> (`crates/application/src/process_managers/*` + `crates/infrastructure/src/process_manager/*`,
+> ADR-0046/ADR-20260719-031136); its reimplementation as state-table orchestrators per the DSL is the
+> next program (see `docs/process-manager-rearchitecture.md`). The Mermaid below documents that
+> current runtime, not the target step contracts.
 
 ## What a process manager is
 

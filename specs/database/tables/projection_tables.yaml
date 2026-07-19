@@ -373,6 +373,10 @@ Cart:
     restaurant_id:
       from: [{ $ref: 'events.yaml#/CartStarted/properties/restaurantId' }]
       fk: { $ref: '#/Restaurant/columns/restaurant_id' }
+    session_id:
+      from: [{ $ref: 'events.yaml#/CartStarted/properties/sessionId' }]
+      index: true
+      note: "The visitor session that started the cart; CartBindingProcess binds all OPEN carts of a session on CustomerIdentified."
     customer_id:
       from:
         - { $ref: 'events.yaml#/CartStarted/properties/customerId' }
@@ -562,6 +566,10 @@ OrderTracking:
         - { $ref: 'events.yaml#/OrderCancelledByCustomer' }
         - { $ref: 'events.yaml#/OrderCancelledByRestaurant' }
       note: "Occurrence time of the latest status-changing event."
+    payment_intent_id:
+      from: [{ $ref: 'events.yaml#/PaymentCaptured/properties/paymentIntentId' }]
+      nullable: true
+      note: "The captured Stripe PaymentIntent; RefundProcess reads it to open a pending refund."
     payment_status:
       type: text
       from:

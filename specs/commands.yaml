@@ -732,6 +732,9 @@ VerifyPhone:
       $ref: 'scalars.yaml#/NationalPhoneNumber'
     code:
       $ref: 'scalars.yaml#/OtpCode'
+    sessionId:
+      $ref: 'scalars.yaml#/SessionId'
+      description: "The visitor session verifying the phone — carried onto CustomerIdentified so CartBindingProcess binds this session's open carts."
     displayName:
       $ref: 'scalars.yaml#/CustomerDisplayName'
       nullable: true
@@ -742,7 +745,7 @@ VerifyPhone:
     timezone:
       $ref: 'scalars.yaml#/TimeZone'
       nullable: true
-  required: [customerId, dialingCode, nationalNumber, code]
+  required: [customerId, dialingCode, nationalNumber, code, sessionId]
 
 RequestEmailVerification:
   description: >

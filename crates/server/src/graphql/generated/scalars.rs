@@ -81,6 +81,21 @@ impl From<ProductId> for ds::ProductId {
     }
 }
 
+/// A session is a temporary auth token (ADR-0041) for a visitor or customer, used to bind carts and track the user across devices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct SessionId(pub uuid::Uuid);
+async_graphql::scalar!(SessionId, "SessionId", "A session is a temporary auth token (ADR-0041) for a visitor or customer, used to bind carts and track the user across devices.");
+impl From<ds::SessionId> for SessionId {
+    fn from(v: ds::SessionId) -> Self {
+        Self(v.0)
+    }
+}
+impl From<SessionId> for ds::SessionId {
+    fn from(v: SessionId) -> Self {
+        Self(v.0)
+    }
+}
+
 /// A purchasable offer with its own price (HubRise: SKU).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct OfferId(pub uuid::Uuid);
@@ -1108,6 +1123,39 @@ impl From<DeliveryStatus> for ds::DeliveryStatus {
     }
 }
 
+/// Availability/lifecycle status of an independent Captain rider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum RiderStatus {
+    #[graphql(name = "OFFLINE")]
+    OFFLINE,
+    #[graphql(name = "AVAILABLE")]
+    AVAILABLE,
+    #[graphql(name = "ON_DELIVERY")]
+    ON_DELIVERY,
+    #[graphql(name = "SUSPENDED")]
+    SUSPENDED,
+}
+impl From<ds::RiderStatus> for RiderStatus {
+    fn from(v: ds::RiderStatus) -> Self {
+        match v {
+            ds::RiderStatus::OFFLINE => Self::OFFLINE,
+            ds::RiderStatus::AVAILABLE => Self::AVAILABLE,
+            ds::RiderStatus::ON_DELIVERY => Self::ON_DELIVERY,
+            ds::RiderStatus::SUSPENDED => Self::SUSPENDED,
+        }
+    }
+}
+impl From<RiderStatus> for ds::RiderStatus {
+    fn from(v: RiderStatus) -> Self {
+        match v {
+            RiderStatus::OFFLINE => Self::OFFLINE,
+            RiderStatus::AVAILABLE => Self::AVAILABLE,
+            RiderStatus::ON_DELIVERY => Self::ON_DELIVERY,
+            RiderStatus::SUSPENDED => Self::SUSPENDED,
+        }
+    }
+}
+
 /// Fulfilment channel of a delivery: PARTNER (e.g. Avelo37) or INDEPENDENT (a Captain rider).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
 pub enum DeliveryProvider {
@@ -1474,6 +1522,101 @@ impl From<OperationStatus> for ds::OperationStatus {
             OperationStatus::SUCCEEDED => Self::SUCCEEDED,
             OperationStatus::REJECTED => Self::REJECTED,
             OperationStatus::FAILED => Self::FAILED,
+        }
+    }
+}
+
+/// State of one PlaceOrderProcess checkout run (payment_process_manager row, keyed by cart).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum PaymentProcessStatus {
+    #[graphql(name = "AWAITING_PAYMENT_RESULT")]
+    AWAITING_PAYMENT_RESULT,
+    #[graphql(name = "ORDER_PLACED")]
+    ORDER_PLACED,
+    #[graphql(name = "FAILED")]
+    FAILED,
+}
+impl From<ds::PaymentProcessStatus> for PaymentProcessStatus {
+    fn from(v: ds::PaymentProcessStatus) -> Self {
+        match v {
+            ds::PaymentProcessStatus::AWAITING_PAYMENT_RESULT => Self::AWAITING_PAYMENT_RESULT,
+            ds::PaymentProcessStatus::ORDER_PLACED => Self::ORDER_PLACED,
+            ds::PaymentProcessStatus::FAILED => Self::FAILED,
+        }
+    }
+}
+impl From<PaymentProcessStatus> for ds::PaymentProcessStatus {
+    fn from(v: PaymentProcessStatus) -> Self {
+        match v {
+            PaymentProcessStatus::AWAITING_PAYMENT_RESULT => Self::AWAITING_PAYMENT_RESULT,
+            PaymentProcessStatus::ORDER_PLACED => Self::ORDER_PLACED,
+            PaymentProcessStatus::FAILED => Self::FAILED,
+        }
+    }
+}
+
+/// State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are admin-approved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum RefundProcessStatus {
+    #[graphql(name = "PENDING_APPROVAL")]
+    PENDING_APPROVAL,
+    #[graphql(name = "APPROVED_AWAITING_SETTLEMENT")]
+    APPROVED_AWAITING_SETTLEMENT,
+    #[graphql(name = "DENIED")]
+    DENIED,
+    #[graphql(name = "REFUNDED")]
+    REFUNDED,
+}
+impl From<ds::RefundProcessStatus> for RefundProcessStatus {
+    fn from(v: ds::RefundProcessStatus) -> Self {
+        match v {
+            ds::RefundProcessStatus::PENDING_APPROVAL => Self::PENDING_APPROVAL,
+            ds::RefundProcessStatus::APPROVED_AWAITING_SETTLEMENT => Self::APPROVED_AWAITING_SETTLEMENT,
+            ds::RefundProcessStatus::DENIED => Self::DENIED,
+            ds::RefundProcessStatus::REFUNDED => Self::REFUNDED,
+        }
+    }
+}
+impl From<RefundProcessStatus> for ds::RefundProcessStatus {
+    fn from(v: RefundProcessStatus) -> Self {
+        match v {
+            RefundProcessStatus::PENDING_APPROVAL => Self::PENDING_APPROVAL,
+            RefundProcessStatus::APPROVED_AWAITING_SETTLEMENT => Self::APPROVED_AWAITING_SETTLEMENT,
+            RefundProcessStatus::DENIED => Self::DENIED,
+            RefundProcessStatus::REFUNDED => Self::REFUNDED,
+        }
+    }
+}
+
+/// State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum DeliveryDispatchProcessStatus {
+    #[graphql(name = "OFFERED")]
+    OFFERED,
+    #[graphql(name = "ACCEPTED")]
+    ACCEPTED,
+    #[graphql(name = "REOFFER_REQUIRED")]
+    REOFFER_REQUIRED,
+    #[graphql(name = "COMPLETED")]
+    COMPLETED,
+}
+impl From<ds::DeliveryDispatchProcessStatus> for DeliveryDispatchProcessStatus {
+    fn from(v: ds::DeliveryDispatchProcessStatus) -> Self {
+        match v {
+            ds::DeliveryDispatchProcessStatus::OFFERED => Self::OFFERED,
+            ds::DeliveryDispatchProcessStatus::ACCEPTED => Self::ACCEPTED,
+            ds::DeliveryDispatchProcessStatus::REOFFER_REQUIRED => Self::REOFFER_REQUIRED,
+            ds::DeliveryDispatchProcessStatus::COMPLETED => Self::COMPLETED,
+        }
+    }
+}
+impl From<DeliveryDispatchProcessStatus> for ds::DeliveryDispatchProcessStatus {
+    fn from(v: DeliveryDispatchProcessStatus) -> Self {
+        match v {
+            DeliveryDispatchProcessStatus::OFFERED => Self::OFFERED,
+            DeliveryDispatchProcessStatus::ACCEPTED => Self::ACCEPTED,
+            DeliveryDispatchProcessStatus::REOFFER_REQUIRED => Self::REOFFER_REQUIRED,
+            DeliveryDispatchProcessStatus::COMPLETED => Self::COMPLETED,
         }
     }
 }

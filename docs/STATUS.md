@@ -3,15 +3,18 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-19. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
-> 🚧 **IN PROGRESS on a feature branch — Process-manager re-architecture.** Process managers become
-> state-table orchestrators (doc-only `steps`, not event-sourced actors); a `Payment` aggregate records the
-> inbound Stripe facts (adapters never write `domain_events`); a `Rider` actor; `DeliveryJob` owns delivery
-> ops; refunds are admin-approved. The DSL structural layer is done — `make validate` **114 → 58** (remaining
-> = tests + exempting doc-only PMs from the completeness gate); the runtime is **not** reimplemented. Full
-> design + decisions + resume steps: **[docs/process-manager-rearchitecture.md](process-manager-rearchitecture.md)**.
-> Also landed this session (green, on the branch): the write-side **`Repository` / event-sourced-actor**
-> refactor (ADR-20260719-031136, 216 tests) + the **checkout snapshot** (ADR-20260719-014434) — the
-> re-architecture will rework the saga side of these.
+> 🚧 **Feature branch — Process-manager re-architecture: DSL layer DONE, runtime pending.** Process
+> managers are now **state-table orchestrators specified by a TYPED step DSL** (ADR-20260719-172821):
+> `specs/processmanager.yaml` legs are ordered `read`/`guard`/`call`/`deliver`/`send`/`state` steps —
+> every field a `$ref` or enum const, state in declared tables (`process_managers.yaml`), command-leg
+> guards `throws` / event legs `skip`, emits **derived** from steps, sequence diagrams **generated**
+> from steps (`c4.generated.md`). Validator §2b proves the wiring; the ADR-0032 gate applies to PMs
+> unexempted. `make validate` **58 → 0 errors** (behaviour tests added for Rider, DeliveryJob ops,
+> Payment records, admin-approved RefundProcess incl. `RefundNotPending`). `cargo test --workspace`
+> green. The PM **runtime is NOT reimplemented yet** (still the event-sourced runner): see
+> **[docs/process-manager-rearchitecture.md](process-manager-rearchitecture.md)** for the phase plan.
+> Also on the branch (green): the write-side **`Repository`** refactor (ADR-20260719-031136) + the
+> **checkout snapshot** (ADR-20260719-014434) — the runtime rework will rebuild the saga side of these.
 
 ## 🌐 Deployment
 

@@ -1273,7 +1273,7 @@ A single restaurant location (HubRise: location); belongs to a RestaurantAccount
 | <a id="scalar-cuisinecategory"></a>🔤 `CuisineCategory` | enum (FAST_FOOD \| PIZZA \| TRADITIONAL \| BISTRONOMIC \| FOOD_TRUCK) | A restaurant's SINGLE primary/representative cuisine bucket, used only to select ONE Uber Eats mark-up coefficient in View_UberEstimationPolicy (ADR-0024): FAST_FOOD 1.30, PIZZA 1.35, TRADITIONAL 1.40, BISTRONOMIC 1.45, FOOD_TRUCK 1.35. NOT for discovery — a restaurant may belong to several cuisines for browsing/filtering; that is the multi-valued `Restaurant.tags`. This is deliberately one value because the estimate needs a single coefficient.  |
 | <a id="scalar-restaurantlistkey"></a>🔤 `RestaurantListKey` | enum (ORDER_AGAIN \| RECOMMENDED \| TOP_DEALS \| GREEN_PACKAGING) | Named, read-side-curated/personalized discovery shelf for the restaurants query. The read model resolves the actual member restaurants (editorial rules / customer history); the client just asks for a list by key.  |
 
-### ⛔ Errors _(12)_
+### ⛔ Errors _(13)_
 
 | Error | Description | Message (en) | Message (fr) | Thrown by |
 | --- | --- | --- | --- | --- |
@@ -1281,6 +1281,7 @@ A single restaurant location (HubRise: location); belongs to a RestaurantAccount
 | <a id="error-slugalreadytaken"></a>⛔ `SlugAlreadyTaken` | Another restaurant already uses this slug. | 🇬🇧 The address '{slug}' is already taken. | 🇫🇷 L'adresse '{slug}' est déjà utilisée. | [📩 `RegisterRestaurant`](#command-registerrestaurant) |
 | <a id="error-refalreadyused"></a>⛔ `RefAlreadyUsed` | The external reference (idempotent import key) is already owned by another aggregate. | 🇬🇧 The reference '{ref}' is already in use. | 🇫🇷 La référence '{ref}' est déjà utilisée. | [📩 `RegisterRestaurantAccount`](#command-registerrestaurantaccount), [📩 `RegisterRestaurant`](#command-registerrestaurant) |
 | <a id="error-invalidcurrency"></a>⛔ `InvalidCurrency` | Currency is not a valid ISO 4217 code. | 🇬🇧 '{currency}' is not a valid currency. | 🇫🇷 '{currency}' n'est pas une devise valide. | [📩 `RegisterRestaurantAccount`](#command-registerrestaurantaccount) |
+| <a id="error-restaurantnotactive"></a>⛔ `RestaurantNotActive` | Operation requires an ACTIVE restaurant. | 🇬🇧 The restaurant '{restaurantName}' is not active. | 🇫🇷 Le restaurant '{restaurantName}' n'est pas actif. | [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode) |
 | <a id="error-restaurantnotreadyforactivation"></a>⛔ `RestaurantNotReadyForActivation` | Activation requires at least one catalog with one orderable offer. | 🇬🇧 Add at least one orderable product before activating '{restaurantName}'. | 🇫🇷 Ajoutez au moins un produit commandable avant d'activer '{restaurantName}'. | [📩 `ActivateRestaurant`](#command-activaterestaurant) |
 | <a id="error-acceptancemodeunchanged"></a>⛔ `AcceptanceModeUnchanged` | Requested acceptance mode equals the current one. | 🇬🇧 '{restaurantName}' is already in '{mode}' mode. | 🇫🇷 '{restaurantName}' est déjà en mode '{mode}'. | [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode) |
 | <a id="error-listingalreadyclaimed"></a>⛔ `ListingAlreadyClaimed` | The restaurant listing has already been claimed by an owner. | 🇬🇧 This restaurant listing has already been claimed. | 🇫🇷 Cette fiche restaurant a déjà été revendiquée. | [📩 `ClaimRestaurantListing`](#command-claimrestaurantlisting) |
@@ -2972,7 +2973,7 @@ An order with its tracking status and payment state.
 | <a id="type-order--estimateddropoffat"></a>`estimatedDropoffAt` | `string` _date-time_ | ⬜ |
 | <a id="type-order--ratedat"></a>`ratedAt` | `string` _date-time_ | ⬜ |
 
-### 🎭 Actors _(4)_
+### 🎭 Actors _(5)_
 
 <a id="actor-cart"></a>
 #### 🎭 Actor: `Cart`
@@ -2984,14 +2985,17 @@ _🧩 aggregate_ — A visitor's in-progress selection for one restaurant, built
 | [📩 `AddCartLine`](#command-addcartline) | [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded) | [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartRestaurantMismatch`](#error-cartrestaurantmismatch), [⛔ `OfferNotFound`](#error-offernotfound), [⛔ `OfferUnavailable`](#error-offerunavailable), [⛔ `InsufficientStock`](#error-insufficientstock), [⛔ `InvalidOptionSelection`](#error-invalidoptionselection), [⛔ `QuantityExceedsLimit`](#error-quantityexceedslimit) |
 | [📩 `RemoveCartLine`](#command-removecartline) | [⚡ `CartLineRemoved`](#event-cartlineremoved) | [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartLineNotFound`](#error-cartlinenotfound) |
 | [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity) | [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged) | [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartLineNotFound`](#error-cartlinenotfound), [⛔ `InsufficientStock`](#error-insufficientstock), [⛔ `QuantityExceedsLimit`](#error-quantityexceedslimit) |
+| [📩 `BindCartToCustomer`](#command-bindcarttocustomer) | [⚡ `CartBoundToCustomer`](#event-cartboundtocustomer) | [⛔ `CartNotFound`](#error-cartnotfound) |
+| [⚡ `CartCheckedOut`](#event-cartcheckedout) | [⚡ `CartCheckedOut`](#event-cartcheckedout) | — |
 
 <a id="actor-order"></a>
 #### 🎭 Actor: `Order`
 
-_🧩 aggregate_ — A single order through its lifecycle. Born from OrderPlaced (emitted by PlaceOrderProcess), then driven to a terminal state.
+_🧩 aggregate_ — A single order through its lifecycle. Born from OrderPlaced (delivered by PlaceOrderProcess and recorded here), then driven to a terminal state.
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
+| [⚡ `OrderPlaced`](#event-orderplaced) | [⚡ `OrderPlaced`](#event-orderplaced) | — |
 | [📩 `AcceptOrder`](#command-acceptorder) | [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus) |
 | [📩 `StartPreparation`](#command-startpreparation) | [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus) |
 | [📩 `MarkOrderReady`](#command-markorderready) | [⚡ `OrderMarkedReady`](#event-ordermarkedready) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus) |
@@ -3004,31 +3008,49 @@ _🧩 aggregate_ — A single order through its lifecycle. Born from OrderPlaced
 | [📩 `TipOrder`](#command-tiporder) | [⚡ `OrderTipped`](#event-ordertipped) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `InvalidTipRecipient`](#error-invalidtiprecipient) |
 | [📩 `RequestRefund`](#command-requestrefund) | [⚡ `RefundRequested`](#event-refundrequested) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus) |
 
+<a id="actor-payment"></a>
+#### 🎭 Actor: `Payment`
+
+_🧩 aggregate_ — A payment for an order, driven to a terminal state. Born from PaymentIntentCreated (emitted by PlaceOrderProcess), then driven to a terminal state.
+
+| Receives | Emits → | Throws |
+| --- | --- | --- |
+| [⚡ `PaymentIntentCreated`](#event-paymentintentcreated) | [⚡ `PaymentIntentCreated`](#event-paymentintentcreated) | — |
+| [⚡ `PaymentCaptured`](#event-paymentcaptured) | [⚡ `PaymentCaptured`](#event-paymentcaptured) | — |
+| [⚡ `PaymentFailed`](#event-paymentfailed) | [⚡ `PaymentFailed`](#event-paymentfailed) | — |
+| [⚡ `PaymentRefunded`](#event-paymentrefunded) | [⚡ `PaymentRefunded`](#event-paymentrefunded) | — |
+| [⚡ `RefundApproved`](#event-refundapproved) | [⚡ `RefundApproved`](#event-refundapproved) | — |
+| [⚡ `RefundDenied`](#event-refunddenied) | [⚡ `RefundDenied`](#event-refunddenied) | — |
+
 <a id="actor-placeorderprocess"></a>
 #### 🎭 Actor: `PlaceOrderProcess`
 
-_⚙️ process manager_ — The PlaceOrder saga: reads the OPEN cart, re-validates it against the live catalog, prices it server-side, drives the Stripe payment, and on capture materializes the Order and closes the cart. Receives both the initiating command and the payment-outcome events.
+_⚙️ process manager_ — The checkout saga. On PlaceOrder: reads the OPEN cart, re-validates and prices it server-side against the live catalog, creates the Stripe PaymentIntent, and freezes the full priced checkout onto PaymentIntentCreated (ADR-20260719-014434) — the state row (one live run per cart) is what prevents concurrent checkouts of the same cart. On PaymentCaptured: materializes the Order and closes the cart from the frozen snapshot alone. On PaymentFailed: resolves the run; the cart stays OPEN.
 
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
-| [📩 `PlaceOrder`](#command-placeorder) | [⚡ `PaymentIntentCreated`](#event-paymentintentcreated) | [⛔ `RestaurantNotFound`](#error-restaurantnotfound), [⛔ `RestaurantNotActive`](#error-restaurantnotactive), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `CartRestaurantMismatch`](#error-cartrestaurantmismatch), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `OfferUnavailable`](#error-offerunavailable), [⛔ `InsufficientStock`](#error-insufficientstock), [⛔ `InvalidOptionSelection`](#error-invalidoptionselection), [⛔ `PaymentDeclined`](#error-paymentdeclined), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant) |
+| [📩 `PlaceOrder`](#command-placeorder) | [⚡ `PaymentIntentCreated`](#event-paymentintentcreated) | [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `PaymentDeclined`](#error-paymentdeclined) |
 | [⚡ `PaymentCaptured`](#event-paymentcaptured) | [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `CartCheckedOut`](#event-cartcheckedout) | — |
-| [⚡ `PaymentFailed`](#event-paymentfailed) | _Abort the saga; no OrderPlaced; the cart stays OPEN._ | — |
+| [⚡ `PaymentFailed`](#event-paymentfailed) | _Payment failed: resolve the run; no order is placed and the cart stays OPEN._ | — |
 
 <a id="actor-refundprocess"></a>
 #### 🎭 Actor: `RefundProcess`
 
-_⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a refundable terminal state, requests the refund from Stripe (external call, not a domain command), then records the settled fact reported back.
+_⚙️ process manager_ — Admin-approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a pending refund on the state row; an ADMIN decides with ApproveRefund / DenyRefund; on approval the outbound Stripe refund is requested and the run settles when Stripe reports PaymentRefunded (the fact itself is recorded by the Payment aggregate). The refund-eligibility window is a config value enforced at approval, not a domain rule.
 
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
-| [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant) | _Request refund from Stripe._ | — |
-| [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer) | _Request refund from Stripe._ | — |
-| [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | _Request refund from Stripe._ | — |
-| [⚡ `RefundRequested`](#event-refundrequested) | _Customer-initiated refund request; validate eligibility, then request the refund from Stripe._ | — |
-| [⚡ `PaymentRefunded`](#event-paymentrefunded) | _Record the settled refund fact (reported by Stripe)._ | — |
+| [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant) | _The restaurant rejected a paid order — open a pending refund for admin approval._ | — |
+| [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer) | _The customer cancelled a paid order — open a pending refund for admin approval._ | — |
+| [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | _The restaurant cancelled a paid order — open a pending refund for admin approval._ | — |
+| [⚡ `RefundRequested`](#event-refundrequested) | _The customer asked for a refund (the Order aggregate already validated RequestRefund) — open a pending refund for admin approval.
+_ | — |
+| [📩 `ApproveRefund`](#command-approverefund) | [⚡ `RefundApproved`](#event-refundapproved) | [⛔ `RefundNotPending`](#error-refundnotpending) |
+| [📩 `DenyRefund`](#command-denyrefund) | [⚡ `RefundDenied`](#event-refunddenied) | [⛔ `RefundNotPending`](#error-refundnotpending) |
+| [⚡ `PaymentRefunded`](#event-paymentrefunded) | _Stripe reported the settled refund (recorded by the Payment aggregate) — close the run. The fact is already in the log; nothing to emit.
+_ | — |
 
 ### 🗄️ Views (read models) _(2)_
 
@@ -3044,6 +3066,7 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | --- | --- | --- | --- | --- |
 | `cart_id` | [🔤 `CartId`](#scalar-cartid) _(derived)_ | [⚡ `CartStarted`.`cartId`](#event-cartstarted--cartid) | PK |  |
 | `restaurant_id` | [🔤 `RestaurantId`](#scalar-restaurantid) _(derived)_ → [🗄️ `Restaurant`](#view-restaurant) | [⚡ `CartStarted`.`restaurantId`](#event-cartstarted--restaurantid) | — |  |
+| `session_id` | [🔤 `SessionId`](#scalar-sessionid) _(derived)_ | [⚡ `CartStarted`.`sessionId`](#event-cartstarted--sessionid) | index | The visitor session that started the cart; CartBindingProcess binds all OPEN carts of a session on CustomerIdentified. |
 | `customer_id` | [🔤 `CustomerId`](#scalar-customerid) _(derived)_ → [🗄️ `Customer`](#view-customer) | [⚡ `CartStarted`.`customerId`](#event-cartstarted--customerid), [⚡ `CustomerIdentified`.`customerId`](#event-customeridentified--customerid) | nullable | NULL while guest; bound by CustomerIdentified or at checkout. |
 | `status` | [🔤 `CartStatus`](#scalar-cartstatus) | [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartCheckedOut`](#event-cartcheckedout) | — | Derived from event type: OPEN on CartStarted, CHECKED_OUT on CartCheckedOut. |
 | `lines` | `jsonb` | [⚡ `CartLineAdded`](#event-cartlineadded), [⚡ `CartLineQuantityChanged`](#event-cartlinequantitychanged), [⚡ `CartLineRemoved`](#event-cartlineremoved) | — | Priced by the projection from the live catalog: [{ cart_line_id, offer_id, product_id, name, offer_name, quantity, unit_price_cents, selected_options, line_total_cents }]. |
@@ -3088,6 +3111,7 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `estimated_ready_at` | `timestamptz` _(derived)_ | [⚡ `OrderAcceptedByRestaurant`.`estimatedReadyAt`](#event-orderacceptedbyrestaurant--estimatedreadyat) | nullable |  |
 | `placed_at` | `timestamptz` | [⚡ `OrderPlaced`](#event-orderplaced) | — | OrderPlaced occurrence time. |
 | `status_changed_at` | `timestamptz` | [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant), [⚡ `OrderPreparationStarted`](#event-orderpreparationstarted), [⚡ `OrderMarkedReady`](#event-ordermarkedready), [⚡ `OrderDelivered`](#event-orderdelivered), [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant), [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer), [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | — | Occurrence time of the latest status-changing event. |
+| `payment_intent_id` | [🔤 `PaymentIntentId`](#scalar-paymentintentid) _(derived)_ | [⚡ `PaymentCaptured`.`paymentIntentId`](#event-paymentcaptured--paymentintentid) | nullable | The captured Stripe PaymentIntent; RefundProcess reads it to open a pending refund. |
 | `payment_status` | `text` | [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentRefunded`](#event-paymentrefunded) | — | Folded from Stripe facts; candidate for a PaymentStatus enum. |
 | `restaurant_stars` | [🔤 `StarRating`](#scalar-starrating) _(derived)_ | [⚡ `RestaurantRated`.`stars`](#event-restaurantrated--stars) | nullable | Customer's 0–5 rating of the restaurant; null until rated. |
 | `rating_comment` | [🔤 `RatingComment`](#scalar-ratingcomment) _(derived)_ | [⚡ `RestaurantRated`.`comment`](#event-restaurantrated--comment) | nullable |  |
@@ -3102,7 +3126,7 @@ _⚙️ process manager_ — Coordinates refunds. Reacts to an order reaching a 
 | `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 | `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
-### 📩 Commands _(15)_
+### 📩 Commands _(18)_
 
 <a id="command-addcartline"></a>
 #### 📩 Command: `AddCartLine`
@@ -3118,6 +3142,7 @@ Visitor adds a line to a cart, validated against the live catalog. The client ge
 | <a id="command-addcartline--cartid"></a>`cartId` | [🔤 `CartId`](#scalar-cartid) | ✅ | Client-generated cart id; the first add for it creates the cart (session-owned). |
 | <a id="command-addcartline--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
 | <a id="command-addcartline--line"></a>`line` | [📦 `CartLine`](#entity-cartline) | ✅ |  |
+| <a id="command-addcartline--sessionid"></a>`sessionId` | [🔤 `SessionId`](#scalar-sessionid) | ✅ | Optional session id (ADR-0038) to bind the cart to a session for test-mode carts. |
 
 <a id="command-removecartline"></a>
 #### 📩 Command: `RemoveCartLine`
@@ -3132,6 +3157,7 @@ Visitor removes a line from a cart.
 | --- | --- | --- | --- |
 | <a id="command-removecartline--cartid"></a>`cartId` | [🔤 `CartId`](#scalar-cartid) | ✅ |  |
 | <a id="command-removecartline--cartlineid"></a>`cartLineId` | [🔤 `CartLineId`](#scalar-cartlineid) | ✅ |  |
+| <a id="command-removecartline--sessionid"></a>`sessionId` | [🔤 `SessionId`](#scalar-sessionid) | ✅ | Optional session id (ADR-0038) to bind the cart to a session for test-mode carts. |
 
 <a id="command-changecartlinequantity"></a>
 #### 📩 Command: `ChangeCartLineQuantity`
@@ -3147,6 +3173,7 @@ Visitor changes the quantity of an existing cart line.
 | <a id="command-changecartlinequantity--cartid"></a>`cartId` | [🔤 `CartId`](#scalar-cartid) | ✅ |  |
 | <a id="command-changecartlinequantity--cartlineid"></a>`cartLineId` | [🔤 `CartLineId`](#scalar-cartlineid) | ✅ |  |
 | <a id="command-changecartlinequantity--quantity"></a>`quantity` | `integer` | ✅ |  |
+| <a id="command-changecartlinequantity--sessionid"></a>`sessionId` | [🔤 `SessionId`](#scalar-sessionid) | ✅ | Optional session id (ADR-0038) to bind the cart to a session for test-mode carts. |
 
 <a id="command-placeorder"></a>
 #### 📩 Command: `PlaceOrder`
@@ -3155,7 +3182,7 @@ SAGA (checkout). Reads the OPEN cart referenced by cartId, re-validates it again
 
 - **Dispatched by**: [✏️ `placeOrder`](#mutation-placeorder) · **handled by** [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
 - **Emits**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
-- **Throws**: [⛔ `RestaurantNotFound`](#error-restaurantnotfound), [⛔ `RestaurantNotActive`](#error-restaurantnotactive), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `CartRestaurantMismatch`](#error-cartrestaurantmismatch), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `OfferUnavailable`](#error-offerunavailable), [⛔ `InsufficientStock`](#error-insufficientstock), [⛔ `InvalidOptionSelection`](#error-invalidoptionselection), [⛔ `PaymentDeclined`](#error-paymentdeclined), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant)
+- **Throws**: [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `PaymentDeclined`](#error-paymentdeclined)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3333,7 +3360,64 @@ Customer requests a refund for an order; the RefundProcess decides and drives St
 | <a id="command-requestrefund--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
 | <a id="command-requestrefund--reason"></a>`reason` | `string` | ⬜ |  |
 
-### ⚡ Events _(21)_
+<a id="command-bindcarttocustomer"></a>
+#### 📩 Command: `BindCartToCustomer`
+
+Bind a cart to a customer (after phone verification). The cart is then owned by the customer and can be retrieved across sessions. This is a one-time operation per cart.
+
+- **Dispatched by**: — · **handled by** [🎭 `Cart`](#actor-cart)
+- **Emits**: [⚡ `CartBoundToCustomer`](#event-cartboundtocustomer)
+- **Throws**: [⛔ `CartNotFound`](#error-cartnotfound)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-bindcarttocustomer--cartid"></a>`cartId` | [🔤 `CartId`](#scalar-cartid) | ✅ |  |
+| <a id="command-bindcarttocustomer--customerid"></a>`customerId` | [🔤 `CustomerId`](#scalar-customerid) | ✅ |  |
+
+<a id="command-approverefund"></a>
+#### 📩 Command: `ApproveRefund`
+
+Admin approves a pending refund (optionally partial); the RefundProcess then drives Stripe.
+
+- **Dispatched by**: — · **handled by** [🎭 `RefundProcess`](#actor-refundprocess)
+- **Emits**: [⚡ `RefundApproved`](#event-refundapproved)
+- **Throws**: [⛔ `RefundNotPending`](#error-refundnotpending)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-approverefund--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="command-approverefund--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ | Approved refund amount (may be partial). |
+| <a id="command-approverefund--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="command-denyrefund"></a>
+#### 📩 Command: `DenyRefund`
+
+Admin denies a pending refund request.
+
+- **Dispatched by**: — · **handled by** [🎭 `RefundProcess`](#actor-refundprocess)
+- **Emits**: [⚡ `RefundDenied`](#event-refunddenied)
+- **Throws**: [⛔ `RefundNotPending`](#error-refundnotpending)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-denyrefund--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="command-denyrefund--reason"></a>`reason` | `string` | ✅ |  |
+
+### ⚡ Events _(24)_
+
+<a id="event-cartboundtocustomer"></a>
+#### ⚡ Event: `CartBoundToCustomer`
+
+A cart that was started by a guest visitor (no customerId) was bound to a Customer after sign-in. This is a domain event, not an auth event. The cartId is the same as the original guest cart; the cart's customerId is now set to the signed-in customer.
+
+- **Emitted by**: [🎭 `Cart`](#actor-cart), [🎭 `CartBindingProcess`](#actor-cartbindingprocess)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-cartboundtocustomer--cartid"></a>`cartId` | [🔤 `CartId`](#scalar-cartid) | ✅ |  |
+| <a id="event-cartboundtocustomer--customerid"></a>`customerId` | [🔤 `CustomerId`](#scalar-customerid) | ✅ |  |
 
 <a id="event-cartstarted"></a>
 #### ⚡ Event: `CartStarted`
@@ -3348,6 +3432,7 @@ A new cart was created for a restaurant (emitted with the first line added).
 | --- | --- | --- | --- |
 | <a id="event-cartstarted--cartid"></a>`cartId` | [🔤 `CartId`](#scalar-cartid) | ✅ |  |
 | <a id="event-cartstarted--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
+| <a id="event-cartstarted--sessionid"></a>`sessionId` | [🔤 `SessionId`](#scalar-sessionid) | ✅ | The visitor session that started the cart — the key CartBindingProcess uses to bind guest carts on CustomerIdentified. |
 | <a id="event-cartstarted--customerid"></a>`customerId` | [🔤 `CustomerId`](#scalar-customerid) | ⬜ | Null while the visitor is a guest; bound at checkout. |
 
 <a id="event-cartlineadded"></a>
@@ -3398,8 +3483,8 @@ A line was removed from a cart.
 
 The cart was converted to an order at checkout and is now closed.
 
-- **Emitted by**: [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
-- **Consumed by**: —
+- **Emitted by**: [🎭 `Cart`](#actor-cart), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
+- **Consumed by**: [🎭 `Cart`](#actor-cart)
 - **Projected into**: [🗄️ `Cart`](#view-cart)
 
 | Field | Type | Required | Description |
@@ -3412,8 +3497,8 @@ The cart was converted to an order at checkout and is now closed.
 
 A customer has placed an order and payment was successfully authorized/captured.
 
-- **Emitted by**: [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
-- **Consumed by**: —
+- **Emitted by**: [🎭 `Order`](#actor-order), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
+- **Consumed by**: [🎭 `Order`](#actor-order)
 - **Projected into**: [🗄️ `OrderTracking`](#view-ordertracking)
 
 | Field | Type | Required | Description |
@@ -3605,8 +3690,8 @@ The customer requested a refund for an order; the RefundProcess will drive Strip
 
 A payment intent was created at checkout for a pending order. Carries the full priced checkout frozen at intent creation (`checkout`), so PlaceOrderProcess can rebuild OrderPlaced + CartCheckedOut from the event log alone when PaymentCaptured arrives (no out-of-log store). `checkout.restaurantId`/`customerId` duplicate the top-level fields and `checkout.totalAmount == amount == checkout.breakdown.total`.
 
-- **Emitted by**: [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
-- **Consumed by**: —
+- **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
+- **Consumed by**: [🎭 `Payment`](#actor-payment)
 - **Projected into**: _non-projected (saga/transient)_
 
 | Field | Type | Required | Description |
@@ -3622,8 +3707,8 @@ A payment intent was created at checkout for a pending order. Carries the full p
 
 Payment was successfully authorized/captured for an order.
 
-- **Emitted by**: _inbound / external_
-- **Consumed by**: [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
+- **Emitted by**: [🎭 `Payment`](#actor-payment)
+- **Consumed by**: [🎭 `Payment`](#actor-payment), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
 - **Projected into**: [🗄️ `OrderTracking`](#view-ordertracking)
 
 | Field | Type | Required | Description |
@@ -3638,8 +3723,8 @@ Payment was successfully authorized/captured for an order.
 
 Payment authorization/capture failed; no order is placed.
 
-- **Emitted by**: _inbound / external_
-- **Consumed by**: [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
+- **Emitted by**: [🎭 `Payment`](#actor-payment)
+- **Consumed by**: [🎭 `Payment`](#actor-payment), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
 - **Projected into**: —
 
 | Field | Type | Required | Description |
@@ -3653,8 +3738,8 @@ Payment authorization/capture failed; no order is placed.
 
 A captured payment was refunded (e.g. after rejection or cancellation).
 
-- **Emitted by**: _inbound / external_
-- **Consumed by**: [🎭 `RefundProcess`](#actor-refundprocess)
+- **Emitted by**: [🎭 `Payment`](#actor-payment)
+- **Consumed by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
 - **Projected into**: [🗄️ `OrderTracking`](#view-ordertracking)
 
 | Field | Type | Required | Description |
@@ -3665,6 +3750,35 @@ A captured payment was refunded (e.g. after rejection or cancellation).
 | <a id="event-paymentrefunded--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
 | <a id="event-paymentrefunded--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |  |
 | <a id="event-paymentrefunded--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="event-refundapproved"></a>
+#### ⚡ Event: `RefundApproved`
+
+An admin approved a refund; the RefundProcess will drive the Stripe refund for this amount.
+
+- **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
+- **Consumed by**: [🎭 `Payment`](#actor-payment)
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-refundapproved--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="event-refundapproved--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ | Approved refund amount (may be partial). |
+| <a id="event-refundapproved--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="event-refunddenied"></a>
+#### ⚡ Event: `RefundDenied`
+
+An admin denied a pending refund request.
+
+- **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
+- **Consumed by**: [🎭 `Payment`](#actor-payment)
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-refunddenied--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="event-refunddenied--reason"></a>`reason` | `string` | ✅ |  |
 
 ### 📦 Entities _(11)_
 
@@ -3838,18 +3952,18 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="scalar-paymentstatus"></a>🔤 `PaymentStatus` | enum (PENDING \| CAPTURED \| FAILED \| REFUNDED) | Order payment state, folded from Stripe facts (PaymentIntentCreated/Captured/Failed/Refunded). |
 | <a id="scalar-comparisonbasis"></a>🔤 `ComparisonBasis` | enum (ESTIMATED \| REAL) | Provenance of an Uber Eats comparison amount: REAL (the restaurant's own Uber prices, shared via HubRise after explicit opt-in — ADR-0023) or ESTIMATED (coefficient-based, always labelled — ADR-0024).  |
 
-### ⛔ Errors _(19)_
+### ⛔ Errors _(20)_
 
 | Error | Description | Message (en) | Message (fr) | Thrown by |
 | --- | --- | --- | --- | --- |
 | <a id="error-restaurantpaused"></a>⛔ `RestaurantPaused` | Restaurant acceptance mode is PAUSED; it cannot take orders. | 🇬🇧 '{restaurantName}' is not taking orders right now. | 🇫🇷 '{restaurantName}' ne prend pas de commandes pour le moment. | [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-offerunavailable"></a>⛔ `OfferUnavailable` | Offer availability is UNAVAILABLE (manual flag). | 🇬🇧 '{productName}' ({offerName}) is currently unavailable. | 🇫🇷 '{productName}' ({offerName}) est actuellement indisponible. | [📩 `AddCartLine`](#command-addcartline), [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-insufficientstock"></a>⛔ `InsufficientStock` | Requested quantity exceeds available stock. | 🇬🇧 Only {available} left of '{productName}' ({offerName}), but {requested} were requested. | 🇫🇷 Il ne reste que {available} de '{productName}' ({offerName}), mais {requested} ont été demandés. | [📩 `AddCartLine`](#command-addcartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity), [📩 `PlaceOrder`](#command-placeorder) |
+| <a id="error-offerunavailable"></a>⛔ `OfferUnavailable` | Offer availability is UNAVAILABLE (manual flag). | 🇬🇧 '{productName}' ({offerName}) is currently unavailable. | 🇫🇷 '{productName}' ({offerName}) est actuellement indisponible. | [📩 `AddCartLine`](#command-addcartline) |
+| <a id="error-insufficientstock"></a>⛔ `InsufficientStock` | Requested quantity exceeds available stock. | 🇬🇧 Only {available} left of '{productName}' ({offerName}), but {requested} were requested. | 🇫🇷 Il ne reste que {available} de '{productName}' ({offerName}), mais {requested} ont été demandés. | [📩 `AddCartLine`](#command-addcartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity) |
 | <a id="error-quantityexceedslimit"></a>⛔ `QuantityExceedsLimit` | Requested quantity exceeds the per-line maximum. | 🇬🇧 You can't order that many of '{productName}'. | 🇫🇷 Vous ne pouvez pas commander autant de '{productName}'. | [📩 `AddCartLine`](#command-addcartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity) |
-| <a id="error-invalidoptionselection"></a>⛔ `InvalidOptionSelection` | A selected option does not belong to the offer, or violates the option list's min/max. | 🇬🇧 Invalid option selection for '{productName}'. | 🇫🇷 Sélection d'options invalide pour '{productName}'. | [📩 `AddCartLine`](#command-addcartline), [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-cartnotfound"></a>⛔ `CartNotFound` | No cart with this id. | 🇬🇧 Cart not found. | 🇫🇷 Panier introuvable. | [📩 `AddCartLine`](#command-addcartline), [📩 `RemoveCartLine`](#command-removecartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity), [📩 `PlaceOrder`](#command-placeorder) |
+| <a id="error-invalidoptionselection"></a>⛔ `InvalidOptionSelection` | A selected option does not belong to the offer, or violates the option list's min/max. | 🇬🇧 Invalid option selection for '{productName}'. | 🇫🇷 Sélection d'options invalide pour '{productName}'. | [📩 `AddCartLine`](#command-addcartline) |
+| <a id="error-cartnotfound"></a>⛔ `CartNotFound` | No cart with this id. | 🇬🇧 Cart not found. | 🇫🇷 Panier introuvable. | [📩 `AddCartLine`](#command-addcartline), [📩 `RemoveCartLine`](#command-removecartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity), [📩 `BindCartToCustomer`](#command-bindcarttocustomer), [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-cartnotopen"></a>⛔ `CartNotOpen` | Cart is not OPEN (already checked out). | 🇬🇧 This cart can no longer be modified. | 🇫🇷 Ce panier ne peut plus être modifié. | [📩 `AddCartLine`](#command-addcartline), [📩 `RemoveCartLine`](#command-removecartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity), [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-cartrestaurantmismatch"></a>⛔ `CartRestaurantMismatch` | Line/checkout restaurant differs from the cart's restaurant (no mixing). | 🇬🇧 Your cart already has items from another restaurant, not '{restaurantName}'. | 🇫🇷 Votre panier contient déjà des articles d'un autre restaurant que '{restaurantName}'. | [📩 `AddCartLine`](#command-addcartline), [📩 `PlaceOrder`](#command-placeorder) |
+| <a id="error-cartrestaurantmismatch"></a>⛔ `CartRestaurantMismatch` | Line/checkout restaurant differs from the cart's restaurant (no mixing). | 🇬🇧 Your cart already has items from another restaurant, not '{restaurantName}'. | 🇫🇷 Votre panier contient déjà des articles d'un autre restaurant que '{restaurantName}'. | [📩 `AddCartLine`](#command-addcartline) |
 | <a id="error-cartlinenotfound"></a>⛔ `CartLineNotFound` | No line with this id in the cart. | 🇬🇧 This cart line no longer exists. | 🇫🇷 Cette ligne du panier n'existe plus. | [📩 `RemoveCartLine`](#command-removecartline), [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity) |
 | <a id="error-cartempty"></a>⛔ `CartEmpty` | Checkout attempted on an empty cart. | 🇬🇧 Your cart is empty. | 🇫🇷 Votre panier est vide. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-ordernotfound"></a>⛔ `OrderNotFound` | No order with this id. | 🇬🇧 Order not found. | 🇫🇷 Commande introuvable. | [📩 `AcceptOrder`](#command-acceptorder), [📩 `StartPreparation`](#command-startpreparation), [📩 `MarkOrderReady`](#command-markorderready), [📩 `MarkOrderDelivered`](#command-markorderdelivered), [📩 `RejectOrder`](#command-rejectorder), [📩 `CancelOrderByCustomer`](#command-cancelorderbycustomer), [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant), [📩 `RateOrder`](#command-rateorder), [📩 `RateRestaurant`](#command-raterestaurant), [📩 `TipOrder`](#command-tiporder), [📩 `RequestRefund`](#command-requestrefund) |
@@ -3860,9 +3974,10 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="error-deliveryaddressrequired"></a>⛔ `DeliveryAddressRequired` | serviceType is DELIVERY but no delivery address was provided. | 🇬🇧 A delivery address is required for delivery. | 🇫🇷 Une adresse de livraison est requise pour la livraison. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-outsidedeliveryarea"></a>⛔ `OutsideDeliveryArea` | Delivery address is outside the restaurant's delivery area. | 🇬🇧 This address is outside the delivery area of '{restaurantName}'. | 🇫🇷 Cette adresse est en dehors de la zone de livraison de '{restaurantName}'. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-paymentdeclined"></a>⛔ `PaymentDeclined` | Stripe declined the payment synchronously at checkout (no order placed). | 🇬🇧 Payment was declined. | 🇫🇷 Le paiement a été refusé. | [📩 `PlaceOrder`](#command-placeorder) |
+| <a id="error-refundnotpending"></a>⛔ `RefundNotPending` | The admin refund decision (ApproveRefund / DenyRefund) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.  | 🇬🇧 No refund is pending approval for this order. | 🇫🇷 Aucun remboursement n'est en attente d'approbation pour cette commande. | [📩 `ApproveRefund`](#command-approverefund), [📩 `DenyRefund`](#command-denyrefund) |
 | <a id="error-cannotordertestrestaurant"></a>⛔ `CannotOrderTestRestaurant` | A production (LIVE) order was placed against a TEST restaurant (ADR-0038 test-mode isolation). Real customers never reach test data; a TEST order may instead target a LIVE restaurant (receipt validation).  | 🇬🇧 This restaurant is not available. | 🇫🇷 Ce restaurant n'est pas disponible. | [📩 `PlaceOrder`](#command-placeorder) |
 
-### 📐 Business rules _(14)_
+### 📐 Business rules _(15)_
 
 <a id="rule-cartpricedfromlivecatalog"></a>
 #### 📐 Rule: `CartPricedFromLiveCatalog`
@@ -3925,7 +4040,7 @@ _Checkout reads and prices the open cart and creates a Stripe PaymentIntent; it 
 
 _When it creates the PaymentIntent, PlaceOrderProcess freezes the full priced checkout (cart, contact, service type, delivery address, priced items, breakdown) onto PaymentIntentCreated, so the order can be materialized from the event log alone on payment capture — no out-of-log store._
 
-- **Verified by**: [🧪 `TestPlaceOrderCreatesPaymentIntent`](#test-testplaceordercreatespaymentintent)
+- **Verified by**: [🧪 `TestPlaceOrderCreatesPaymentIntent`](#test-testplaceordercreatespaymentintent), [🧪 `TestPaymentIntentCreatedRecorded`](#test-testpaymentintentcreatedrecorded)
 
 <a id="rule-ordertestmodeisolation"></a>
 #### 📐 Rule: `OrderTestModeIsolation`
@@ -3939,30 +4054,37 @@ _Test-mode isolation (ADR-0038): a production (LIVE) order is rejected against a
 
 _On payment capture the order is materialized and the cart is closed._
 
-- **Verified by**: [🧪 `TestPlaceOrderPaymentCapturedPlacesOrder`](#test-testplaceorderpaymentcapturedplacesorder)
+- **Verified by**: [🧪 `TestPlaceOrderPaymentCapturedPlacesOrder`](#test-testplaceorderpaymentcapturedplacesorder), [🧪 `TestCartCheckedOutRecorded`](#test-testcartcheckedoutrecorded), [🧪 `TestOrderPlacedBirthRecorded`](#test-testorderplacedbirthrecorded), [🧪 `TestPaymentCapturedRecorded`](#test-testpaymentcapturedrecorded)
 
 <a id="rule-checkoutabortsonpaymentfailure"></a>
 #### 📐 Rule: `CheckoutAbortsOnPaymentFailure`
 
 _On payment failure the saga aborts, no order is placed and the cart stays open._
 
-- **Verified by**: [🧪 `TestPlaceOrderPaymentFailedPlacesNothing`](#test-testplaceorderpaymentfailedplacesnothing)
+- **Verified by**: [🧪 `TestPlaceOrderPaymentFailedPlacesNothing`](#test-testplaceorderpaymentfailedplacesnothing), [🧪 `TestPaymentFailedRecorded`](#test-testpaymentfailedrecorded)
 
 <a id="rule-refundonrejectionorcancellation"></a>
 #### 📐 Rule: `RefundOnRejectionOrCancellation`
 
-_A Stripe refund is requested when an order is rejected, cancelled, or a refund is requested._
+_When a paid order is rejected, cancelled, or a refund is requested, a refund is opened as PENDING_APPROVAL for an admin decision; nothing is refunded without approval._
 
 - **Verified by**: [🧪 `TestRefundOnOrderRejected`](#test-testrefundonorderrejected), [🧪 `TestRefundOnOrderCancelledByCustomer`](#test-testrefundonordercancelledbycustomer), [🧪 `TestRefundOnOrderCancelledByRestaurant`](#test-testrefundonordercancelledbyrestaurant), [🧪 `TestRefundOnRefundRequested`](#test-testrefundonrefundrequested)
+
+<a id="rule-refundrequiresadminapproval"></a>
+#### 📐 Rule: `RefundRequiresAdminApproval`
+
+_Only an ADMIN decision resolves a pending refund: ApproveRefund (possibly partial) requests the Stripe refund, DenyRefund closes it; both are rejected when no refund is pending approval for the order._
+
+- **Verified by**: [🧪 `TestPaymentRefundApprovedRecorded`](#test-testpaymentrefundapprovedrecorded), [🧪 `TestPaymentRefundDeniedRecorded`](#test-testpaymentrefunddeniedrecorded), [🧪 `TestRefundApprovedByAdmin`](#test-testrefundapprovedbyadmin), [🧪 `TestRefundDeniedByAdmin`](#test-testrefunddeniedbyadmin), [🧪 `TestRefundDecisionRejectedWhenNotPending`](#test-testrefunddecisionrejectedwhennotpending)
 
 <a id="rule-refundsettledfactrecorded"></a>
 #### 📐 Rule: `RefundSettledFactRecorded`
 
 _The settled refund fact reported back by Stripe is recorded._
 
-- **Verified by**: [🧪 `TestRefundSettledFactRecorded`](#test-testrefundsettledfactrecorded)
+- **Verified by**: [🧪 `TestRefundSettledFactRecorded`](#test-testrefundsettledfactrecorded), [🧪 `TestPaymentRefundedRecorded`](#test-testpaymentrefundedrecorded)
 
-### 🧪 Tests _(4)_
+### 🧪 Tests _(5)_
 
 **[🎭 `Cart`](#actor-cart)**
 
@@ -4025,6 +4147,26 @@ _Rejects removing a line from a missing/closed cart or a line that does not exis
 - **When**: [📩 `RemoveCartLine`](#command-removecartline)
 - **Thrown**: [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartLineNotFound`](#error-cartlinenotfound)
 - **Verifies**: [📐 `CartRejectsUnorderableOrInvalidLine`](#rule-cartrejectsunorderableorinvalidline)
+
+<a id="test-testcartboundtocustomer"></a>
+#### 🧪 Test: `TestCartBoundToCustomer`
+
+_A guest cart is bound to the identified customer (one-time bind)_
+
+- **Given**: [⚡ `CartStarted`](#event-cartstarted)
+- **When**: [📩 `BindCartToCustomer`](#command-bindcarttocustomer)
+- **Then**: [⚡ `CartBoundToCustomer`](#event-cartboundtocustomer)
+- **Verifies**: [📐 `GuestCartsBoundOnIdentification`](#rule-guestcartsboundonidentification)
+
+<a id="test-testcartcheckedoutrecorded"></a>
+#### 🧪 Test: `TestCartCheckedOutRecorded`
+
+_The Cart records the checkout fact delivered by PlaceOrderProcess and closes (idempotent)_
+
+- **Given**: [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
+- **When**: [📩 `CartCheckedOut`](#command-cartcheckedout)
+- **Then**: [⚡ `CartCheckedOut`](#event-cartcheckedout)
+- **Verifies**: [📐 `OrderMaterializedOnPaymentCapture`](#rule-ordermaterializedonpaymentcapture)
 
 **[🎭 `Order`](#actor-order)**
 
@@ -4188,6 +4330,78 @@ _Customer requests a refund for a delivered order_
 - **Then**: [⚡ `RefundRequested`](#event-refundrequested)
 - **Verifies**: [📐 `RefundRequestByCustomer`](#rule-refundrequestbycustomer)
 
+<a id="test-testorderplacedbirthrecorded"></a>
+#### 🧪 Test: `TestOrderPlacedBirthRecorded`
+
+_The Order is born by recording the OrderPlaced fact delivered by PlaceOrderProcess (idempotent)_
+
+- **Given**: _(none)_
+- **When**: [📩 `OrderPlaced`](#command-orderplaced)
+- **Then**: [⚡ `OrderPlaced`](#event-orderplaced)
+- **Verifies**: [📐 `OrderMaterializedOnPaymentCapture`](#rule-ordermaterializedonpaymentcapture)
+
+**[🎭 `Payment`](#actor-payment)**
+
+<a id="test-testpaymentintentcreatedrecorded"></a>
+#### 🧪 Test: `TestPaymentIntentCreatedRecorded`
+
+_The Payment is born by recording PaymentIntentCreated with the frozen checkout snapshot_
+
+- **Given**: _(none)_
+- **When**: [📩 `PaymentIntentCreated`](#command-paymentintentcreated)
+- **Then**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
+- **Verifies**: [📐 `CheckoutSnapshotFrozenAtIntent`](#rule-checkoutsnapshotfrozenatintent)
+
+<a id="test-testpaymentcapturedrecorded"></a>
+#### 🧪 Test: `TestPaymentCapturedRecorded`
+
+_The Payment records the inbound Stripe capture fact (delivered via the ACL, idempotent)_
+
+- **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
+- **When**: [📩 `PaymentCaptured`](#command-paymentcaptured)
+- **Then**: [⚡ `PaymentCaptured`](#event-paymentcaptured)
+- **Verifies**: [📐 `OrderMaterializedOnPaymentCapture`](#rule-ordermaterializedonpaymentcapture)
+
+<a id="test-testpaymentfailedrecorded"></a>
+#### 🧪 Test: `TestPaymentFailedRecorded`
+
+_The Payment records the inbound Stripe failure fact (cart stays open downstream)_
+
+- **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
+- **When**: [📩 `PaymentFailed`](#command-paymentfailed)
+- **Then**: [⚡ `PaymentFailed`](#event-paymentfailed)
+- **Verifies**: [📐 `CheckoutAbortsOnPaymentFailure`](#rule-checkoutabortsonpaymentfailure)
+
+<a id="test-testpaymentrefundedrecorded"></a>
+#### 🧪 Test: `TestPaymentRefundedRecorded`
+
+_The Payment records the settled refund fact reported by Stripe (idempotent)_
+
+- **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated), [⚡ `PaymentCaptured`](#event-paymentcaptured)
+- **When**: [📩 `PaymentRefunded`](#command-paymentrefunded)
+- **Then**: [⚡ `PaymentRefunded`](#event-paymentrefunded)
+- **Verifies**: [📐 `RefundSettledFactRecorded`](#rule-refundsettledfactrecorded)
+
+<a id="test-testpaymentrefundapprovedrecorded"></a>
+#### 🧪 Test: `TestPaymentRefundApprovedRecorded`
+
+_The Payment records the admin refund approval delivered by RefundProcess_
+
+- **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated), [⚡ `PaymentCaptured`](#event-paymentcaptured)
+- **When**: [📩 `RefundApproved`](#command-refundapproved)
+- **Then**: [⚡ `RefundApproved`](#event-refundapproved)
+- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+
+<a id="test-testpaymentrefunddeniedrecorded"></a>
+#### 🧪 Test: `TestPaymentRefundDeniedRecorded`
+
+_The Payment records the admin refund denial delivered by RefundProcess_
+
+- **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated), [⚡ `PaymentCaptured`](#event-paymentcaptured)
+- **When**: [📩 `RefundDenied`](#command-refunddenied)
+- **Then**: [⚡ `RefundDenied`](#event-refunddenied)
+- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+
 **[🎭 `PlaceOrderProcess`](#actor-placeorderprocess)**
 
 <a id="test-testplaceordercreatespaymentintent"></a>
@@ -4292,6 +4506,36 @@ _Records the settled refund fact reported back by Stripe_
 - **Then**: ∅ _no event (idempotent no-op)_
 - **Verifies**: [📐 `RefundSettledFactRecorded`](#rule-refundsettledfactrecorded)
 
+<a id="test-testrefundapprovedbyadmin"></a>
+#### 🧪 Test: `TestRefundApprovedByAdmin`
+
+_An admin approves the pending refund: Stripe refund requested, decision recorded on the Payment_
+
+- **Given**: [⚡ `RefundRequested`](#event-refundrequested)
+- **When**: [📩 `ApproveRefund`](#command-approverefund)
+- **Then**: [⚡ `RefundApproved`](#event-refundapproved)
+- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+
+<a id="test-testrefunddeniedbyadmin"></a>
+#### 🧪 Test: `TestRefundDeniedByAdmin`
+
+_An admin denies the pending refund: the run closes with the decision recorded on the Payment_
+
+- **Given**: [⚡ `RefundRequested`](#event-refundrequested)
+- **When**: [📩 `DenyRefund`](#command-denyrefund)
+- **Then**: [⚡ `RefundDenied`](#event-refunddenied)
+- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+
+<a id="test-testrefunddecisionrejectedwhennotpending"></a>
+#### 🧪 Test: `TestRefundDecisionRejectedWhenNotPending`
+
+_An admin decision on an order with no refund pending approval is rejected_
+
+- **Given**: _(none)_
+- **When**: [📩 `ApproveRefund`](#command-approverefund)
+- **Thrown**: [⛔ `RefundNotPending`](#error-refundnotpending)
+- **Verifies**: [📐 `RefundRequiresAdminApproval`](#rule-refundrequiresadminapproval)
+
 ### 📡 Observability _(2)_
 
 <a id="obs-place-order"></a>
@@ -4299,7 +4543,7 @@ _Records the settled refund fact reported back by Stripe_
 
 _criticality: **high**_
 
-- **Workflow**: saga [🎭 `PlaceOrderProcess`](#actor-placeorderprocess) · command [📩 `PlaceOrder`](#command-placeorder)
+- **Workflow**: saga [📦 `PlaceOrderProcess`](#entity-placeorderprocess) · command [📩 `PlaceOrder`](#command-placeorder)
 - **Emits**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated), [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `CartCheckedOut`](#event-cartcheckedout) · **Inbound**: [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentFailed`](#event-paymentfailed)
 
 **Run identity**
@@ -4333,7 +4577,7 @@ _criticality: **high**_
 
 _criticality: **high**_
 
-- **Workflow**: saga [🎭 `RefundProcess`](#actor-refundprocess)
+- **Workflow**: saga [📦 `RefundProcess`](#entity-refundprocess)
 - **Emits**: — · **Inbound**: [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant), [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer), [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant), [⚡ `RefundRequested`](#event-refundrequested), [⚡ `PaymentRefunded`](#event-paymentrefunded)
 
 **Run identity**
@@ -4591,12 +4835,12 @@ _🧩 aggregate_ — A customer identity, keyed by phone number and linked to th
 <a id="actor-cartbindingprocess"></a>
 #### 🎭 Actor: `CartBindingProcess`
 
-_⚙️ process manager_ — Binds a returning visitor's OPEN guest carts to their Customer. Reacts to the inbound CustomerIdentified fact (authRef → customerId, reported when the visitor signs in) so the Cart projection stamps the customerId onto their carts — enabling cross-device carts to converge and be merged at checkout.
+_⚙️ process manager_ — Binds a returning visitor's OPEN guest carts to their Customer. Reacts to CustomerIdentified (authRef → customerId) by sending BindCartToCustomer for each OPEN cart of the session — the Cart aggregate owns the bind fact (CartBoundToCustomer); the state row makes a re-delivered CustomerIdentified a no-op.
 
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
-| [⚡ `CustomerIdentified`](#event-customeridentified) | _Bind customerId onto the visitor's OPEN carts (Cart projection); no new event in V0._ | — |
+| [⚡ `CustomerIdentified`](#event-customeridentified) | [⚡ `CartBoundToCustomer`](#event-cartboundtocustomer) | — |
 
 ### 🗄️ Views (read models) _(1)_
 
@@ -4658,6 +4902,7 @@ Verify the SMS OTP with Supabase Auth, then register-or-identify: a first verifi
 | <a id="command-verifyphone--dialingcode"></a>`dialingCode` | [🔤 `DialingCode`](#scalar-dialingcode) | ✅ |  |
 | <a id="command-verifyphone--nationalnumber"></a>`nationalNumber` | [🔤 `NationalPhoneNumber`](#scalar-nationalphonenumber) | ✅ |  |
 | <a id="command-verifyphone--code"></a>`code` | [🔤 `OtpCode`](#scalar-otpcode) | ✅ |  |
+| <a id="command-verifyphone--sessionid"></a>`sessionId` | [🔤 `SessionId`](#scalar-sessionid) | ✅ | The visitor session verifying the phone — carried onto CustomerIdentified so CartBindingProcess binds this session's open carts. |
 | <a id="command-verifyphone--displayname"></a>`displayName` | [🔤 `CustomerDisplayName`](#scalar-customerdisplayname) | ⬜ |  |
 | <a id="command-verifyphone--locale"></a>`locale` | [🔤 `Locale`](#scalar-locale) | ⬜ | Persisted on registration; defaults from the dialing code when absent. |
 | <a id="command-verifyphone--timezone"></a>`timezone` | [🔤 `TimeZone`](#scalar-timezone) | ⬜ |  |
@@ -4862,7 +5107,7 @@ A customer account was created on first phone verification (passwordless OTP, id
 <a id="event-customeridentified"></a>
 #### ⚡ Event: `CustomerIdentified`
 
-A returning visitor signed in and was resolved to an existing Customer (authRef → customerId). NOT an auth event (OTP/session live in the auth provider): this records the DOMAIN fact so the visitor's OPEN guest carts can be bound to the customerId — letting carts started on different devices converge under one customer and be merged at checkout.
+A returning visitor signed in and was resolved to an existing Customer (authRef → customerId). NOT an auth event (OTP/session live in the auth provider): this records the DOMAIN fact so the visitor's OPEN guest carts can be bound to the customerId — letting carts started on different devices converge under one customer and be merged at checkout. Thanks to the sessionId, the existing open cart(s) can be bound to the customerId and merged at checkout. This is a domain event, not an auth event.
 
 - **Emitted by**: [🎭 `Customer`](#actor-customer)
 - **Consumed by**: [🎭 `CartBindingProcess`](#actor-cartbindingprocess)
@@ -4872,6 +5117,7 @@ A returning visitor signed in and was resolved to an existing Customer (authRef 
 | --- | --- | --- | --- |
 | <a id="event-customeridentified--customerid"></a>`customerId` | [🔤 `CustomerId`](#scalar-customerid) | ✅ |  |
 | <a id="event-customeridentified--authref"></a>`authRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ✅ | Auth provider user id that was matched to this Customer (via Customer.auth_ref). |
+| <a id="event-customeridentified--sessionid"></a>`sessionId` | [🔤 `SessionId`](#scalar-sessionid) | ✅ | Session id (ADR-0041) for the sign-in event; not required for cart binding. |
 
 <a id="event-restaurantfavorited"></a>
 #### ⚡ Event: `RestaurantFavorited`
@@ -5102,7 +5348,7 @@ _A customer's payment method can be stored._
 
 _A returning visitor's open guest carts are bound to their Customer on identification._
 
-- **Verified by**: [🧪 `TestCartBindingOnCustomerIdentified`](#test-testcartbindingoncustomeridentified)
+- **Verified by**: [🧪 `TestCartBindingOnCustomerIdentified`](#test-testcartbindingoncustomeridentified), [🧪 `TestCartBoundToCustomer`](#test-testcartboundtocustomer)
 
 ### 🧪 Tests _(2)_
 
@@ -5449,7 +5695,7 @@ One delivery of an order (ADR-0031): status, courier, addresses and ETAs. Serves
 | <a id="type-deliveryjob--pickedupat"></a>`pickedUpAt` | `string` _date-time_ | ⬜ |
 | <a id="type-deliveryjob--deliveredat"></a>`deliveredAt` | `string` _date-time_ | ⬜ |
 
-### 🎭 Actors _(2)_
+### 🎭 Actors _(3)_
 
 <a id="actor-deliveryjob"></a>
 #### 🎭 Actor: `DeliveryJob`
@@ -5459,22 +5705,44 @@ _🧩 aggregate_ — One delivery of an order (bounded context: delivery). Born 
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
+| [⚡ `DeliveryRequested`](#event-deliveryrequested) | [⚡ `DeliveryRequested`](#event-deliveryrequested) | — |
+| [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner) | [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner) | — |
+| [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner) | [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner) | — |
 | [📩 `AcceptDelivery`](#command-acceptdelivery) | [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned) |
 | [📩 `ConfirmPickup`](#command-confirmpickup) | [⚡ `DeliveryPickedUp`](#event-deliverypickedup) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
 | [📩 `CompleteDelivery`](#command-completedelivery) | [⚡ `DeliveryCompleted`](#event-deliverycompleted) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
 | [📩 `CancelDelivery`](#command-canceldelivery) | [⚡ `DeliveryCancelled`](#event-deliverycancelled) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `ReportDeliveryIssue`](#command-reportdeliveryissue) | [⚡ `DeliveryIssueReported`](#event-deliveryissuereported) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `ResolveDeliveryIssue`](#command-resolvedeliveryissue) | [⚡ `DeliveryIssueResolved`](#event-deliveryissueresolved) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `UpdateDeliveryStatus`](#command-updatedeliverystatus) | [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `AssignDeliveryToPartner`](#command-assigndeliverytopartner) | [⚡ `DeliveryAssignedToPartner`](#event-deliveryassignedtopartner) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned) |
+| [📩 `UnassignDeliveryFromPartner`](#command-unassigndeliveryfrompartner) | [⚡ `DeliveryUnassignedFromPartner`](#event-deliveryunassignedfrompartner) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `UpdateDeliveryPartnerStatus`](#command-updatedeliverypartnerstatus) | [⚡ `DeliveryPartnerStatusUpdated`](#event-deliverypartnerstatusupdated) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus) |
+| [📩 `DeclineDelivery`](#command-declinedelivery) | [⚡ `DeliveryDeclinedByRider`](#event-deliverydeclinedbyrider) | [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned) |
+
+<a id="actor-rider"></a>
+#### 🎭 Actor: `Rider`
+
+_🧩 aggregate_ — A rider identity, linked to the auth provider user (authRef).
+
+| Receives | Emits → | Throws |
+| --- | --- | --- |
+| [📩 `RegisterRider`](#command-registerrider) | [⚡ `RiderRegistered`](#event-riderregistered) | [⛔ `RiderAlreadyRegistered`](#error-rideralreadyregistered) |
+| [📩 `UpdateRiderInfo`](#command-updateriderinfo) | [⚡ `RiderInfoUpdated`](#event-riderinfoupdated) | [⛔ `RiderNotFound`](#error-ridernotfound), [⛔ `NoEditableFieldProvided`](#error-noeditablefieldprovided) |
+| [📩 `ChangeRiderStatus`](#command-changeriderstatus) | [⚡ `RiderStatusChanged`](#event-riderstatuschanged) | [⛔ `RiderNotFound`](#error-ridernotfound), [⛔ `InvalidRiderStatusTransition`](#error-invalidriderstatustransition) |
 
 <a id="actor-deliverydispatchprocess"></a>
 #### 🎭 Actor: `DeliveryDispatchProcess`
 
-_⚙️ process manager_ — Dispatches and tracks deliveries (bounded context: delivery). When a DELIVERY order is ready, creates the delivery job and offers it (dispatch to a partner via the avelo37-acl and/or make it available to independent riders). Reacts to partner-reported facts and to the rider completion to close the order. ADR-0031.
+_⚙️ process manager_ — Dispatches and tracks deliveries (bounded context: delivery, ADR-0031). When a DELIVERY order is marked ready, delivers the DeliveryRequested birth to the DeliveryJob (deterministic UUIDv5 job id from the order id = idempotency key) and offers the job to the partner and/or independent riders. Reacts to partner-reported facts (recorded by the DeliveryJob aggregate) and closes the order on delivery by sending MarkOrderDelivered — the Order validates the transition, so a terminal cancelled/rejected order is never resurrected.
 
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
 | [⚡ `OrderMarkedReady`](#event-ordermarkedready) | [⚡ `DeliveryRequested`](#event-deliveryrequested) | — |
-| [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner) | _Partner accepted (reported inbound); record the assigned courier + ETAs on the job._ | — |
-| [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner) | _Partner declined (reported inbound); re-offer to another partner/independent riders or flag for manual handling._ | — |
+| [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner) | _The partner accepted (inbound, recorded by the DeliveryJob aggregate — the courier lives on the job): just advance the run.
+_ | — |
+| [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner) | _The partner declined (inbound): re-offer, or flag for manual handling._ | — |
 | [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated) | [⚡ `OrderDelivered`](#event-orderdelivered) | — |
 | [⚡ `DeliveryCompleted`](#event-deliverycompleted) | [⚡ `OrderDelivered`](#event-orderdelivered) | — |
 
@@ -5508,7 +5776,7 @@ _⚙️ process manager_ — Dispatches and tracks deliveries (bounded context: 
 | `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 | `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
-### 📩 Commands _(4)_
+### 📩 Commands _(14)_
 
 <a id="command-acceptdelivery"></a>
 #### 📩 Command: `AcceptDelivery`
@@ -5538,20 +5806,6 @@ The assigned rider confirms they collected the order from the restaurant.
 | <a id="command-confirmpickup--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
 | <a id="command-confirmpickup--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
 
-<a id="command-completedelivery"></a>
-#### 📩 Command: `CompleteDelivery`
-
-The assigned rider records handing the order over to the customer.
-
-- **Dispatched by**: [✏️ `completeDelivery`](#mutation-completedelivery) · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
-- **Emits**: [⚡ `DeliveryCompleted`](#event-deliverycompleted)
-- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| <a id="command-completedelivery--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
-| <a id="command-completedelivery--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
-
 <a id="command-canceldelivery"></a>
 #### 📩 Command: `CancelDelivery`
 
@@ -5566,15 +5820,175 @@ Restaurant/admin cancels a delivery job before it completes.
 | <a id="command-canceldelivery--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
 | <a id="command-canceldelivery--reason"></a>`reason` | `string` | ⬜ |  |
 
-### ⚡ Events _(8)_
+<a id="command-completedelivery"></a>
+#### 📩 Command: `CompleteDelivery`
+
+The assigned rider marks the delivery complete (handed to the customer).
+
+- **Dispatched by**: [✏️ `completeDelivery`](#mutation-completedelivery) · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryCompleted`](#event-deliverycompleted)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-completedelivery--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-completedelivery--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+
+<a id="command-declinedelivery"></a>
+#### 📩 Command: `DeclineDelivery`
+
+An independent rider declines a pending delivery job (it stays PENDING, re-offerable).
+
+- **Dispatched by**: — · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryDeclinedByRider`](#event-deliverydeclinedbyrider)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-declinedelivery--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-declinedelivery--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="command-declinedelivery--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="command-reportdeliveryissue"></a>
+#### 📩 Command: `ReportDeliveryIssue`
+
+Report an issue on a delivery job (rider/partner/support).
+
+- **Dispatched by**: — · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryIssueReported`](#event-deliveryissuereported)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-reportdeliveryissue--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-reportdeliveryissue--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ⬜ |  |
+| <a id="command-reportdeliveryissue--issue"></a>`issue` | `string` | ✅ |  |
+
+<a id="command-resolvedeliveryissue"></a>
+#### 📩 Command: `ResolveDeliveryIssue`
+
+Resolve a previously reported delivery issue.
+
+- **Dispatched by**: — · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryIssueResolved`](#event-deliveryissueresolved)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-resolvedeliveryissue--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-resolvedeliveryissue--resolution"></a>`resolution` | `string` | ✅ |  |
+
+<a id="command-updatedeliverystatus"></a>
+#### 📩 Command: `UpdateDeliveryStatus`
+
+Drive a delivery job's status (independent-rider path / admin correction).
+
+- **Dispatched by**: — · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-updatedeliverystatus--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-updatedeliverystatus--status"></a>`status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | ✅ |  |
+
+<a id="command-assigndeliverytopartner"></a>
+#### 📩 Command: `AssignDeliveryToPartner`
+
+Assign a pending delivery job to a delivery partner for fulfilment.
+
+- **Dispatched by**: — · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryAssignedToPartner`](#event-deliveryassignedtopartner)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus), [⛔ `DeliveryAlreadyAssigned`](#error-deliveryalreadyassigned)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-assigndeliverytopartner--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-assigndeliverytopartner--partnerref"></a>`partnerRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ✅ |  |
+
+<a id="command-unassigndeliveryfrompartner"></a>
+#### 📩 Command: `UnassignDeliveryFromPartner`
+
+Unassign a delivery job from its partner (to re-offer it).
+
+- **Dispatched by**: — · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryUnassignedFromPartner`](#event-deliveryunassignedfrompartner)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-unassigndeliveryfrompartner--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-unassigndeliveryfrompartner--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="command-updatedeliverypartnerstatus"></a>
+#### 📩 Command: `UpdateDeliveryPartnerStatus`
+
+Apply a partner-reported status change to the delivery job (from the avelo37-acl inbound report).
+
+- **Dispatched by**: — · **handled by** [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Emits**: [⚡ `DeliveryPartnerStatusUpdated`](#event-deliverypartnerstatusupdated)
+- **Throws**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-updatedeliverypartnerstatus--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="command-updatedeliverypartnerstatus--partnerref"></a>`partnerRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ⬜ |  |
+| <a id="command-updatedeliverypartnerstatus--status"></a>`status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | ✅ |  |
+
+<a id="command-registerrider"></a>
+#### 📩 Command: `RegisterRider`
+
+Register as an independent Captain rider (linked to the auth provider user).
+
+- **Dispatched by**: — · **handled by** [🎭 `Rider`](#actor-rider)
+- **Emits**: [⚡ `RiderRegistered`](#event-riderregistered)
+- **Throws**: [⛔ `RiderAlreadyRegistered`](#error-rideralreadyregistered)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-registerrider--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="command-registerrider--authref"></a>`authRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ✅ |  |
+| <a id="command-registerrider--displayname"></a>`displayName` | `string` | ✅ |  |
+| <a id="command-registerrider--phone"></a>`phone` | [🔤 `PhoneNumber`](#scalar-phonenumber) | ✅ |  |
+
+<a id="command-updateriderinfo"></a>
+#### 📩 Command: `UpdateRiderInfo`
+
+Update editable rider profile fields.
+
+- **Dispatched by**: — · **handled by** [🎭 `Rider`](#actor-rider)
+- **Emits**: [⚡ `RiderInfoUpdated`](#event-riderinfoupdated)
+- **Throws**: [⛔ `RiderNotFound`](#error-ridernotfound), [⛔ `NoEditableFieldProvided`](#error-noeditablefieldprovided)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-updateriderinfo--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="command-updateriderinfo--displayname"></a>`displayName` | `string` | ⬜ |  |
+| <a id="command-updateriderinfo--phone"></a>`phone` | [🔤 `PhoneNumber`](#scalar-phonenumber) | ⬜ |  |
+
+<a id="command-changeriderstatus"></a>
+#### 📩 Command: `ChangeRiderStatus`
+
+Change a rider's availability/lifecycle status.
+
+- **Dispatched by**: — · **handled by** [🎭 `Rider`](#actor-rider)
+- **Emits**: [⚡ `RiderStatusChanged`](#event-riderstatuschanged)
+- **Throws**: [⛔ `RiderNotFound`](#error-ridernotfound), [⛔ `InvalidRiderStatusTransition`](#error-invalidriderstatustransition)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="command-changeriderstatus--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="command-changeriderstatus--status"></a>`status` | [🔤 `RiderStatus`](#scalar-riderstatus) | ✅ |  |
+
+### ⚡ Events _(17)_
 
 <a id="event-deliveryrequested"></a>
 #### ⚡ Event: `DeliveryRequested`
 
 A delivery job has been created for a ready DELIVERY order and offered for fulfilment (dispatched to a partner and/or made available to independent riders). Emitted by DeliveryDispatchProcess.
 
-- **Emitted by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
-- **Consumed by**: —
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Consumed by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
 - **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
 
 | Field | Type | Required | Description |
@@ -5649,8 +6063,8 @@ A delivery job was cancelled before delivery (e.g. by the restaurant or admin).
 
 The delivery partner (e.g. Avelo37) accepted the job and assigned one of its couriers (inbound).
 
-- **Emitted by**: _inbound / external_
-- **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
 - **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob), [🗄️ `OrderTracking`](#view-ordertracking)
 
 | Field | Type | Required | Description |
@@ -5666,8 +6080,8 @@ The delivery partner (e.g. Avelo37) accepted the job and assigned one of its cou
 
 The delivery partner declined the job (inbound); the dispatcher must re-offer or fall back to manual.
 
-- **Emitted by**: _inbound / external_
-- **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
 - **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
 
 | Field | Type | Required | Description |
@@ -5681,7 +6095,7 @@ The delivery partner declined the job (inbound); the dispatcher must re-offer or
 
 The delivery partner reported a status change for the job (inbound): PICKED_UP, OUT_FOR_DELIVERY, DELIVERED, FAILED…
 
-- **Emitted by**: _inbound / external_
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
 - **Consumed by**: [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)
 - **Projected into**: [🗄️ `View_DeliveryJob`](#view-view_deliveryjob), [🗄️ `OrderTracking`](#view-ordertracking)
 
@@ -5693,23 +6107,163 @@ The delivery partner reported a status change for the job (inbound): PICKED_UP, 
 | <a id="event-deliverystatusupdated--occurredat"></a>`occurredAt` | `string` _date-time_ | ⬜ |  |
 | <a id="event-deliverystatusupdated--note"></a>`note` | `string` | ⬜ |  |
 
-### 🔤 Scalars _(3)_
+<a id="event-deliveryassignedtopartner"></a>
+#### ⚡ Event: `DeliveryAssignedToPartner`
+
+A delivery job was assigned to a delivery partner (e.g. Avelo37) for fulfilment.
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryassignedtopartner--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryassignedtopartner--partnerref"></a>`partnerRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ✅ | Partner-side delivery id; idempotent key for inbound updates. |
+
+<a id="event-deliveryunassignedfrompartner"></a>
+#### ⚡ Event: `DeliveryUnassignedFromPartner`
+
+A delivery job was unassigned from its partner (e.g. to re-offer it elsewhere).
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryunassignedfrompartner--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryunassignedfrompartner--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="event-deliverypartnerstatusupdated"></a>
+#### ⚡ Event: `DeliveryPartnerStatusUpdated`
+
+A partner-driven status change applied to the job by the DeliveryJob aggregate (from the inbound partner report).
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliverypartnerstatusupdated--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliverypartnerstatusupdated--partnerref"></a>`partnerRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ⬜ |  |
+| <a id="event-deliverypartnerstatusupdated--status"></a>`status` | [🔤 `DeliveryStatus`](#scalar-deliverystatus) | ✅ |  |
+| <a id="event-deliverypartnerstatusupdated--occurredat"></a>`occurredAt` | `string` _date-time_ | ⬜ |  |
+
+<a id="event-deliverydeclinedbyrider"></a>
+#### ⚡ Event: `DeliveryDeclinedByRider`
+
+An independent rider declined a pending delivery job (stays PENDING, re-offerable).
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliverydeclinedbyrider--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliverydeclinedbyrider--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="event-deliverydeclinedbyrider--reason"></a>`reason` | `string` | ⬜ |  |
+
+<a id="event-deliveryissuereported"></a>
+#### ⚡ Event: `DeliveryIssueReported`
+
+An issue was reported on a delivery job (by the rider, partner, or support).
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryissuereported--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryissuereported--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ⬜ |  |
+| <a id="event-deliveryissuereported--issue"></a>`issue` | `string` | ✅ |  |
+| <a id="event-deliveryissuereported--reportedat"></a>`reportedAt` | `string` _date-time_ | ⬜ |  |
+
+<a id="event-deliveryissueresolved"></a>
+#### ⚡ Event: `DeliveryIssueResolved`
+
+A previously reported delivery issue was resolved.
+
+- **Emitted by**: [🎭 `DeliveryJob`](#actor-deliveryjob)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-deliveryissueresolved--deliveryjobid"></a>`deliveryJobId` | [🔤 `DeliveryJobId`](#scalar-deliveryjobid) | ✅ |  |
+| <a id="event-deliveryissueresolved--resolution"></a>`resolution` | `string` | ✅ |  |
+| <a id="event-deliveryissueresolved--resolvedat"></a>`resolvedAt` | `string` _date-time_ | ⬜ |  |
+
+<a id="event-riderregistered"></a>
+#### ⚡ Event: `RiderRegistered`
+
+An independent Captain rider registered (linked to the auth provider user).
+
+- **Emitted by**: [🎭 `Rider`](#actor-rider)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-riderregistered--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="event-riderregistered--authref"></a>`authRef` | [🔤 `ExternalReference`](#scalar-externalreference) | ✅ | Auth-provider user reference (Supabase), like the Customer's authRef. |
+| <a id="event-riderregistered--displayname"></a>`displayName` | `string` | ✅ |  |
+| <a id="event-riderregistered--phone"></a>`phone` | [🔤 `PhoneNumber`](#scalar-phonenumber) | ✅ |  |
+| <a id="event-riderregistered--status"></a>`status` | [🔤 `RiderStatus`](#scalar-riderstatus) | ✅ |  |
+
+<a id="event-riderinfoupdated"></a>
+#### ⚡ Event: `RiderInfoUpdated`
+
+One or more editable rider profile fields changed.
+
+- **Emitted by**: [🎭 `Rider`](#actor-rider)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-riderinfoupdated--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="event-riderinfoupdated--displayname"></a>`displayName` | `string` | ⬜ |  |
+| <a id="event-riderinfoupdated--phone"></a>`phone` | [🔤 `PhoneNumber`](#scalar-phonenumber) | ⬜ |  |
+
+<a id="event-riderstatuschanged"></a>
+#### ⚡ Event: `RiderStatusChanged`
+
+A rider's availability/lifecycle status changed.
+
+- **Emitted by**: [🎭 `Rider`](#actor-rider)
+- **Consumed by**: —
+- **Projected into**: —
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-riderstatuschanged--riderid"></a>`riderId` | [🔤 `RiderId`](#scalar-riderid) | ✅ |  |
+| <a id="event-riderstatuschanged--status"></a>`status` | [🔤 `RiderStatus`](#scalar-riderstatus) | ✅ |  |
+
+### 🔤 Scalars _(4)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
 | <a id="scalar-deliveryjobid"></a>🔤 `DeliveryJobId` | string _uuid_ | Identifies one DeliveryJob (a single delivery of an order from restaurant to customer). |
 | <a id="scalar-riderid"></a>🔤 `RiderId` | string _uuid_ | An independent Captain rider (courier). Null on a partner-fulfilled job (the partner's courier is name/phone only). |
+| <a id="scalar-riderstatus"></a>🔤 `RiderStatus` | enum (OFFLINE \| AVAILABLE \| ON_DELIVERY \| SUSPENDED) | Availability/lifecycle status of an independent Captain rider. |
 | <a id="scalar-deliveryprovider"></a>🔤 `DeliveryProvider` | enum (PARTNER \| INDEPENDENT) | Fulfilment channel of a delivery: PARTNER (e.g. Avelo37) or INDEPENDENT (a Captain rider). |
 
-### ⛔ Errors _(3)_
+### ⛔ Errors _(6)_
 
 | Error | Description | Message (en) | Message (fr) | Thrown by |
 | --- | --- | --- | --- | --- |
-| <a id="error-deliveryjobnotfound"></a>⛔ `DeliveryJobNotFound` | No delivery job with this id. | 🇬🇧 Delivery job not found. | 🇫🇷 Livraison introuvable. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `ConfirmPickup`](#command-confirmpickup), [📩 `CompleteDelivery`](#command-completedelivery), [📩 `CancelDelivery`](#command-canceldelivery) |
-| <a id="error-invaliddeliverystatus"></a>⛔ `InvalidDeliveryStatus` | The delivery job is not in a status that allows this transition. | 🇬🇧 This action is not allowed while the delivery is '{currentStatus}'. | 🇫🇷 Cette action n'est pas autorisée tant que la livraison est '{currentStatus}'. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `ConfirmPickup`](#command-confirmpickup), [📩 `CompleteDelivery`](#command-completedelivery), [📩 `CancelDelivery`](#command-canceldelivery) |
-| <a id="error-deliveryalreadyassigned"></a>⛔ `DeliveryAlreadyAssigned` | The delivery job has already been accepted by a courier/rider. | 🇬🇧 This delivery has already been taken. | 🇫🇷 Cette livraison a déjà été prise en charge. | [📩 `AcceptDelivery`](#command-acceptdelivery) |
+| <a id="error-deliveryjobnotfound"></a>⛔ `DeliveryJobNotFound` | No delivery job with this id. | 🇬🇧 Delivery job not found. | 🇫🇷 Livraison introuvable. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `ConfirmPickup`](#command-confirmpickup), [📩 `CompleteDelivery`](#command-completedelivery), [📩 `CancelDelivery`](#command-canceldelivery), [📩 `ReportDeliveryIssue`](#command-reportdeliveryissue), [📩 `ResolveDeliveryIssue`](#command-resolvedeliveryissue), [📩 `UpdateDeliveryStatus`](#command-updatedeliverystatus), [📩 `AssignDeliveryToPartner`](#command-assigndeliverytopartner), [📩 `UnassignDeliveryFromPartner`](#command-unassigndeliveryfrompartner), [📩 `UpdateDeliveryPartnerStatus`](#command-updatedeliverypartnerstatus), [📩 `DeclineDelivery`](#command-declinedelivery) |
+| <a id="error-invaliddeliverystatus"></a>⛔ `InvalidDeliveryStatus` | The delivery job is not in a status that allows this transition. | 🇬🇧 This action is not allowed while the delivery is '{currentStatus}'. | 🇫🇷 Cette action n'est pas autorisée tant que la livraison est '{currentStatus}'. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `ConfirmPickup`](#command-confirmpickup), [📩 `CompleteDelivery`](#command-completedelivery), [📩 `CancelDelivery`](#command-canceldelivery), [📩 `ReportDeliveryIssue`](#command-reportdeliveryissue), [📩 `ResolveDeliveryIssue`](#command-resolvedeliveryissue), [📩 `UpdateDeliveryStatus`](#command-updatedeliverystatus), [📩 `AssignDeliveryToPartner`](#command-assigndeliverytopartner), [📩 `UnassignDeliveryFromPartner`](#command-unassigndeliveryfrompartner), [📩 `UpdateDeliveryPartnerStatus`](#command-updatedeliverypartnerstatus), [📩 `DeclineDelivery`](#command-declinedelivery) |
+| <a id="error-deliveryalreadyassigned"></a>⛔ `DeliveryAlreadyAssigned` | The delivery job has already been accepted by a courier/rider. | 🇬🇧 This delivery has already been taken. | 🇫🇷 Cette livraison a déjà été prise en charge. | [📩 `AcceptDelivery`](#command-acceptdelivery), [📩 `AssignDeliveryToPartner`](#command-assigndeliverytopartner), [📩 `DeclineDelivery`](#command-declinedelivery) |
+| <a id="error-rideralreadyregistered"></a>⛔ `RiderAlreadyRegistered` | A rider is already registered for this identity (authRef/id). | 🇬🇧 You are already registered as a rider. | 🇫🇷 Vous êtes déjà inscrit en tant que livreur. | [📩 `RegisterRider`](#command-registerrider) |
+| <a id="error-ridernotfound"></a>⛔ `RiderNotFound` | No rider with this id. | 🇬🇧 Rider not found. | 🇫🇷 Livreur introuvable. | [📩 `UpdateRiderInfo`](#command-updateriderinfo), [📩 `ChangeRiderStatus`](#command-changeriderstatus) |
+| <a id="error-invalidriderstatustransition"></a>⛔ `InvalidRiderStatusTransition` | The rider is not in a status that allows this transition. | 🇬🇧 A rider cannot move from '{currentStatus}' to '{targetStatus}'. | 🇫🇷 Un livreur ne peut pas passer de '{currentStatus}' à '{targetStatus}'. | [📩 `ChangeRiderStatus`](#command-changeriderstatus) |
 
-### 📐 Business rules _(7)_
+### 📐 Business rules _(11)_
 
 <a id="rule-deliveryacceptedonlywhenpending"></a>
 #### 📐 Rule: `DeliveryAcceptedOnlyWhenPending`
@@ -5723,7 +6277,7 @@ _A pending delivery job can be accepted by an independent rider only once._
 
 _The assigned rider confirms pickup then records hand-over, in the correct order._
 
-- **Verified by**: [🧪 `TestConfirmPickup`](#test-testconfirmpickup), [🧪 `TestCompleteDelivery`](#test-testcompletedelivery)
+- **Verified by**: [🧪 `TestConfirmPickup`](#test-testconfirmpickup), [🧪 `TestCompleteDelivery`](#test-testcompletedelivery), [🧪 `TestDeliveryStatusUpdatedByCommand`](#test-testdeliverystatusupdatedbycommand)
 
 <a id="rule-deliverycancellablebeforecompletion"></a>
 #### 📐 Rule: `DeliveryCancellableBeforeCompletion`
@@ -5737,21 +6291,21 @@ _A delivery job can be cancelled before completion but not after it is delivered
 
 _A ready DELIVERY order triggers creation of a delivery job (dispatch)._
 
-- **Verified by**: [🧪 `TestDispatchOnOrderReady`](#test-testdispatchonorderready)
+- **Verified by**: [🧪 `TestDispatchOnOrderReady`](#test-testdispatchonorderready), [🧪 `TestDeliveryJobBornOnDeliveryRequested`](#test-testdeliveryjobbornondeliveryrequested)
 
 <a id="rule-partneracceptancerecordscourier"></a>
 #### 📐 Rule: `PartnerAcceptanceRecordsCourier`
 
 _When the partner accepts (inbound), the assigned courier is recorded on the job._
 
-- **Verified by**: [🧪 `TestDispatchPartnerAccepted`](#test-testdispatchpartneraccepted)
+- **Verified by**: [🧪 `TestDispatchPartnerAccepted`](#test-testdispatchpartneraccepted), [🧪 `TestDeliveryJobRecordsPartnerAcceptance`](#test-testdeliveryjobrecordspartneracceptance)
 
 <a id="rule-partnerrejectionreoffers"></a>
 #### 📐 Rule: `PartnerRejectionReoffers`
 
 _When the partner declines (inbound), the job is re-offered or flagged for manual handling._
 
-- **Verified by**: [🧪 `TestDispatchPartnerRejected`](#test-testdispatchpartnerrejected)
+- **Verified by**: [🧪 `TestDispatchPartnerRejected`](#test-testdispatchpartnerrejected), [🧪 `TestDeliveryJobRecordsPartnerRejection`](#test-testdeliveryjobrecordspartnerrejection)
 
 <a id="rule-orderclosedondeliverycompletion"></a>
 #### 📐 Rule: `OrderClosedOnDeliveryCompletion`
@@ -5760,7 +6314,35 @@ _The order is closed (OrderDelivered) when the partner reports DELIVERED or an i
 
 - **Verified by**: [🧪 `TestDispatchClosesOrderOnPartnerDelivered`](#test-testdispatchclosesorderonpartnerdelivered), [🧪 `TestDispatchClosesOrderOnRiderCompleted`](#test-testdispatchclosesorderonridercompleted)
 
-### 🧪 Tests _(2)_
+<a id="rule-deliverypartnerassignmentlifecycle"></a>
+#### 📐 Rule: `DeliveryPartnerAssignmentLifecycle`
+
+_A PENDING delivery job can be assigned to a delivery partner (once), unassigned to be re-offered, and partner-reported status changes apply only as valid transitions._
+
+- **Verified by**: [🧪 `TestDeliveryAssignedToPartner`](#test-testdeliveryassignedtopartner), [🧪 `TestDeliveryUnassignedFromPartner`](#test-testdeliveryunassignedfrompartner), [🧪 `TestDeliveryPartnerStatusUpdated`](#test-testdeliverypartnerstatusupdated)
+
+<a id="rule-deliverydeclinekeepsjobpending"></a>
+#### 📐 Rule: `DeliveryDeclineKeepsJobPending`
+
+_An independent rider may decline a pending delivery job; the job stays PENDING and re-offerable._
+
+- **Verified by**: [🧪 `TestDeliveryDeclinedByRider`](#test-testdeliverydeclinedbyrider)
+
+<a id="rule-deliveryissuelifecycle"></a>
+#### 📐 Rule: `DeliveryIssueLifecycle`
+
+_A delivery issue can be reported on a non-delivered job and later resolved._
+
+- **Verified by**: [🧪 `TestDeliveryIssueReported`](#test-testdeliveryissuereported), [🧪 `TestDeliveryIssueResolved`](#test-testdeliveryissueresolved)
+
+<a id="rule-riderlifecycle"></a>
+#### 📐 Rule: `RiderLifecycle`
+
+_A rider registers once (per auth user), may update editable profile fields, and changes availability status only through valid transitions._
+
+- **Verified by**: [🧪 `TestRiderRegistered`](#test-testriderregistered), [🧪 `TestRiderRegisterAgainIsRejected`](#test-testriderregisteragainisrejected), [🧪 `TestRiderInfoUpdated`](#test-testriderinfoupdated), [🧪 `TestRiderUpdateIsRejectedWhenNotFound`](#test-testriderupdateisrejectedwhennotfound), [🧪 `TestRiderStatusChanged`](#test-testriderstatuschanged), [🧪 `TestRiderStatusChangeIsRejected`](#test-testriderstatuschangeisrejected)
+
+### 🧪 Tests _(3)_
 
 **[🎭 `DeliveryJob`](#actor-deliveryjob)**
 
@@ -5823,6 +6405,168 @@ _Rejects cancelling a missing or already-delivered job_
 - **When**: [📩 `CancelDelivery`](#command-canceldelivery)
 - **Thrown**: [⛔ `DeliveryJobNotFound`](#error-deliveryjobnotfound), [⛔ `InvalidDeliveryStatus`](#error-invaliddeliverystatus)
 - **Verifies**: [📐 `DeliveryCancellableBeforeCompletion`](#rule-deliverycancellablebeforecompletion)
+
+<a id="test-testdeliveryjobbornondeliveryrequested"></a>
+#### 🧪 Test: `TestDeliveryJobBornOnDeliveryRequested`
+
+_The DeliveryJob is born by recording the DeliveryRequested fact delivered by DeliveryDispatchProcess (idempotent)_
+
+- **Given**: _(none)_
+- **When**: [📩 `DeliveryRequested`](#command-deliveryrequested)
+- **Then**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **Verifies**: [📐 `ReadyDeliveryOrderTriggersDispatch`](#rule-readydeliveryordertriggersdispatch)
+
+<a id="test-testdeliveryjobrecordspartneracceptance"></a>
+#### 🧪 Test: `TestDeliveryJobRecordsPartnerAcceptance`
+
+_The DeliveryJob records the inbound partner acceptance with its courier (idempotent by partnerRef)_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `DeliveryAcceptedByPartner`](#command-deliveryacceptedbypartner)
+- **Then**: [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner)
+- **Verifies**: [📐 `PartnerAcceptanceRecordsCourier`](#rule-partneracceptancerecordscourier)
+
+<a id="test-testdeliveryjobrecordspartnerrejection"></a>
+#### 🧪 Test: `TestDeliveryJobRecordsPartnerRejection`
+
+_The DeliveryJob records the inbound partner rejection (the dispatcher re-offers)_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `DeliveryRejectedByPartner`](#command-deliveryrejectedbypartner)
+- **Then**: [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner)
+- **Verifies**: [📐 `PartnerRejectionReoffers`](#rule-partnerrejectionreoffers)
+
+<a id="test-testdeliverystatusupdatedbycommand"></a>
+#### 🧪 Test: `TestDeliveryStatusUpdatedByCommand`
+
+_The delivery status is driven through valid transitions to DELIVERED_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryPickedUp`](#event-deliverypickedup)
+- **When**: [📩 `UpdateDeliveryStatus`](#command-updatedeliverystatus)
+- **Then**: [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated)
+- **Verifies**: [📐 `DeliveryPickupAndCompletionByRider`](#rule-deliverypickupandcompletionbyrider)
+
+<a id="test-testdeliveryassignedtopartner"></a>
+#### 🧪 Test: `TestDeliveryAssignedToPartner`
+
+_A pending delivery job is assigned to a delivery partner_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `AssignDeliveryToPartner`](#command-assigndeliverytopartner)
+- **Then**: [⚡ `DeliveryAssignedToPartner`](#event-deliveryassignedtopartner)
+- **Verifies**: [📐 `DeliveryPartnerAssignmentLifecycle`](#rule-deliverypartnerassignmentlifecycle)
+
+<a id="test-testdeliveryunassignedfrompartner"></a>
+#### 🧪 Test: `TestDeliveryUnassignedFromPartner`
+
+_An assigned delivery job is unassigned from its partner to be re-offered_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAssignedToPartner`](#event-deliveryassignedtopartner)
+- **When**: [📩 `UnassignDeliveryFromPartner`](#command-unassigndeliveryfrompartner)
+- **Then**: [⚡ `DeliveryUnassignedFromPartner`](#event-deliveryunassignedfrompartner)
+- **Verifies**: [📐 `DeliveryPartnerAssignmentLifecycle`](#rule-deliverypartnerassignmentlifecycle)
+
+<a id="test-testdeliverypartnerstatusupdated"></a>
+#### 🧪 Test: `TestDeliveryPartnerStatusUpdated`
+
+_A partner-reported status change applies to the job as a valid transition_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner)
+- **When**: [📩 `UpdateDeliveryPartnerStatus`](#command-updatedeliverypartnerstatus)
+- **Then**: [⚡ `DeliveryPartnerStatusUpdated`](#event-deliverypartnerstatusupdated)
+- **Verifies**: [📐 `DeliveryPartnerAssignmentLifecycle`](#rule-deliverypartnerassignmentlifecycle)
+
+<a id="test-testdeliverydeclinedbyrider"></a>
+#### 🧪 Test: `TestDeliveryDeclinedByRider`
+
+_An independent rider declines a pending job; it stays PENDING and re-offerable_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested)
+- **When**: [📩 `DeclineDelivery`](#command-declinedelivery)
+- **Then**: [⚡ `DeliveryDeclinedByRider`](#event-deliverydeclinedbyrider)
+- **Verifies**: [📐 `DeliveryDeclineKeepsJobPending`](#rule-deliverydeclinekeepsjobpending)
+
+<a id="test-testdeliveryissuereported"></a>
+#### 🧪 Test: `TestDeliveryIssueReported`
+
+_An issue is reported on a non-delivered job_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider)
+- **When**: [📩 `ReportDeliveryIssue`](#command-reportdeliveryissue)
+- **Then**: [⚡ `DeliveryIssueReported`](#event-deliveryissuereported)
+- **Verifies**: [📐 `DeliveryIssueLifecycle`](#rule-deliveryissuelifecycle)
+
+<a id="test-testdeliveryissueresolved"></a>
+#### 🧪 Test: `TestDeliveryIssueResolved`
+
+_A previously reported delivery issue is resolved_
+
+- **Given**: [⚡ `DeliveryRequested`](#event-deliveryrequested), [⚡ `DeliveryAcceptedByRider`](#event-deliveryacceptedbyrider), [⚡ `DeliveryIssueReported`](#event-deliveryissuereported)
+- **When**: [📩 `ResolveDeliveryIssue`](#command-resolvedeliveryissue)
+- **Then**: [⚡ `DeliveryIssueResolved`](#event-deliveryissueresolved)
+- **Verifies**: [📐 `DeliveryIssueLifecycle`](#rule-deliveryissuelifecycle)
+
+**[🎭 `Rider`](#actor-rider)**
+
+<a id="test-testriderregistered"></a>
+#### 🧪 Test: `TestRiderRegistered`
+
+_A rider registers (linked to the auth provider user)_
+
+- **Given**: _(none)_
+- **When**: [📩 `RegisterRider`](#command-registerrider)
+- **Then**: [⚡ `RiderRegistered`](#event-riderregistered)
+- **Verifies**: [📐 `RiderLifecycle`](#rule-riderlifecycle)
+
+<a id="test-testriderregisteragainisrejected"></a>
+#### 🧪 Test: `TestRiderRegisterAgainIsRejected`
+
+_Registering the same rider twice is rejected_
+
+- **Given**: [⚡ `RiderRegistered`](#event-riderregistered)
+- **When**: [📩 `RegisterRider`](#command-registerrider)
+- **Thrown**: [⛔ `RiderAlreadyRegistered`](#error-rideralreadyregistered)
+- **Verifies**: [📐 `RiderLifecycle`](#rule-riderlifecycle)
+
+<a id="test-testriderinfoupdated"></a>
+#### 🧪 Test: `TestRiderInfoUpdated`
+
+_A rider updates editable profile fields_
+
+- **Given**: [⚡ `RiderRegistered`](#event-riderregistered)
+- **When**: [📩 `UpdateRiderInfo`](#command-updateriderinfo)
+- **Then**: [⚡ `RiderInfoUpdated`](#event-riderinfoupdated)
+- **Verifies**: [📐 `RiderLifecycle`](#rule-riderlifecycle)
+
+<a id="test-testriderupdateisrejectedwhennotfound"></a>
+#### 🧪 Test: `TestRiderUpdateIsRejectedWhenNotFound`
+
+_Updating an unknown rider is rejected_
+
+- **Given**: _(none)_
+- **When**: [📩 `UpdateRiderInfo`](#command-updateriderinfo)
+- **Thrown**: [⛔ `RiderNotFound`](#error-ridernotfound)
+- **Verifies**: [📐 `RiderLifecycle`](#rule-riderlifecycle)
+
+<a id="test-testriderstatuschanged"></a>
+#### 🧪 Test: `TestRiderStatusChanged`
+
+_A rider goes AVAILABLE (valid transition from OFFLINE)_
+
+- **Given**: [⚡ `RiderRegistered`](#event-riderregistered)
+- **When**: [📩 `ChangeRiderStatus`](#command-changeriderstatus)
+- **Then**: [⚡ `RiderStatusChanged`](#event-riderstatuschanged)
+- **Verifies**: [📐 `RiderLifecycle`](#rule-riderlifecycle)
+
+<a id="test-testriderstatuschangeisrejected"></a>
+#### 🧪 Test: `TestRiderStatusChangeIsRejected`
+
+_An OFFLINE rider cannot jump straight to ON_DELIVERY (invalid transition)_
+
+- **Given**: [⚡ `RiderRegistered`](#event-riderregistered)
+- **When**: [📩 `ChangeRiderStatus`](#command-changeriderstatus)
+- **Thrown**: [⛔ `InvalidRiderStatusTransition`](#error-invalidriderstatustransition)
+- **Verifies**: [📐 `RiderLifecycle`](#rule-riderlifecycle)
 
 **[🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess)**
 
@@ -6122,12 +6866,13 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="entity-address--city"></a>`city` | [🔤 `CityName`](#scalar-cityname) | ✅ |  |
 | <a id="entity-address--country"></a>`country` | [🔤 `CountryCode`](#scalar-countrycode) | ✅ |  |
 
-### 🔤 Scalars _(28)_
+### 🔤 Scalars _(32)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
 | <a id="scalar-restaurantid"></a>🔤 `RestaurantId` | string _uuid_ | A single restaurant location (HubRise: location), belonging to a RestaurantAccount. |
 | <a id="scalar-productid"></a>🔤 `ProductId` | string _uuid_ | A product groups one or more offers (HubRise: product). |
+| <a id="scalar-sessionid"></a>🔤 `SessionId` | string _uuid_ | A session is a temporary auth token (ADR-0041) for a visitor or customer, used to bind carts and track the user across devices. |
 | <a id="scalar-offerid"></a>🔤 `OfferId` | string _uuid_ | A purchasable offer with its own price (HubRise: SKU). |
 | <a id="scalar-orderid"></a>🔤 `OrderId` | string _uuid_ |  |
 | <a id="scalar-customerid"></a>🔤 `CustomerId` | string _uuid_ |  |
@@ -6152,10 +6897,13 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-servicetype"></a>🔤 `ServiceType` | enum (DELIVERY \| COLLECTION) | Aligned with HubRise service types. COLLECTION == customer pickup. (EAT_IN is not offered by Captain.Food but is kept in TaxRate for catalog fidelity.)  |
 | <a id="scalar-deliverystatus"></a>🔤 `DeliveryStatus` | enum (PENDING \| ASSIGNED \| PICKED_UP \| OUT_FOR_DELIVERY \| DELIVERED \| FAILED \| CANCELLED) | Status of one delivery, reported by the partner (inbound) or driven by an independent rider's commands. |
 | <a id="scalar-operationstatus"></a>🔤 `OperationStatus` | enum (PENDING \| SUCCEEDED \| REJECTED \| FAILED) | Live status of a command/operation streamed by the operationStatusChanged subscription: PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."  |
+| <a id="scalar-paymentprocessstatus"></a>🔤 `PaymentProcessStatus` | enum (AWAITING_PAYMENT_RESULT \| ORDER_PLACED \| FAILED) | State of one PlaceOrderProcess checkout run (payment_process_manager row, keyed by cart). |
+| <a id="scalar-refundprocessstatus"></a>🔤 `RefundProcessStatus` | enum (PENDING_APPROVAL \| APPROVED_AWAITING_SETTLEMENT \| DENIED \| REFUNDED) | State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are admin-approved. |
+| <a id="scalar-deliverydispatchprocessstatus"></a>🔤 `DeliveryDispatchProcessStatus` | enum (OFFERED \| ACCEPTED \| REOFFER_REQUIRED \| COMPLETED) | State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order). |
 | <a id="scalar-mode"></a>🔤 `Mode` | enum (LIVE \| TEST) | Whether an aggregate is production (LIVE) or a non-production TEST fixture coexisting in prod (ADR-0038, Stripe-`livemode`-style). Set at creation, immutable; absent = LIVE. TEST data is isolated from payouts, analytics and real notifications; a TEST order may target a LIVE restaurant to validate the real receipt path.  |
 | <a id="scalar-usertype"></a>🔤 `UserType` | enum (PUBLIC \| CUSTOMER \| RESTAURANT_ACCOUNT \| RESTAURANT \| RIDER \| ADMIN \| EXTERNAL) |  |
 
-### ⛔ Errors _(10)_
+### ⛔ Errors _(9)_
 
 | Error | Description | Message (en) | Message (fr) | Thrown by |
 | --- | --- | --- | --- | --- |
@@ -6165,9 +6913,8 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="error-conflict"></a>⛔ `Conflict` | Concurrent modification (optimistic-concurrency version clash); retry. | 🇬🇧 This item was modified meanwhile. Please retry. | 🇫🇷 Cet élément a été modifié entre-temps. Veuillez réessayer. | — |
 | <a id="error-ratelimited"></a>⛔ `RateLimited` | Too many requests on this path. | 🇬🇧 Too many requests. Please slow down. | 🇫🇷 Trop de requêtes. Veuillez patienter. | — |
 | <a id="error-internal"></a>⛔ `Internal` | Unexpected server error. | 🇬🇧 Something went wrong on our side. | 🇫🇷 Une erreur est survenue de notre côté. | — |
-| <a id="error-restaurantnotfound"></a>⛔ `RestaurantNotFound` | No restaurant with this id. | 🇬🇧 Restaurant not found. | 🇫🇷 Restaurant introuvable. | [📩 `ActivateRestaurant`](#command-activaterestaurant), [📩 `UpdateRestaurant`](#command-updaterestaurant), [📩 `DeactivateRestaurant`](#command-deactivaterestaurant), [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode), [📩 `RemoveRestaurant`](#command-removerestaurant), [📩 `UpdateRestaurantGoogleBusinessProfile`](#command-updaterestaurantgooglebusinessprofile), [📩 `MarkRestaurantClosed`](#command-markrestaurantclosed), [📩 `ClaimRestaurantListing`](#command-claimrestaurantlisting), [📩 `OptOutRestaurantListing`](#command-optoutrestaurantlisting), [📩 `ChangeRestaurantListingStatus`](#command-changerestaurantlistingstatus), [📩 `ConfigureGoogleBusinessProfileOrderLink`](#command-configuregooglebusinessprofileorderlink), [📩 `VerifyGoogleBusinessProfileOrderLink`](#command-verifygooglebusinessprofileorderlink), [📩 `CreateCatalog`](#command-createcatalog), [📩 `MarkRestaurantAsFavorite`](#command-markrestaurantasfavorite), [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-restaurantnotactive"></a>⛔ `RestaurantNotActive` | Operation requires an ACTIVE restaurant. | 🇬🇧 The restaurant '{restaurantName}' is not active. | 🇫🇷 Le restaurant '{restaurantName}' n'est pas actif. | [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode), [📩 `PlaceOrder`](#command-placeorder) |
-| <a id="error-noeditablefieldprovided"></a>⛔ `NoEditableFieldProvided` | Update command carried no editable field. | 🇬🇧 Provide at least one field to update. | 🇫🇷 Indiquez au moins un champ à modifier. | [📩 `UpdateRestaurantAccount`](#command-updaterestaurantaccount), [📩 `UpdateRestaurant`](#command-updaterestaurant), [📩 `UpdateCustomerInfo`](#command-updatecustomerinfo) |
+| <a id="error-restaurantnotfound"></a>⛔ `RestaurantNotFound` | No restaurant with this id. | 🇬🇧 Restaurant not found. | 🇫🇷 Restaurant introuvable. | [📩 `ActivateRestaurant`](#command-activaterestaurant), [📩 `UpdateRestaurant`](#command-updaterestaurant), [📩 `DeactivateRestaurant`](#command-deactivaterestaurant), [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode), [📩 `RemoveRestaurant`](#command-removerestaurant), [📩 `UpdateRestaurantGoogleBusinessProfile`](#command-updaterestaurantgooglebusinessprofile), [📩 `MarkRestaurantClosed`](#command-markrestaurantclosed), [📩 `ClaimRestaurantListing`](#command-claimrestaurantlisting), [📩 `OptOutRestaurantListing`](#command-optoutrestaurantlisting), [📩 `ChangeRestaurantListingStatus`](#command-changerestaurantlistingstatus), [📩 `ConfigureGoogleBusinessProfileOrderLink`](#command-configuregooglebusinessprofileorderlink), [📩 `VerifyGoogleBusinessProfileOrderLink`](#command-verifygooglebusinessprofileorderlink), [📩 `CreateCatalog`](#command-createcatalog), [📩 `MarkRestaurantAsFavorite`](#command-markrestaurantasfavorite) |
+| <a id="error-noeditablefieldprovided"></a>⛔ `NoEditableFieldProvided` | Update command carried no editable field. | 🇬🇧 Provide at least one field to update. | 🇫🇷 Indiquez au moins un champ à modifier. | [📩 `UpdateRestaurantAccount`](#command-updaterestaurantaccount), [📩 `UpdateRestaurant`](#command-updaterestaurant), [📩 `UpdateCustomerInfo`](#command-updatecustomerinfo), [📩 `UpdateRiderInfo`](#command-updateriderinfo) |
 | <a id="error-offernotfound"></a>⛔ `OfferNotFound` | No offer with this id in the catalog. | 🇬🇧 Product offer not found. | 🇫🇷 Offere de produit introuvable. | [📩 `UpdateOfferStock`](#command-updateofferstock), [📩 `AddCartLine`](#command-addcartline) |
 
 <a id="sec-screens"></a>
@@ -6570,9 +7317,9 @@ aggregates; components bind the aggregates they handle and the read models they 
 | --- | --- | --- |
 | 🔲 `restaurant` | Restaurant provider domain: accounts, locations, lifecycle, order-acceptance mode (incl. catalog & order-fulfilment operations performed by restaurant staff). | [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect) |
 | 🔲 `catalog` | Catalog tree, products, offers (SKUs), option lists, per-offer stock; HubRise import. | [🎭 `Catalog`](#actor-catalog) |
-| 🔲 `order` | Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe). | [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order) · [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess) |
-| 🔲 `customer` | Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favorites, profile, address book, cart & ordering use-cases; cart binding. | [🎭 `Customer`](#actor-customer) · [🎭 `CartBindingProcess`](#actor-cartbindingprocess) |
-| 🔲 `delivery` | Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031). | [🎭 `DeliveryJob`](#actor-deliveryjob) · [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
+| 🔲 `order` | Cart selection → checkout → order lifecycle, incl. the checkout & refund sagas (the V0 risk point: external Stripe). | [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Payment`](#actor-payment) · [📦 `PlaceOrderProcess`](#entity-placeorderprocess), [📦 `RefundProcess`](#entity-refundprocess) |
+| 🔲 `customer` | Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favorites, profile, address book, cart & ordering use-cases; cart binding. | [🎭 `Customer`](#actor-customer) · [📦 `CartBindingProcess`](#entity-cartbindingprocess) |
+| 🔲 `delivery` | Delivery fulfilment: dispatch of ready DELIVERY orders to a partner (Avelo37) and/or independent riders, courier assignment, status tracking to hand-over (ADR-0031). | [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `Rider`](#actor-rider) · [📦 `DeliveryDispatchProcess`](#entity-deliverydispatchprocess) |
 
 ### 🧱 L2 — Containers
 
@@ -6585,7 +7332,7 @@ aggregates; components bind the aggregates they handle and the read models they 
 | 🧱 `mobile-customer` | SwiftUI (iOS) / Jetpack Compose (Android) thin shells → Crux core via UniFFI (Rust) | Customer mobile app (post-V0); thin native UI over the shared Rust core (ADR-0034); same GraphQL API (/customer/graphql, /public/graphql). |
 | 🧱 `mobile-restaurant` | SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust) | Restaurant-staff mobile app (post-V0): order queue, accept/ready (/restaurant/graphql). |
 | 🧱 `mobile-rider` | SwiftUI / Jetpack Compose thin shells → Crux core via UniFFI (Rust) | Delivery-rider mobile app (post-V0): assigned deliveries + status updates (/rider/graphql). |
-| 🧱 `api` | Rust — Axum + Tokio + SQLx + async-graphql (BFF over the Crux core) | CQRS-light write+read API (ADR-0034). Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql).<br>realizes: [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess), [🎭 `DeliveryJob`](#actor-deliveryjob), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
+| 🧱 `api` | Rust — Axum + Tokio + SQLx + async-graphql (BFF over the Crux core) | CQRS-light write+read API (ADR-0034). Hosts command handlers, projections, GraphQL gateway. Role = path (/{role}/graphql).<br>realizes: [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [📦 `PlaceOrderProcess`](#entity-placeorderprocess), [📦 `RefundProcess`](#entity-refundprocess), [📦 `CartBindingProcess`](#entity-cartbindingprocess), [🎭 `DeliveryJob`](#actor-deliveryjob), [📦 `DeliveryDispatchProcess`](#entity-deliverydispatchprocess) |
 | 🧱 `event-store` | Managed PostgreSQL (e.g. Supabase) | Append-only domain_events table (the write model / source of truth at runtime). |
 | 🧱 `read-models` | Managed PostgreSQL | Denormalized View_* projection tables fed from the event log; queries read here, never domain_events. |
 | 🧱 `sync-worker` | Scheduled worker (GitHub Actions cron + Rust binary, shared Crux core) | Restaurant listing sync (ADR-0020): polls INSEE Sirene + Google Maps and, via the ACL, calls the api's RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed as the owner. Prospection scoring/outreach is a later step. |
@@ -6642,7 +7389,7 @@ aggregates; components bind the aggregates they handle and the read models they 
 | ⚙️ `observability-middleware` | 📡 yes | Attaches business.* attributes + correlation/cause ids to spans; structured JSON logging; the only place domain context meets OTel. | — |
 | ⚙️ `command-bus` | 📡 yes | Dispatches commands to handlers; span 'command.receive'/'command.validate'/'command.handle'. | — |
 | ⚙️ `command-handlers` | — no | One handler per aggregate; validates invariants then appends events. Pure domain — NOT instrumented. | handles [🎭 `RestaurantAccount`](#actor-restaurantaccount), [🎭 `Restaurant`](#actor-restaurant), [🎭 `Prospect`](#actor-prospect), [🎭 `Catalog`](#actor-catalog), [🎭 `Cart`](#actor-cart), [🎭 `Order`](#actor-order), [🎭 `Customer`](#actor-customer), [🎭 `DeliveryJob`](#actor-deliveryjob) |
-| ⚙️ `process-managers` | 📡 yes | Sagas coordinating aggregates + externals (checkout, refund, cart binding, delivery dispatch). | handles [🎭 `PlaceOrderProcess`](#actor-placeorderprocess), [🎭 `RefundProcess`](#actor-refundprocess), [🎭 `CartBindingProcess`](#actor-cartbindingprocess), [🎭 `DeliveryDispatchProcess`](#actor-deliverydispatchprocess) |
+| ⚙️ `process-managers` | 📡 yes | Sagas coordinating aggregates + externals (checkout, refund, cart binding, delivery dispatch). | handles [📦 `PlaceOrderProcess`](#entity-placeorderprocess), [📦 `RefundProcess`](#entity-refundprocess), [📦 `CartBindingProcess`](#entity-cartbindingprocess), [📦 `DeliveryDispatchProcess`](#entity-deliverydispatchprocess) |
 | ⚙️ `event-store-adapter` | 📡 yes | Appends to domain_events; span 'event.store.append' with business.event_type/stream_id. | — |
 | ⚙️ `event-publisher` | 📡 yes | Publishes appended events to the bus; span 'event.publish' (PRODUCER). | — |
 | ⚙️ `message-consumers` | 📡 yes | Consume domain + inbound integration events; span 'event.consume.*' (CONSUMER). | — |

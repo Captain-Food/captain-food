@@ -1,4 +1,4 @@
-//! The 11-column `cart` table ↔ [`CartRow`] mapping, both directions — shared by the read repository
+//! The 12-column `cart` table ↔ [`CartRow`] mapping, both directions — shared by the read repository
 //! (decode) and the projection worker (load current state + upsert the folded row).
 //!
 //! Column conventions (ADR-0037/0040): `status` is an INTEGER ordinal (see
@@ -7,7 +7,7 @@
 //! inner `.0`; the other scalar newtypes bind via `.0` too.
 
 use application::queries::CartRow;
-use domain::generated::scalars::{CartId, CurrencyCode, CustomerId, MoneyCents, RestaurantId};
+use domain::generated::scalars::{CartId, CurrencyCode, CustomerId, MoneyCents, RestaurantId, SessionId};
 use domain::shared::errors::DomainError;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -16,7 +16,7 @@ use super::db_err;
 use super::enum_sql::EnumOrd;
 
 /// The full column list, in `CartRow` field order — keep SELECTs and the upsert in sync with it.
-pub(crate) const COLUMNS: &str = "cart_id, restaurant_id, customer_id, status, lines, \
+pub(crate) const COLUMNS: &str = "cart_id, restaurant_id, session_id, customer_id, status, lines, \
      total_amount_cents, currency, estimated_breakdown, uber_comparison, created_at, updated_at";
 
 /// Normalize a nullable jsonb: a JSON `null` in the column (or in the row) means "no value".
@@ -29,6 +29,7 @@ pub(crate) fn decode(row: &PgRow) -> Result<CartRow, DomainError> {
     Ok(CartRow {
         cart_id: CartId(row.try_get("cart_id").map_err(db_err)?),
         restaurant_id: RestaurantId(row.try_get("restaurant_id").map_err(db_err)?),
+        session_id: SessionId(row.try_get("session_id").map_err(db_err)?),
         customer_id: row
             .try_get::<Option<uuid::Uuid>, _>("customer_id")
             .map_err(db_err)?
@@ -54,9 +55,10 @@ pub async fn load(pool: &PgPool, id: CartId) -> Result<Option<CartRow>, DomainEr
 /// Write the folded row: `INSERT … ON CONFLICT (cart_id) DO UPDATE` over all 11 columns.
 pub async fn upsert(pool: &PgPool, row: &CartRow) -> Result<(), DomainError> {
     let sql = format!(
-        "INSERT INTO cart ({COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) \
+        "INSERT INTO cart ({COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) \
          ON CONFLICT (cart_id) DO UPDATE SET \
          restaurant_id = EXCLUDED.restaurant_id, \
+         session_id = EXCLUDED.session_id, \
          customer_id = EXCLUDED.customer_id, \
          status = EXCLUDED.status, \
          lines = EXCLUDED.lines, \
@@ -70,6 +72,7 @@ pub async fn upsert(pool: &PgPool, row: &CartRow) -> Result<(), DomainError> {
     sqlx::query(&sql)
         .bind(row.cart_id.0)
         .bind(row.restaurant_id.0)
+        .bind(row.session_id.0)
         .bind(row.customer_id.as_ref().map(|v| v.0))
         .bind(row.status.to_ord())
         .bind(row.lines.clone())

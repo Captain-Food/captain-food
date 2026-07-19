@@ -189,7 +189,7 @@ fn paused(id: RestaurantId) -> DomainEvent {
 /// Fixtures `cartStarted` + `cartLineAdded` — an OPEN cart holding one line.
 fn open_cart_with_line(cart: CartId, resto: RestaurantId) -> Vec<DomainEvent> {
     vec![
-        DomainEvent::CartStarted(CartStarted { cart_id: cart, restaurant_id: resto, customer_id: None }),
+        DomainEvent::CartStarted(CartStarted { cart_id: cart, restaurant_id: resto, session_id: SessionId(uuid::Uuid::new_v4()), customer_id: None }),
         DomainEvent::CartLineAdded(CartLineAdded {
             cart_id: cart,
             line: CartLineItem {
@@ -207,6 +207,7 @@ fn priced_row(cart: CartId, resto: RestaurantId) -> CartRow {
     CartRow {
         cart_id: cart,
         restaurant_id: resto,
+        session_id: SessionId(uuid::Uuid::new_v4()),
         customer_id: None,
         status: CartStatus::OPEN,
         lines: serde_json::json!([]),
@@ -370,7 +371,7 @@ async fn rejects_checkout_when_paused_empty_addressless_or_declined() {
     let carts = checkout_given(&store, resto, cart);
     store.seed(
         &cart_stream(cart),
-        vec![DomainEvent::CartStarted(CartStarted { cart_id: cart, restaurant_id: resto, customer_id: None })],
+        vec![DomainEvent::CartStarted(CartStarted { cart_id: cart, restaurant_id: resto, session_id: SessionId(uuid::Uuid::new_v4()), customer_id: None })],
     );
     let err = place_order(&store, &carts, &FakeGateway, place_cmd(order, resto, cart), &actor())
         .await

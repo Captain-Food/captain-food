@@ -84,6 +84,7 @@ pub struct CatalogRow {
 pub struct CartRow {
     pub cart_id: CartId,
     pub restaurant_id: RestaurantId,
+    pub session_id: SessionId,
     pub customer_id: Option<CustomerId>,
     pub status: CartStatus,
     pub lines: serde_json::Value,
@@ -122,6 +123,7 @@ pub struct OrderTrackingRow {
     pub estimated_ready_at: Option<chrono::DateTime<chrono::Utc>>,
     pub placed_at: chrono::DateTime<chrono::Utc>,
     pub status_changed_at: chrono::DateTime<chrono::Utc>,
+    pub payment_intent_id: Option<PaymentIntentId>,
     pub payment_status: String,
     pub restaurant_stars: Option<StarRating>,
     pub rating_comment: Option<RatingComment>,

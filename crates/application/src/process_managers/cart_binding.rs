@@ -31,7 +31,7 @@ pub fn on_customer_identified(event: &CustomerIdentified) -> Decision {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::generated::scalars::{CustomerId, ExternalReference};
+    use domain::generated::scalars::{CustomerId, ExternalReference, SessionId};
 
     /// tests.yaml#/TestCartBindingOnCustomerIdentified — rules.yaml#/GuestCartsBoundOnIdentification:
     /// the reaction emits NO domain event (`then: []`); the bind is delegated to the Cart projection
@@ -41,6 +41,7 @@ mod tests {
         let d = on_customer_identified(&CustomerIdentified {
             customer_id: CustomerId(uuid::Uuid::from_u128(7)),
             auth_ref: ExternalReference("auth-supabase-1".into()),
+            session_id: SessionId(uuid::Uuid::from_u128(9)),
         });
         assert!(d.appends().is_empty());
         assert!(matches!(d, Decision::Skip(ref m) if m.contains("auth-supabase-1")), "{d:?}");

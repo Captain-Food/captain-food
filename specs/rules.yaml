@@ -112,9 +112,11 @@ OrderMaterializedOnPaymentCapture:
 CheckoutAbortsOnPaymentFailure:
   description: "On payment failure the saga aborts, no order is placed and the cart stays open."
 
-# --- RefundProcess ---
+# --- RefundProcess (admin-approved) ---
 RefundOnRejectionOrCancellation:
-  description: "A Stripe refund is requested when an order is rejected, cancelled, or a refund is requested."
+  description: "When a paid order is rejected, cancelled, or a refund is requested, a refund is opened as PENDING_APPROVAL for an admin decision; nothing is refunded without approval."
+RefundRequiresAdminApproval:
+  description: "Only an ADMIN decision resolves a pending refund: ApproveRefund (possibly partial) requests the Stripe refund, DenyRefund closes it; both are rejected when no refund is pending approval for the order."
 RefundSettledFactRecorded:
   description: "The settled refund fact reported back by Stripe is recorded."
 
@@ -137,3 +139,13 @@ PartnerRejectionReoffers:
   description: "When the partner declines (inbound), the job is re-offered or flagged for manual handling."
 OrderClosedOnDeliveryCompletion:
   description: "The order is closed (OrderDelivered) when the partner reports DELIVERED or an independent rider completes the delivery."
+DeliveryPartnerAssignmentLifecycle:
+  description: "A PENDING delivery job can be assigned to a delivery partner (once), unassigned to be re-offered, and partner-reported status changes apply only as valid transitions."
+DeliveryDeclineKeepsJobPending:
+  description: "An independent rider may decline a pending delivery job; the job stays PENDING and re-offerable."
+DeliveryIssueLifecycle:
+  description: "A delivery issue can be reported on a non-delivered job and later resolved."
+
+# --- Rider ---
+RiderLifecycle:
+  description: "A rider registers once (per auth user), may update editable profile fields, and changes availability status only through valid transitions."

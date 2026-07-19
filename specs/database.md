@@ -222,6 +222,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | --- | --- | --- | --- | --- |
 | `cart_id` | `CartId` | `UUID` | PK |  |
 | `restaurant_id` | `RestaurantId` | `UUID` | — |  |
+| `session_id` | `SessionId` | `UUID` | index | The visitor session that started the cart; CartBindingProcess binds all OPEN carts of a session on CustomerIdentified. |
 | `customer_id` | `CustomerId` | `UUID` | nullable | NULL while guest; bound by CustomerIdentified or at checkout. |
 | `status` | `CartStatus` | `INTEGER` | — | Derived from event type: OPEN on CartStarted, CHECKED_OUT on CartCheckedOut. |
 | `lines` | `jsonb` | `JSONB` | — | Priced by the projection from the live catalog: [{ cart_line_id, offer_id, product_id, name, offer_name, quantity, unit_price_cents, selected_options, line_total_cents }]. |
@@ -266,6 +267,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `estimated_ready_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
 | `placed_at` | `timestamptz` | `TIMESTAMPTZ` | — | OrderPlaced occurrence time. |
 | `status_changed_at` | `timestamptz` | `TIMESTAMPTZ` | — | Occurrence time of the latest status-changing event. |
+| `payment_intent_id` | `PaymentIntentId` | `TEXT` | nullable | The captured Stripe PaymentIntent; RefundProcess reads it to open a pending refund. |
 | `payment_status` | `text` | `TEXT` | — | Folded from Stripe facts; candidate for a PaymentStatus enum. |
 | `restaurant_stars` | `StarRating` | `INTEGER` | nullable | Customer's 0–5 rating of the restaurant; null until rated. |
 | `rating_comment` | `RatingComment` | `TEXT` | nullable |  |

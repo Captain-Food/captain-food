@@ -369,7 +369,7 @@ fn validate(model: &Model) -> Report {
     let mut consumed_events: BTreeSet<String> = BTreeSet::new();
     for actor in &actors {
         for (i, entry) in actor.receives.iter().enumerate() {
-            let where_ = format!("actors.yaml/{}.receives[{}]", actor.name, i);
+            let where_ = format!("{}/{}.receives[{}]", actor.file, actor.name, i);
             if entry.message_ref.is_empty() {
                 issues.push(err("actor-message", where_.clone(), "receives entry has no message $ref.".into()));
             } else if ref_target_file(&entry.message_ref, "actors.yaml").as_deref() == Some("commands.yaml") {
@@ -409,6 +409,9 @@ fn validate(model: &Model) -> Report {
             }
         }
     }
+
+    // --- 2b. Process managers (processmanager.yaml): typed-step validation -----------------------
+    validate_process_managers(model, &mut issues);
 
     // --- 3. Coverage: derive value-objects vs commands, and orphan events ------------------------
     let mut refd_from_properties: BTreeSet<String> = BTreeSet::new();
@@ -884,6 +887,7 @@ fn validate(model: &Model) -> Report {
         // Per-actor inbox.
         struct InboxEntry {
             actor: String,
+            file: &'static str,
             message: String,
             is_command: bool,
             emits: BTreeSet<String>,
@@ -911,6 +915,7 @@ fn validate(model: &Model) -> Report {
                 let idx = inbox_entries.len();
                 inbox_entries.push(InboxEntry {
                     actor: a.name.clone(),
+                    file: a.file,
                     message: msg.clone(),
                     is_command: e.message_ref.starts_with("commands.yaml#/"),
                     emits,
@@ -979,7 +984,7 @@ fn validate(model: &Model) -> Report {
                     None => issues.push(err(
                         "test-message-not-handled",
                         format!("{}.when", where_),
-                        format!("actor '{}' does not receive '{}' (actors.yaml inbox).", actor_name, msg),
+                        format!("actor '{}' does not receive '{}' (actors.yaml/processmanager.yaml inbox).", actor_name, msg),
                     )),
                     Some(idx) => {
                         used_messages.insert(format!("{}::{}", actor_name, msg));
@@ -1079,7 +1084,7 @@ fn validate(model: &Model) -> Report {
             if !used_messages.contains(&format!("{}::{}", e.actor, e.message)) {
                 issues.push(err(
                     "test-uncovered-message",
-                    format!("actors.yaml/{}", e.actor),
+                    format!("{}/{}", e.file, e.actor),
                     format!("no test exercises {} '{}' on '{}'.", if e.is_command { "command" } else { "event" }, e.message, e.actor),
                 ));
             }
@@ -2384,6 +2389,7 @@ fn inject_generated(path: &PathBuf, id: &str, body: &str) -> Result<bool, String
 struct Actor {
     name: String,
     kind: String, // "aggregate" | "process-manager"
+    file: &'static str, // "actors.yaml" | "processmanager.yaml" (where the definition lives)
     description: Option<String>,
     receives: Vec<Receive>,
 }
@@ -2513,12 +2519,705 @@ fn parse_actors(model: &Model) -> Vec<Actor> {
             out.push(Actor {
                 name: name.to_string(),
                 kind: kind.to_string(),
+                file: "actors.yaml",
+                description: node.get("description").and_then(|x| x.as_str()).map(|s| s.to_string()),
+                receives,
+            });
+        }
+    }
+    // Process managers (processmanager.yaml, typed-step DSL) project into the same Actor shape with
+    // DERIVED emits/throws per leg: emits = delivered events ∪ the emits of each sent command per the
+    // target aggregate's inbox (actors.yaml stays the single wiring truth); throws = guard `throws`.
+    let agg_emits: HashMap<(String, String), Vec<String>> = out
+        .iter()
+        .flat_map(|a| {
+            a.receives.iter().filter_map(move |r| {
+                ref_name(&r.message_ref).map(|m| ((a.name.clone(), m), r.emits.clone()))
+            })
+        })
+        .collect();
+    if let Some(Value::Mapping(m)) = model.defs.get("processmanager.yaml") {
+        for (k, node) in m {
+            let name = match k.as_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            if node.get("type").and_then(|x| x.as_str()) != Some("process-manager") {
+                continue;
+            }
+            let mut receives = Vec::new();
+            if let Some(seq) = node.get("receives").and_then(|x| x.as_sequence()) {
+                for e in seq {
+                    let message_ref = e
+                        .get("message")
+                        .and_then(|mm| mm.get("$ref"))
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let mut emits: Vec<String> = Vec::new();
+                    let mut throws: Vec<String> = Vec::new();
+                    if let Some(steps) = e.get("steps").and_then(|x| x.as_sequence()) {
+                        for s in steps {
+                            if let Some(d) = s.get("deliver") {
+                                if let Some(ev) = d.get("event").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()) {
+                                    if !emits.contains(&ev.to_string()) {
+                                        emits.push(ev.to_string());
+                                    }
+                                }
+                            }
+                            if let Some(sd) = s.get("send") {
+                                let cmd = sd.get("command").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name);
+                                let to = sd.get("to").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name);
+                                if let (Some(cmd), Some(to)) = (cmd, to) {
+                                    if let Some(evs) = agg_emits.get(&(to, cmd)) {
+                                        for ev in evs {
+                                            if !emits.contains(ev) {
+                                                emits.push(ev.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(g) = s.get("guard") {
+                                if let Some(er) = g.get("throws").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()) {
+                                    if !throws.contains(&er.to_string()) {
+                                        throws.push(er.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let effect = e.get("description").and_then(|x| x.as_str()).map(|s| s.to_string());
+                    receives.push(Receive { message_ref, emits, throws, effect });
+                }
+            }
+            out.push(Actor {
+                name: name.to_string(),
+                kind: "process-manager".to_string(),
+                file: "processmanager.yaml",
                 description: node.get("description").and_then(|x| x.as_str()).map(|s| s.to_string()),
                 receives,
             });
         }
     }
     out
+}
+
+/// One Mermaid sequence diagram per process manager, generated from the typed steps
+/// (processmanager.yaml). Participants map 1:1 to layers: the PM's pure decision, its private state
+/// table, the read models (infrastructure read side), the outbound ports (adapters), and the target
+/// aggregates (owners of the facts). A guard renders as a rejection arrow (command legs) or a skip
+/// note (event legs) — so the diagram proves who may say "no" and who only records.
+fn pm_sequence_blocks(model: &Model) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let pms = match model.defs.get("processmanager.yaml") {
+        Some(Value::Mapping(m)) => m,
+        _ => return out,
+    };
+    let fmt_value = |v: &Value| -> String {
+        if let Some(c) = v.get("const").and_then(|x| x.as_str()) {
+            return c.to_string();
+        }
+        if let Some(f) = v.get("from").and_then(|f| f.get("$ref")).and_then(|x| x.as_str()) {
+            let prop = f.rsplit('/').next().unwrap_or("?");
+            return format!("{}.{}", ref_name(f).unwrap_or_default(), prop);
+        }
+        for (k, pfx) in [("from_state", "state."), ("from_read", ""), ("from_port", ""), ("from_envelope", "envelope.")] {
+            if let Some(s) = v.get(k).and_then(|x| x.as_str()) {
+                return format!("{}{}", pfx, s);
+            }
+        }
+        "?".to_string()
+    };
+    let fmt_map = |v: Option<&Value>| -> String {
+        v.and_then(|x| x.as_mapping())
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, val)| k.as_str().map(|c| format!("{}={}", c, fmt_value(val))))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default()
+    };
+    for (k, node) in pms {
+        let name = match k.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if node.get("type").and_then(|x| x.as_str()) != Some("process-manager") {
+            continue;
+        }
+        let mut sl: Vec<String> = vec!["sequenceDiagram".into(), "  autonumber".into()];
+        sl.push("  participant IN as Inbox (trigger)".into());
+        sl.push(format!("  participant PM as {} (decides)", name));
+        let state_table = node
+            .get("state_table")
+            .and_then(|x| x.get("$ref"))
+            .and_then(|x| x.as_str())
+            .and_then(ref_name);
+        if let Some(st) = &state_table {
+            sl.push(format!("  participant ST as {} (state)", st));
+        }
+        // Deterministic first-use participant order for read models, ports, aggregates.
+        let mut extra: Vec<(String, String)> = Vec::new(); // (id, declaration)
+        let declare = |extra: &mut Vec<(String, String)>, id: String, label: String| {
+            if !extra.iter().any(|(i, _)| *i == id) {
+                extra.push((id.clone(), label));
+            }
+        };
+        let legs = node.get("receives").and_then(|x| x.as_sequence()).cloned().unwrap_or_default();
+        for e in &legs {
+            if let Some(steps) = e.get("steps").and_then(|x| x.as_sequence()) {
+                for s in steps {
+                    if let Some(r) = s.get("read") {
+                        if let Some(m) = r.get("model").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name) {
+                            declare(&mut extra, c4id("RM_", &m), format!("  participant {} as {} (read model)", c4id("RM_", &m), m));
+                        }
+                    }
+                    if let Some(c) = s.get("call") {
+                        if let Some(p) = c.get("port").and_then(|x| x.as_str()) {
+                            declare(&mut extra, c4id("PT_", p), format!("  participant {} as port {} (adapter)", c4id("PT_", p), p));
+                        }
+                    }
+                    for kind in ["deliver", "send"] {
+                        if let Some(d) = s.get(kind) {
+                            if let Some(t) = d.get("to").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name) {
+                                declare(&mut extra, c4id("AG_", &t), format!("  participant {} as {} (aggregate)", c4id("AG_", &t), t));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (_, decl) in &extra {
+            sl.push(decl.clone());
+        }
+        for e in &legs {
+            let msg_ref = e.get("message").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).unwrap_or("");
+            let msg = ref_name(msg_ref).unwrap_or_else(|| "?".to_string());
+            let is_command = msg_ref.starts_with("commands.yaml#/");
+            sl.push(format!("  rect rgb(245,245,245)").to_string());
+            sl.push(format!("  IN->>PM: {} ({})", msg, if is_command { "command" } else { "event" }));
+            let steps = e.get("steps").and_then(|x| x.as_sequence()).cloned().unwrap_or_default();
+            for s in &steps {
+                if let Some(r) = s.get("read") {
+                    let m = r.get("model").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name).unwrap_or_default();
+                    let alias = r.get("as").and_then(|x| x.as_str()).unwrap_or("?");
+                    let w = fmt_map(r.get("where"));
+                    sl.push(format!("  PM->>{}: read as {}{}", c4id("RM_", &m), alias, if w.is_empty() { String::new() } else { format!(" [{}]", w) }));
+                } else if let Some(g) = s.get("guard") {
+                    let cond = fmt_map_nested(g.get("that"), &fmt_value);
+                    if let Some(er) = g.get("throws").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name) {
+                        sl.push(format!("  PM--xIN: throws {}{}", er, if cond.is_empty() { String::new() } else { format!(" unless {}", cond) }));
+                    } else {
+                        sl.push(format!("  Note over PM: skip unless {}", if cond.is_empty() { "precondition holds".to_string() } else { cond }));
+                    }
+                } else if let Some(c) = s.get("call") {
+                    let p = c.get("port").and_then(|x| x.as_str()).unwrap_or("?");
+                    let op = c.get("operation").and_then(|x| x.as_str()).unwrap_or("?");
+                    sl.push(format!("  PM->>{}: {}", c4id("PT_", p), op));
+                } else if let Some(d) = s.get("deliver") {
+                    let ev = d.get("event").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name).unwrap_or_default();
+                    let to = d.get("to").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name).unwrap_or_default();
+                    let fe = d.get("for_each").and_then(|x| x.as_str()).map(|a| format!(" (for each {})", a)).unwrap_or_default();
+                    sl.push(format!("  PM->>{}: deliver {}{} — the aggregate records it", c4id("AG_", &to), ev, fe));
+                } else if let Some(d) = s.get("send") {
+                    let cm = d.get("command").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name).unwrap_or_default();
+                    let to = d.get("to").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name).unwrap_or_default();
+                    let fe = d.get("for_each").and_then(|x| x.as_str()).map(|a| format!(" (for each {})", a)).unwrap_or_default();
+                    sl.push(format!("  PM->>{}: send {}{} — the aggregate validates", c4id("AG_", &to), cm, fe));
+                } else if let Some(st) = s.get("state") {
+                    let by = fmt_map(st.get("by"));
+                    let exp = fmt_map(st.get("expect"));
+                    let set = fmt_map(st.get("set"));
+                    let mut parts: Vec<String> = Vec::new();
+                    if !by.is_empty() {
+                        parts.push(format!("by {}", by));
+                    }
+                    if !exp.is_empty() {
+                        parts.push(format!("expect {}", exp));
+                    }
+                    if !set.is_empty() {
+                        parts.push(format!("set {}", set));
+                    }
+                    sl.push(format!("  PM->>ST: {}", parts.join("; ")));
+                }
+            }
+            sl.push("  end".into());
+        }
+        for line in [format!("### {}", name), String::new(), "```mermaid".into(), sl.join("\n"), "```".into(), String::new()] {
+            out.push(line);
+        }
+    }
+    out
+}
+
+/// `that` conditions: `alias.field == CONST` joined with ` and `.
+fn fmt_map_nested(v: Option<&Value>, fmt_value: &dyn Fn(&Value) -> String) -> String {
+    v.and_then(|x| x.as_mapping())
+        .map(|m| {
+            m.iter()
+                .flat_map(|(subj, fields)| {
+                    let s = subj.as_str().unwrap_or("?").to_string();
+                    fields
+                        .as_mapping()
+                        .map(|fm| {
+                            fm.iter()
+                                .filter_map(|(f, val)| f.as_str().map(|fx| format!("{}.{} == {}", s, fx, fmt_value(val))))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+                .join(" and ")
+        })
+        .unwrap_or_default()
+}
+
+// ─── §2b — typed-step process-manager validation (processmanager.yaml) ──────────────────────────
+
+/// Enum members of a scalars.yaml scalar reached via `r`, when it has an `enum`.
+fn scalar_enum(model: &Model, r: &str, ctx: &str) -> Option<Vec<String>> {
+    resolve_ref(model, r, ctx)?
+        .get("enum")?
+        .as_sequence()
+        .map(|s| s.iter().filter_map(|v| v.as_str().map(|x| x.to_string())).collect())
+}
+
+/// Column name → enum members (when the column's `type.$ref` is an enum scalar) of a table/view/
+/// projection definition (`columns` mapping). Columns without a resolvable enum map to None.
+fn columns_info(model: &Model, def: &Value, ctx: &str) -> Option<HashMap<String, Option<Vec<String>>>> {
+    let cols = def.get("columns")?.as_mapping()?;
+    let mut out = HashMap::new();
+    for (k, col) in cols {
+        let name = match k.as_str() {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let en = col
+            .get("type")
+            .and_then(|t| t.get("$ref"))
+            .and_then(|x| x.as_str())
+            .and_then(|r| scalar_enum(model, r, ctx));
+        out.insert(name, en);
+    }
+    Some(out)
+}
+
+/// Property name → enum members (when the property `$ref`s an enum scalar) of a command/event def.
+fn props_info(model: &Model, def: &Value, ctx: &str) -> HashMap<String, Option<Vec<String>>> {
+    let mut out = HashMap::new();
+    if let Some(props) = def.get("properties").and_then(|x| x.as_mapping()) {
+        for (k, p) in props {
+            let name = match k.as_str() {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let en = p.get("$ref").and_then(|x| x.as_str()).and_then(|r| scalar_enum(model, r, ctx));
+            out.insert(name, en);
+        }
+    }
+    out
+}
+
+/// One typed step value (`const` / `from` / `from_state` / `from_read` / `from_port` /
+/// `from_envelope`) — exactly one form, and each form checked against what it names.
+#[allow(clippy::too_many_arguments)]
+fn check_pm_value(
+    v: &Value,
+    field_enum: Option<&Vec<String>>,
+    state_cols: Option<&HashMap<String, Option<Vec<String>>>>,
+    aliases: &HashMap<String, HashMap<String, Option<Vec<String>>>>,
+    ports: &HashMap<String, BTreeSet<String>>,
+    where_: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let forms = ["const", "from", "from_state", "from_read", "from_port", "from_envelope"];
+    let present: Vec<&str> = forms.iter().copied().filter(|f| v.get(*f).is_some()).collect();
+    if present.len() != 1 {
+        issues.push(err(
+            "pm-value",
+            where_.to_string(),
+            "a step value must be exactly one of { const | from | from_state | from_read | from_port | from_envelope }.".into(),
+        ));
+        return;
+    }
+    match present[0] {
+        "const" => {
+            let c = v.get("const").and_then(|x| x.as_str()).unwrap_or("");
+            if let Some(en) = field_enum {
+                if !en.iter().any(|m| m == c) {
+                    issues.push(err(
+                        "pm-const",
+                        where_.to_string(),
+                        format!("const '{}' is not a member of the field's enum scalar ({}).", c, en.join("|")),
+                    ));
+                }
+            }
+        }
+        "from" => {
+            if v.get("from").and_then(|f| f.get("$ref")).and_then(|x| x.as_str()).is_none() {
+                issues.push(err("pm-value", where_.to_string(), "`from` must be a { $ref: '<file>#/<Msg>/properties/<p>' }.".into()));
+            }
+        }
+        "from_state" => {
+            let c = v.get("from_state").and_then(|x| x.as_str()).unwrap_or("");
+            match state_cols {
+                None => issues.push(err("pm-value", where_.to_string(), "`from_state` used but the process manager declares no state_table.".into())),
+                Some(cols) if !cols.contains_key(c) => issues.push(err(
+                    "pm-value",
+                    where_.to_string(),
+                    format!("`from_state` column '{}' does not exist on the state table.", c),
+                )),
+                _ => {}
+            }
+        }
+        "from_read" => {
+            let spec = v.get("from_read").and_then(|x| x.as_str()).unwrap_or("");
+            let (alias, col) = match spec.split_once('.') {
+                Some(p) => p,
+                None => {
+                    issues.push(err("pm-value", where_.to_string(), "`from_read` must be '<alias>.<column>'.".into()));
+                    return;
+                }
+            };
+            match aliases.get(alias) {
+                None => issues.push(err("pm-value", where_.to_string(), format!("`from_read` alias '{}' is not a prior read step.", alias))),
+                Some(cols) if !cols.is_empty() && !cols.contains_key(col) => issues.push(err(
+                    "pm-value",
+                    where_.to_string(),
+                    format!("`from_read` column '{}' does not exist on read model '{}'.", col, alias),
+                )),
+                _ => {}
+            }
+        }
+        "from_port" => {
+            let spec = v.get("from_port").and_then(|x| x.as_str()).unwrap_or("");
+            let ok = spec
+                .split_once('.')
+                .map(|(p, op)| ports.get(p).map(|ops| ops.contains(op)).unwrap_or(false))
+                .unwrap_or(false);
+            if !ok {
+                issues.push(err("pm-value", where_.to_string(), format!("`from_port` '{}' is not a declared <port>.<operation>.", spec)));
+            }
+        }
+        "from_envelope" => {
+            let f = v.get("from_envelope").and_then(|x| x.as_str()).unwrap_or("");
+            if !["event_id", "correlation_id", "occurred_at"].contains(&f) {
+                issues.push(err(
+                    "pm-value",
+                    where_.to_string(),
+                    format!("`from_envelope` '{}' is not one of event_id | correlation_id | occurred_at (ADR-0041).", f),
+                ));
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// §2b — validate every typed-step process manager: state columns exist (+ enum consts valid), read
+/// models resolve, ports are declared, deliver/send targets receive the message, command-leg guards
+/// `throws` typed errors while event-leg guards `skip` (facts are never rejected).
+fn validate_process_managers(model: &Model, issues: &mut Vec<Issue>) {
+    const CTX: &str = "processmanager.yaml";
+    // actors.yaml aggregate inboxes: name → received message names.
+    let mut agg_inbox: HashMap<String, BTreeSet<String>> = HashMap::new();
+    if let Some(Value::Mapping(m)) = model.defs.get("actors.yaml") {
+        for (k, node) in m {
+            let name = match k.as_str() {
+                Some(s) => s,
+                None => continue,
+            };
+            let mut set = BTreeSet::new();
+            if let Some(seq) = node.get("receives").and_then(|x| x.as_sequence()) {
+                for e in seq {
+                    if let Some(n) = e.get("message").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).and_then(ref_name) {
+                        set.insert(n);
+                    }
+                }
+            }
+            agg_inbox.insert(name.to_string(), set);
+        }
+    }
+
+    let pms = match model.defs.get(CTX) {
+        Some(Value::Mapping(m)) => m,
+        _ => return,
+    };
+    for (k, node) in pms {
+        let name = match k.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if node.get("type").and_then(|x| x.as_str()) != Some("process-manager") {
+            issues.push(err("pm-type", format!("{}/{}", CTX, name), "every processmanager.yaml entry must declare `type: process-manager`.".into()));
+            continue;
+        }
+        let at = format!("{}/{}", CTX, name);
+
+        // State table (optional — required as soon as a `state` step exists).
+        let st_ref = node.get("state_table").and_then(|x| x.get("$ref")).and_then(|x| x.as_str());
+        let state_cols: Option<HashMap<String, Option<Vec<String>>>> = match st_ref {
+            None => None,
+            Some(r) => {
+                if !r.starts_with("database/tables/") {
+                    issues.push(err("pm-state-table", format!("{}.state_table", at), format!("state_table must $ref a database/tables/*.yaml table, got '{}'.", r)));
+                }
+                match resolve_ref(model, r, CTX).and_then(|d| columns_info(model, d, CTX)) {
+                    Some(c) => Some(c),
+                    None => None, // dangling → §1 reports it
+                }
+            }
+        };
+
+        // Ports: name → declared operations.
+        let mut ports: HashMap<String, BTreeSet<String>> = HashMap::new();
+        if let Some(pmap) = node.get("ports").and_then(|x| x.as_mapping()) {
+            for (pk, pv) in pmap {
+                let pname = match pk.as_str() {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let ops: BTreeSet<String> = pv
+                    .get("operations")
+                    .and_then(|x| x.as_mapping())
+                    .map(|m| m.iter().filter_map(|(ok, _)| ok.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                if ops.is_empty() {
+                    issues.push(err("pm-port", format!("{}.ports.{}", at, pname), "a port must declare at least one operation.".into()));
+                }
+                ports.insert(pname, ops);
+            }
+        }
+
+        let legs = match node.get("receives").and_then(|x| x.as_sequence()) {
+            Some(s) => s,
+            None => continue,
+        };
+        for (i, e) in legs.iter().enumerate() {
+            let leg = format!("{}.receives[{}]", at, i);
+            let msg_ref = e.get("message").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).unwrap_or("");
+            let is_command = ref_target_file(msg_ref, CTX).as_deref() == Some("commands.yaml");
+            let msg_props = resolve_ref(model, msg_ref, CTX).map(|d| props_info(model, d, CTX)).unwrap_or_default();
+
+            let steps = match e.get("steps").and_then(|x| x.as_sequence()) {
+                Some(s) if !s.is_empty() => s,
+                _ => {
+                    issues.push(err("pm-no-steps", leg.clone(), "a receives entry must declare an ordered, non-empty `steps` list.".into()));
+                    continue;
+                }
+            };
+
+            let mut aliases: HashMap<String, HashMap<String, Option<Vec<String>>>> = HashMap::new();
+            for (j, s) in steps.iter().enumerate() {
+                let sw = format!("{}.steps[{}]", leg, j);
+                let smap = match s.as_mapping() {
+                    Some(m) => m,
+                    None => {
+                        issues.push(err("pm-step", sw, "each step must be a single-key mapping.".into()));
+                        continue;
+                    }
+                };
+                if smap.len() != 1 {
+                    issues.push(err("pm-step", sw.clone(), "each step must have exactly one kind (read | guard | call | deliver | send | state).".into()));
+                    continue;
+                }
+                let (kind, body) = {
+                    let (k, v) = smap.iter().next().unwrap();
+                    (k.as_str().unwrap_or("?"), v)
+                };
+                match kind {
+                    "read" => {
+                        let model_ref = body.get("model").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).unwrap_or("");
+                        let tf = ref_target_file(model_ref, CTX).unwrap_or_default();
+                        if tf != "database/tables/projection_tables.yaml" && tf != "database/projection_views.yaml" {
+                            issues.push(err(
+                                "pm-read",
+                                format!("{}.model", sw),
+                                format!("read.model must $ref a projection table or a View_* (got '{}').", model_ref),
+                            ));
+                        }
+                        let cols = resolve_ref(model, model_ref, CTX)
+                            .and_then(|d| columns_info(model, d, CTX))
+                            .unwrap_or_default();
+                        let alias = body.get("as").and_then(|x| x.as_str()).unwrap_or("");
+                        if alias.is_empty() {
+                            issues.push(err("pm-read", format!("{}.as", sw), "read must name its result with `as`.".into()));
+                        }
+                        if let Some(wmap) = body.get("where").and_then(|x| x.as_mapping()) {
+                            for (wk, wv) in wmap {
+                                let col = wk.as_str().unwrap_or("?");
+                                if !cols.is_empty() && !cols.contains_key(col) {
+                                    issues.push(err("pm-read", format!("{}.where.{}", sw, col), format!("column '{}' does not exist on the read model.", col)));
+                                }
+                                check_pm_value(wv, cols.get(col).and_then(|e| e.as_ref()), state_cols.as_ref(), &aliases, &ports, &format!("{}.where.{}", sw, col), issues);
+                            }
+                        }
+                        if !alias.is_empty() {
+                            aliases.insert(alias.to_string(), cols);
+                        }
+                    }
+                    "guard" => {
+                        let throws = body.get("throws");
+                        let skip = body.get("skip").and_then(|x| x.as_bool()).unwrap_or(false);
+                        if is_command {
+                            match throws.and_then(|t| t.get("$ref")).and_then(|x| x.as_str()) {
+                                None => issues.push(err(
+                                    "pm-guard",
+                                    sw.clone(),
+                                    "a guard on a COMMAND leg must `throws` a typed error ($ref errors.yaml) — commands can be rejected.".into(),
+                                )),
+                                Some(r) => {
+                                    if ref_target_file(r, CTX).as_deref() != Some("errors.yaml") {
+                                        issues.push(err("pm-guard", format!("{}.throws", sw), format!("guard.throws must reference errors.yaml, got '{}'.", r)));
+                                    }
+                                }
+                            }
+                            if skip {
+                                issues.push(err("pm-guard", sw.clone(), "a COMMAND-leg guard rejects (`throws`), it does not `skip`.".into()));
+                            }
+                        } else {
+                            if throws.is_some() {
+                                issues.push(err(
+                                    "pm-guard",
+                                    sw.clone(),
+                                    "an EVENT leg reacts to a recorded fact and never throws — use `skip: true` (idempotent no-op).".into(),
+                                ));
+                            }
+                            if !skip {
+                                issues.push(err("pm-guard", sw.clone(), "an EVENT-leg guard must declare `skip: true`.".into()));
+                            }
+                        }
+                        if let Some(that) = body.get("that").and_then(|x| x.as_mapping()) {
+                            for (subj_k, fields) in that {
+                                let subj = subj_k.as_str().unwrap_or("?");
+                                let fmap = match fields.as_mapping() {
+                                    Some(m) => m,
+                                    None => continue,
+                                };
+                                for (fk, fv) in fmap {
+                                    let field = fk.as_str().unwrap_or("?");
+                                    let fw = format!("{}.that.{}.{}", sw, subj, field);
+                                    let field_enum: Option<&Vec<String>> = match subj {
+                                        "message" => {
+                                            if !msg_props.is_empty() && !msg_props.contains_key(field) {
+                                                issues.push(err("pm-guard", fw.clone(), format!("'{}' is not a property of the trigger message.", field)));
+                                            }
+                                            msg_props.get(field).and_then(|e| e.as_ref())
+                                        }
+                                        "state" => match state_cols.as_ref() {
+                                            None => {
+                                                issues.push(err("pm-guard", fw.clone(), "guard on `state` but the process manager declares no state_table.".into()));
+                                                None
+                                            }
+                                            Some(cols) => {
+                                                if !cols.contains_key(field) {
+                                                    issues.push(err("pm-guard", fw.clone(), format!("column '{}' does not exist on the state table.", field)));
+                                                }
+                                                cols.get(field).and_then(|e| e.as_ref())
+                                            }
+                                        },
+                                        alias => match aliases.get(alias) {
+                                            None => {
+                                                issues.push(err("pm-guard", fw.clone(), format!("guard subject '{}' is neither `message`, `state`, nor a prior read alias.", alias)));
+                                                None
+                                            }
+                                            Some(cols) => {
+                                                if !cols.is_empty() && !cols.contains_key(field) {
+                                                    issues.push(err("pm-guard", fw.clone(), format!("column '{}' does not exist on read model '{}'.", field, alias)));
+                                                }
+                                                cols.get(field).and_then(|e| e.as_ref())
+                                            }
+                                        },
+                                    };
+                                    if fv.get("const").is_none() {
+                                        issues.push(err("pm-guard", fw.clone(), "a guard condition value must be structural: { const: <ENUM> }.".into()));
+                                    } else {
+                                        check_pm_value(fv, field_enum, state_cols.as_ref(), &aliases, &ports, &fw, issues);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "call" => {
+                        let port = body.get("port").and_then(|x| x.as_str()).unwrap_or("");
+                        let op = body.get("operation").and_then(|x| x.as_str()).unwrap_or("");
+                        let ok = ports.get(port).map(|ops| ops.contains(op)).unwrap_or(false);
+                        if !ok {
+                            issues.push(err("pm-call", sw.clone(), format!("call '{}.{}' is not a declared port operation.", port, op)));
+                        }
+                    }
+                    "deliver" | "send" => {
+                        let rule: &'static str = if kind == "deliver" { "pm-deliver" } else { "pm-send" };
+                        let (mkey, target_file) = if kind == "deliver" { ("event", "events.yaml") } else { ("command", "commands.yaml") };
+                        let mref = body.get(mkey).and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).unwrap_or("");
+                        if ref_target_file(mref, CTX).as_deref() != Some(target_file) {
+                            issues.push(err(rule, format!("{}.{}", sw, mkey), format!("{}.{} must reference {}, got '{}'.", kind, mkey, target_file, mref)));
+                        }
+                        let mname = ref_name(mref).unwrap_or_default();
+                        let to = body.get("to").and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).unwrap_or("");
+                        if ref_target_file(to, CTX).as_deref() != Some("actors.yaml") {
+                            issues.push(err(rule, format!("{}.to", sw), format!("{}.to must reference an actors.yaml aggregate, got '{}'.", kind, to)));
+                        } else {
+                            let tname = ref_name(to).unwrap_or_default();
+                            match agg_inbox.get(&tname) {
+                                None => issues.push(err(rule, format!("{}.to", sw), format!("aggregate '{}' does not exist in actors.yaml.", tname))),
+                                Some(inbox) if !inbox.contains(&mname) => issues.push(err(
+                                    rule,
+                                    format!("{}.to", sw),
+                                    format!("aggregate '{}' does not receive '{}' (actors.yaml inbox) — the {} would be dropped.", tname, mname, mkey),
+                                )),
+                                _ => {}
+                            }
+                        }
+                        let target_props = resolve_ref(model, mref, CTX).map(|d| props_info(model, d, CTX)).unwrap_or_default();
+                        if let Some(wmap) = body.get("with").and_then(|x| x.as_mapping()) {
+                            for (wk, wv) in wmap {
+                                let prop = wk.as_str().unwrap_or("?");
+                                if !target_props.is_empty() && !target_props.contains_key(prop) {
+                                    issues.push(err(rule, format!("{}.with.{}", sw, prop), format!("'{}' is not a property of '{}'.", prop, mname)));
+                                }
+                                check_pm_value(wv, target_props.get(prop).and_then(|e| e.as_ref()), state_cols.as_ref(), &aliases, &ports, &format!("{}.with.{}", sw, prop), issues);
+                            }
+                        }
+                        if let Some(fe) = body.get("for_each").and_then(|x| x.as_str()) {
+                            if !aliases.contains_key(fe) {
+                                issues.push(err(rule, format!("{}.for_each", sw), format!("for_each alias '{}' is not a prior read step.", fe)));
+                            }
+                        }
+                    }
+                    "state" => {
+                        let cols = match state_cols.as_ref() {
+                            None => {
+                                issues.push(err("pm-state", sw.clone(), "a `state` step requires the process manager to declare `state_table`.".into()));
+                                continue;
+                            }
+                            Some(c) => c,
+                        };
+                        for section in ["by", "expect", "set"] {
+                            if let Some(smap2) = body.get(section).and_then(|x| x.as_mapping()) {
+                                for (ck, cv) in smap2 {
+                                    let col = ck.as_str().unwrap_or("?");
+                                    let cw = format!("{}.{}.{}", sw, section, col);
+                                    if !cols.contains_key(col) {
+                                        issues.push(err("pm-state", cw.clone(), format!("column '{}' does not exist on the state table.", col)));
+                                    }
+                                    if section == "expect" && cv.get("const").is_none() {
+                                        issues.push(err("pm-state", cw.clone(), "an `expect` value must be structural: { const: <ENUM> }.".into()));
+                                        continue;
+                                    }
+                                    check_pm_value(cv, cols.get(col).and_then(|e| e.as_ref()), state_cols.as_ref(), &aliases, &ports, &cw, issues);
+                                }
+                            }
+                        }
+                    }
+                    other => {
+                        issues.push(err("pm-step", sw, format!("unknown step kind '{}' (read | guard | call | deliver | send | state).", other)));
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Raw `$ref` strings of a ref-list (toRefList).
@@ -2797,36 +3496,9 @@ fn emit_mermaid(model: &Model) -> String {
     }
     domain.extend(edges);
 
-    // 3) Saga sequence diagrams.
-    let mut saga_blocks: Vec<String> = Vec::new();
-    for a in actors.iter().filter(|a| a.kind == "process-manager") {
-        let mut sl: Vec<String> = vec![
-            "sequenceDiagram".into(),
-            "  autonumber".into(),
-            "  participant C as Caller / inbound".into(),
-            format!("  participant P as {}", a.name),
-            "  participant S as Event store".into(),
-        ];
-        for e in &a.receives {
-            let msg = ref_name(&e.message_ref).unwrap_or_else(|| "?".to_string());
-            let kind = if e.message_ref.starts_with("commands.yaml#/") { "command" } else { "event" };
-            sl.push(format!("  C->>P: {} ({})", msg, kind));
-            let emits: Vec<String> = e.emits.iter().filter_map(|r| ref_name(r)).collect();
-            if !emits.is_empty() {
-                for ev in &emits {
-                    sl.push(format!("  P->>S: {}", ev));
-                }
-            } else {
-                let effect = e.effect.clone().unwrap_or_else(|| "no event emitted".to_string());
-                let cleaned: String = effect.replace('\n', " ").replace(':', " ").replace(';', " ");
-                let clipped: String = cleaned.chars().take(60).collect();
-                sl.push(format!("  Note over P: {}", clipped));
-            }
-        }
-        for line in [format!("### {}", a.name), String::new(), "```mermaid".into(), sl.join("\n"), "```".into(), String::new()] {
-            saga_blocks.push(line);
-        }
-    }
+    // 3) Saga sequence diagrams — generated from the TYPED STEPS (processmanager.yaml): each step
+    //    kind maps to exactly one participant/layer, so the diagram IS the layer contract.
+    let saga_blocks: Vec<String> = pm_sequence_blocks(model);
 
     let mut out: Vec<String> = vec![
         "<!-- GENERATED by tools/codegen — do not edit by hand. Source: specs/architecture/c4-*.yaml. -->".into(),

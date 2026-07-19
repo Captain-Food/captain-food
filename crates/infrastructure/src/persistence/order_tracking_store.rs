@@ -9,8 +9,8 @@
 
 use application::queries::OrderTrackingRow;
 use domain::generated::scalars::{
-    CurrencyCode, CustomerId, ExternalReference, MoneyCents, OrderId, RatingComment, RestaurantId,
-    StarRating,
+    CurrencyCode, CustomerId, ExternalReference, MoneyCents, OrderId, PaymentIntentId, RatingComment,
+    RestaurantId, StarRating,
 };
 use domain::shared::errors::DomainError;
 use sqlx::postgres::PgRow;
@@ -24,7 +24,7 @@ pub(crate) const COLUMNS: &str = "order_id, ref, restaurant_id, customer_id, sta
      items, total_amount_cents, currency, articles_cents, delivery_cents, service_fee_cents, \
      restaurant_payout_cents, rider_payout_cents, captain_net_cents, uber_total_cents, \
      uber_restaurant_cents, uber_rider_cents, uber_platform_cents, uber_basis, delivery_address, \
-     estimated_ready_at, placed_at, status_changed_at, payment_status, restaurant_stars, \
+     estimated_ready_at, placed_at, status_changed_at, payment_intent_id, payment_status, restaurant_stars, \
      rating_comment, rider_thumb, rider_tip_cents, restaurant_tip_cents, captain_tip_cents, rated_at, \
      delivery_status, courier, estimated_dropoff_at, created_at, updated_at";
 
@@ -67,6 +67,10 @@ pub(crate) fn decode(row: &PgRow) -> Result<OrderTrackingRow, DomainError> {
         estimated_ready_at: row.try_get("estimated_ready_at").map_err(db_err)?,
         placed_at: row.try_get("placed_at").map_err(db_err)?,
         status_changed_at: row.try_get("status_changed_at").map_err(db_err)?,
+        payment_intent_id: row
+            .try_get::<Option<String>, _>("payment_intent_id")
+            .map_err(db_err)?
+            .map(PaymentIntentId),
         payment_status: row.try_get("payment_status").map_err(db_err)?,
         restaurant_stars: row
             .try_get::<Option<i32>, _>("restaurant_stars")
@@ -101,7 +105,7 @@ pub async fn upsert(pool: &PgPool, row: &OrderTrackingRow) -> Result<(), DomainE
     let sql = format!(
         "INSERT INTO ordertracking ({COLUMNS}) VALUES \
          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,\
-          $25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37) \
+          $25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38) \
          ON CONFLICT (order_id) DO UPDATE SET \
          ref = EXCLUDED.ref, \
          restaurant_id = EXCLUDED.restaurant_id, \
@@ -126,6 +130,7 @@ pub async fn upsert(pool: &PgPool, row: &OrderTrackingRow) -> Result<(), DomainE
          estimated_ready_at = EXCLUDED.estimated_ready_at, \
          placed_at = EXCLUDED.placed_at, \
          status_changed_at = EXCLUDED.status_changed_at, \
+         payment_intent_id = EXCLUDED.payment_intent_id, \
          payment_status = EXCLUDED.payment_status, \
          restaurant_stars = EXCLUDED.restaurant_stars, \
          rating_comment = EXCLUDED.rating_comment, \
@@ -165,6 +170,7 @@ pub async fn upsert(pool: &PgPool, row: &OrderTrackingRow) -> Result<(), DomainE
         .bind(row.estimated_ready_at)
         .bind(row.placed_at)
         .bind(row.status_changed_at)
+        .bind(row.payment_intent_id.as_ref().map(|v| v.0.clone()))
         .bind(row.payment_status.clone())
         .bind(row.restaurant_stars.as_ref().map(|v| v.0 as i32))
         .bind(row.rating_comment.as_ref().map(|v| v.0.clone()))

@@ -758,6 +758,7 @@ pub async fn add_cart_line(
                 DomainEvent::CartStarted(CartStarted {
                     cart_id: cmd.cart_id,
                     restaurant_id: cmd.restaurant_id,
+                    session_id: cmd.session_id,
                     customer_id: None,
                 }),
                 DomainEvent::CartLineAdded(CartLineAdded { cart_id: cmd.cart_id, line }),
@@ -2042,6 +2043,7 @@ pub async fn verify_phone(
         let event = DomainEvent::CustomerIdentified(CustomerIdentified {
             customer_id: existing.customer_id,
             auth_ref,
+            session_id: cmd.session_id,
         });
         Repository::new(store).save(&stream_name, version, &[event], actor).await?;
         return Ok(VerifyPhoneOutcome { customer_id: existing.customer_id, created: false });

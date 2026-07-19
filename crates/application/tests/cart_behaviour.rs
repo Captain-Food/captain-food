@@ -116,8 +116,12 @@ fn stream(id: CartId) -> String {
 }
 
 /// Fixture `cartStarted`.
+fn sid() -> SessionId {
+    SessionId(uuid::Uuid::new_v4())
+}
+
 fn cart_started(cart_id: CartId, restaurant_id: RestaurantId) -> DomainEvent {
-    DomainEvent::CartStarted(CartStarted { cart_id, restaurant_id, customer_id: None })
+    DomainEvent::CartStarted(CartStarted { cart_id, restaurant_id, session_id: sid(), customer_id: None })
 }
 
 /// Fixture `cartLineAdded` (quantity 2, no options).
@@ -143,6 +147,7 @@ fn add_cmd(
     AddCartLine {
         cart_id,
         restaurant_id,
+        session_id: sid(),
         line: CartLine {
             cart_line_id: line_id,
             offer_id,
@@ -498,7 +503,7 @@ async fn changes_the_quantity_of_an_existing_line() {
     change_cart_line_quantity(
         &store,
         &catalogs,
-        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3 },
+        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3, session_id: sid() },
         &actor(),
     )
     .await
@@ -519,7 +524,7 @@ async fn removes_a_line_from_the_cart() {
     let (cart, resto, line) = (cid(), rid(), lid());
     store.seed(&stream(cart), vec![cart_started(cart, resto), cart_line_added(cart, line, oid())]);
 
-    remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: line }, &actor())
+    remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: line, session_id: sid() }, &actor())
         .await
         .expect("remove line");
 
@@ -534,7 +539,7 @@ async fn rejects_removing_from_a_missing_or_closed_cart_or_a_missing_line() {
     let store = MemStore::default();
 
     // Missing cart → CartNotFound.
-    let err = remove_cart_line(&store, RemoveCartLine { cart_id: cid(), cart_line_id: lid() }, &actor())
+    let err = remove_cart_line(&store, RemoveCartLine { cart_id: cid(), cart_line_id: lid(), session_id: sid() }, &actor())
         .await
         .expect_err("missing cart");
     assert_eq!(rejection_code(&err), Some("CartNotFound"));
@@ -545,7 +550,7 @@ async fn rejects_removing_from_a_missing_or_closed_cart_or_a_missing_line() {
         &stream(cart),
         vec![cart_started(cart, resto), cart_line_added(cart, line, oid()), cart_checked_out(cart)],
     );
-    let err = remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: line }, &actor())
+    let err = remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: line, session_id: sid() }, &actor())
         .await
         .expect_err("closed cart");
     assert_eq!(rejection_code(&err), Some("CartNotOpen"));
@@ -553,7 +558,7 @@ async fn rejects_removing_from_a_missing_or_closed_cart_or_a_missing_line() {
     // Open cart, unknown line → CartLineNotFound.
     let (cart, resto) = (cid(), rid());
     store.seed(&stream(cart), vec![cart_started(cart, resto)]);
-    let err = remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: lid() }, &actor())
+    let err = remove_cart_line(&store, RemoveCartLine { cart_id: cart, cart_line_id: lid(), session_id: sid() }, &actor())
         .await
         .expect_err("missing line");
     assert_eq!(rejection_code(&err), Some("CartLineNotFound"));
@@ -572,7 +577,7 @@ async fn rejects_changing_quantity_on_invalid_cart_line_over_the_limit_or_beyond
     let err = change_cart_line_quantity(
         &store,
         &catalogs,
-        ChangeCartLineQuantity { cart_id: cid(), cart_line_id: lid(), quantity: 1 },
+        ChangeCartLineQuantity { cart_id: cid(), cart_line_id: lid(), quantity: 1, session_id: sid() },
         &actor(),
     )
     .await
@@ -585,7 +590,7 @@ async fn rejects_changing_quantity_on_invalid_cart_line_over_the_limit_or_beyond
     let err = change_cart_line_quantity(
         &store,
         &catalogs,
-        ChangeCartLineQuantity { cart_id: cart, cart_line_id: lid(), quantity: 1 },
+        ChangeCartLineQuantity { cart_id: cart, cart_line_id: lid(), quantity: 1, session_id: sid() },
         &actor(),
     )
     .await
@@ -595,7 +600,7 @@ async fn rejects_changing_quantity_on_invalid_cart_line_over_the_limit_or_beyond
     let err = change_cart_line_quantity(
         &store,
         &catalogs,
-        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: MAX_LINE_QUANTITY + 1 },
+        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: MAX_LINE_QUANTITY + 1, session_id: sid() },
         &actor(),
     )
     .await
@@ -611,7 +616,7 @@ async fn rejects_changing_quantity_on_invalid_cart_line_over_the_limit_or_beyond
     let err = change_cart_line_quantity(
         &store,
         &low_stock,
-        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3 },
+        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3, session_id: sid() },
         &actor(),
     )
     .await
@@ -623,7 +628,7 @@ async fn rejects_changing_quantity_on_invalid_cart_line_over_the_limit_or_beyond
     change_cart_line_quantity(
         &store,
         &catalogs,
-        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3 },
+        ChangeCartLineQuantity { cart_id: cart, cart_line_id: line, quantity: 3, session_id: sid() },
         &actor(),
     )
     .await

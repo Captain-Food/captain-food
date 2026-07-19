@@ -40,6 +40,7 @@ boundedContexts:
     aggregates:
       - { $ref: 'actors.yaml#/Cart' }
       - { $ref: 'actors.yaml#/Order' }
+      - { $ref: 'actors.yaml#/Payment' }
     processManagers:
       - { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
       - { $ref: 'processmanager.yaml#/RefundProcess' }
@@ -55,6 +56,7 @@ boundedContexts:
     roles: [RIDER]
     aggregates:
       - { $ref: 'actors.yaml#/DeliveryJob' }
+      - { $ref: 'actors.yaml#/Rider' }
     processManagers:
       - { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
 

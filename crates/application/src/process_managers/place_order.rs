@@ -180,6 +180,7 @@ mod tests {
             DomainEvent::CartStarted(CartStarted {
                 cart_id: CartId(uid(2)),
                 restaurant_id: RestaurantId(uid(3)),
+                session_id: SessionId(uid(7)),
                 customer_id: None,
             }),
             DomainEvent::CartLineAdded(CartLineAdded {

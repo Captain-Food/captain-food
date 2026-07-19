@@ -34,6 +34,7 @@ mod projector_dispatch_tests {
     use domain::generated::events::{CartStarted, DomainEvent, RestaurantAccountDeleted};
     use domain::generated::scalars::{
         CartId, CartStatus, CurrencyCode, CustomerId, MoneyCents, RestaurantAccountId, RestaurantId,
+        SessionId,
     };
 
     const NIL: &str = "00000000-0000-0000-0000-000000000000";
@@ -61,6 +62,7 @@ mod projector_dispatch_tests {
         let started = DomainEvent::CartStarted(CartStarted {
             cart_id: CartId(NIL.parse().unwrap()),
             restaurant_id: RestaurantId(NIL.parse().unwrap()),
+            session_id: SessionId(NIL.parse().unwrap()),
             customer_id: None,
         });
         let out = project_cart(&Compute, None, &env(started, 1_700_000_000)).unwrap();
@@ -81,6 +83,7 @@ mod projector_dispatch_tests {
         let started = DomainEvent::CartStarted(CartStarted {
             cart_id: CartId(NIL.parse().unwrap()),
             restaurant_id: RestaurantId(NIL.parse().unwrap()),
+            session_id: SessionId(NIL.parse().unwrap()),
             customer_id: None,
         });
         let row = project_cart(&Compute, None, &env(started, 42)).unwrap();

@@ -816,6 +816,9 @@ CartStarted:
       $ref: 'scalars.yaml#/CartId'
     restaurantId:
       $ref: 'scalars.yaml#/RestaurantId'
+    sessionId:
+      $ref: 'scalars.yaml#/SessionId'
+      description: "The visitor session that started the cart — the key CartBindingProcess uses to bind guest carts on CustomerIdentified."
     customerId:
       $ref: 'scalars.yaml#/CustomerId'
       nullable: true
@@ -823,6 +826,7 @@ CartStarted:
   required:
     - cartId
     - restaurantId
+    - sessionId
 
 CartLineAdded:
   description: "A line was added to a cart."

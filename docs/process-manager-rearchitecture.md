@@ -1,10 +1,15 @@
 # WIP — Process-manager re-architecture (resume notes)
 
-> **Status: IN PROGRESS on a feature branch.** `make validate` = **58 errors** (down from 114); the DSL
-> structural layer is done, tests + the PM completeness-gate exemption remain, and the **runtime code is
-> not reimplemented**. This doc captures every decision so the work can resume cold, without the chat
-> session. Companion: `specs/processmanager.yaml` (+ `specs/processmanager.md`),
-> `specs/database/tables/process_managers.yaml`.
+> **Status: DSL LAYER DONE — `make validate` = 0 errors, `cargo test --workspace` = 216 green.** The
+> free-text `steps` were replaced by the **typed step DSL** (ADR-20260719-172821): ordered
+> `read`/`guard`/`call`/`deliver`/`send`/`state` steps, `$ref`s/enum consts everywhere, state in
+> declared typed tables, command-leg guards `throws` / event legs `skip`, PM emits **derived** from
+> steps, sequence diagrams **generated** from steps (`specs/generated/c4.generated.md`). The planned
+> "exempt PMs from the completeness gate" was **dropped** — validator §2b + the derived inbox make the
+> ADR-0032 gate apply to PMs unexempted. RefundProcess is fully specified (admin-approved:
+> PENDING_APPROVAL → Approve/Deny → settled; `RefundNotPending`). The **runtime is still the old
+> event-sourced implementation** — its reimplementation against the DSL is the remaining program
+> (below). Companion: `specs/processmanager.yaml`, `specs/database/tables/process_managers.yaml`.
 
 ## Why this change
 
@@ -74,22 +79,24 @@ completeness gate (see "remaining").
   `actors.yaml#/<PM>` ref → `processmanager.yaml#/<PM>` in `tests.yaml`, `observability.yaml`, `c4-l2`,
   `c4-l3` (55 danglings cleared). `payment_process_manager` state table picked up generically.
 
-**Remaining (the 58) — next session:**
-1. **Exempt PMs from the aggregate completeness gate (codegen).** `tools/codegen-rs`: PMs (`processmanager.yaml`)
-   are doc-only — validate their `receives[].message` `$ref`s resolve, but do NOT apply `test-uncovered-message`,
-   `test-message-not-handled`, or `then ⊆ emits` to them. This clears the ~16 `TestPlaceOrder*` / PM-saga
-   errors. Also fold PM inboxes into the c4/docs emitters that read the actor set (c4-l2 bounded-context
-   `processManagers`, c4-l3 handles, observability sagas) so generation still works.
-2. **`sessionId` on Cart tests (8, trivial):** add the now-required `sessionId` to the `customerIdentified`
-   fixture + the Cart command test `when.data` (`TestCartFirstLineAdded`, `TestCart*`).
-3. **Behaviour tests for the new aggregate messages (~34):** ordinary aggregate tests (given/when/then +
-   a `rules.yaml` guarantee each, bidirectional per ADR-0032) for Rider, the DeliveryJob ops, the birth
-   entries, and `ApproveRefund`/`DenyRefund`.
-4. **Flesh out `RefundProcess`** in `processmanager.yaml` (admin-approved steps) + the `refund_process_manager`
-   state table + a pending-refund read model + a `pendingRefunds` ADMIN query in `api.yaml`.
-5. Regenerate (`make generate`) once validate = 0; update `c4`, `observability`, `stories`, `api` to the new
-   model; write the ADRs (PMs as state-table orchestrators; Payment aggregate + admin-approved refund +
-   clawback policy).
+**~~Remaining (the 58)~~ — DONE (typed-step DSL session, ADR-20260719-172821):**
+1. ~~Exempt PMs from the gate~~ → **reversed**: PMs joined the gate. `parse_actors` folds
+   `processmanager.yaml` in with **derived** emits/throws (delivered events ∪ sent-command emits per
+   the target inbox; guard throws); validator **§2b** proves state columns/enums, read models, ports,
+   deliver/send targets, command-throws/event-skip; emitters (docs, mermaid, c4) see PMs again and the
+   saga diagrams are now **generated from the steps**.
+2. ~~sessionId~~ done — and completed through the model: `CartStarted.sessionId` (required) +
+   `Cart.session_id` projection column + `VerifyPhone.sessionId` (required, flows onto
+   `CustomerIdentified`); runtime handlers/stores/tests updated.
+3. ~~Behaviour tests~~ done — Rider (6), DeliveryJob ops (10), Payment records (6), Cart bind/checkout
+   (2), Order birth (1), RefundProcess admin decisions (3); new rules `RiderLifecycle`,
+   `DeliveryPartnerAssignmentLifecycle`, `DeliveryDeclineKeepsJobPending`, `DeliveryIssueLifecycle`,
+   `RefundRequiresAdminApproval`.
+4. ~~RefundProcess~~ specified (admin-approved; `refund_process_manager`; `RefundNotPending`).
+   Still open: a pending-refund read model + `pendingRefunds`/`approveRefund`/`denyRefund` ADMIN
+   surface in `api.yaml` (+ story steps) — deliberately deferred with the runtime.
+5. Regenerated at validate = 0. ADR-20260719-172821 written. Still open: observability contracts for
+   the re-architected sagas; the Payment-aggregate/clawback ADR rides with the runtime program.
 
 ## Runtime reimplementation — the big program (NOT started)
 Separate from the DSL. Replace the event-sourced `ProcessManagerRunner` + saga decider wiring with

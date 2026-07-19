@@ -498,6 +498,34 @@ OperationStatus:
     Live status of a command/operation streamed by the operationStatusChanged subscription:
     PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."
 
+# --- Process-manager state statuses (processmanager.yaml state tables) ---
+
+PaymentProcessStatus:
+  type: string
+  enum:
+    - AWAITING_PAYMENT_RESULT  # PaymentIntent created, cart locked; waiting for the Stripe outcome
+    - ORDER_PLACED             # payment captured; Order materialized and cart closed — terminal (success)
+    - FAILED                   # payment failed; cart stays OPEN — terminal (failure)
+  description: "State of one PlaceOrderProcess checkout run (payment_process_manager row, keyed by cart)."
+
+RefundProcessStatus:
+  type: string
+  enum:
+    - PENDING_APPROVAL          # a refundable fact opened the request; waiting for an admin decision
+    - APPROVED_AWAITING_SETTLEMENT  # admin approved; Stripe refund requested, waiting for PaymentRefunded
+    - DENIED                    # admin denied — terminal
+    - REFUNDED                  # Stripe reported the settled refund — terminal (success)
+  description: "State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are admin-approved."
+
+DeliveryDispatchProcessStatus:
+  type: string
+  enum:
+    - OFFERED           # DeliveryRequested delivered to the DeliveryJob; job offered to partner/riders
+    - ACCEPTED          # a partner/rider accepted the job
+    - REOFFER_REQUIRED  # partner declined; job must be re-offered or handled manually
+    - COMPLETED         # delivery done and order closed — terminal
+  description: "State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order)."
+
 # Manual listing flag, set by the restaurant/admin. Useful for UI.
 # Orthogonal to StockStatus: an item is orderable when AVAILABLE *and* stock > 0.
 CatalogItemAvailability:
