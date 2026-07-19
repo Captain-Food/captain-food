@@ -1,7 +1,9 @@
 //! End-to-end test for the GraphQL WRITE path: a `registerRestaurant` mutation executed against the
 //! real schema (generated MutationRoot) → command handler → `PgEventStore` → a `domain_events` row,
 //! with the payload returning the envelope's `correlationId`. Also proves an invariant rejection
-//! surfaces the errors.yaml code through GraphQL. Needs a real Postgres: set `DATABASE_URL` (e.g. a
+//! surfaces the structured errors.yaml contract through GraphQL — `extensions.code` = the stable
+//! PascalCase code, the message = the interpolated catalogued `en` template, the typed context under
+//! the extensions (P-10). Needs a real Postgres: set `DATABASE_URL` (e.g. a
 //! throwaway `docker run -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgres:16-alpine`, then
 //! `DATABASE_URL=postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable`). Without it
 //! the test SKIPS (prints and returns) so `cargo test` stays green offline.
@@ -187,10 +189,22 @@ async fn register_restaurant_mutation_appends_a_domain_event() {
         )
         .await;
     assert_eq!(resp.errors.len(), 1, "expected a rejection: {:?}", resp.errors);
-    assert!(
-        resp.errors[0].message.contains("RestaurantNotFound"),
-        "error carries the errors.yaml code: {}",
-        resp.errors[0].message
+    let ext = resp.errors[0].extensions.as_ref().expect("rejection carries extensions (P-10)");
+    assert_eq!(
+        ext.get("code"),
+        Some(&async_graphql::Value::from("RestaurantNotFound")),
+        "extensions.code carries the errors.yaml code: {:?}",
+        resp.errors[0]
+    );
+    assert_eq!(
+        ext.get("restaurantId"),
+        Some(&async_graphql::Value::from(missing.to_string())),
+        "the typed context surfaces under the extensions: {:?}",
+        resp.errors[0]
+    );
+    assert_eq!(
+        resp.errors[0].message, "Restaurant not found.",
+        "the message is the interpolated catalogued en template"
     );
     let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domain_events")
         .fetch_one(&pool)
@@ -211,9 +225,11 @@ async fn register_restaurant_mutation_appends_a_domain_event() {
         )
         .await;
     assert_eq!(resp.errors.len(), 1, "expected the fail-closed rejection: {:?}", resp.errors);
-    assert!(
-        resp.errors[0].message.contains("InvalidVerificationCode"),
-        "error carries the errors.yaml code (deps resolved from ctx): {}",
-        resp.errors[0].message
+    let ext = resp.errors[0].extensions.as_ref().expect("rejection carries extensions (P-10)");
+    assert_eq!(
+        ext.get("code"),
+        Some(&async_graphql::Value::from("InvalidVerificationCode")),
+        "extensions.code carries the errors.yaml code (deps resolved from ctx): {:?}",
+        resp.errors[0]
     );
 }

@@ -8,8 +8,9 @@ description = "Captain.Food pure domain (DDD): aggregates, commands, events, pol
 
 [dependencies]
 serde = { workspace = true }
+# serde_json carries the structured rejection CONTEXT (`DomainError::Rejected`) — data, not
+# serialization logic; the errors.yaml catalog module generated into `generated/errors.rs`
+# interpolates its `{placeholder}` message templates from it.
+serde_json = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
-
-[dev-dependencies]
-serde_json = { workspace = true }

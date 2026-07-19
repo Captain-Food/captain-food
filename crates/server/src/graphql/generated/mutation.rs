@@ -1248,6 +1248,52 @@ fn request_actor(_ctx: &async_graphql::Context<'_>) -> application::ports::Actor
     }
 }
 
+/// Map a command rejection onto the GraphQL error contract (P-10): an anticipated errors.yaml
+/// rejection surfaces `extensions.code` = the stable PascalCase code, the interpolated English
+/// message as the error message, and its typed context fields under the extensions; anything
+/// unexpected (repository/adapter failures) surfaces as the generic catalogued `Internal` — never
+/// leaking adapter details to the client.
 fn domain_error(e: domain::shared::errors::DomainError) -> async_graphql::Error {
-    async_graphql::Error::new(e.to_string())
+    use async_graphql::ErrorExtensions;
+    use domain::shared::errors::DomainError;
+    match e {
+        DomainError::Rejected { code, context } => {
+            let message = domain::generated::errors::message_en(&code, &context)
+                .unwrap_or_else(|| code.clone());
+            async_graphql::Error::new(message).extend_with(|_, ext| {
+                ext.set("code", code.as_str());
+                if let Some(fields) = context.as_object() {
+                    for (key, value) in fields {
+                        if key == "code" {
+                            continue; // never let a context field shadow the wire code
+                        }
+                        ext.set(
+                            key.as_str(),
+                            async_graphql::Value::from_json(value.clone())
+                                .unwrap_or(async_graphql::Value::Null),
+                        );
+                    }
+                }
+            })
+        }
+        // Legacy "<Code>: <detail>" string invariants (interim adapters, e.g. the fail-closed
+        // payment stand-in): surface the prefix when it is a catalogued code, else it is unexpected.
+        DomainError::Invariant(msg) => {
+            let code = msg.split(':').next().map(str::trim).unwrap_or("").to_string();
+            if domain::generated::errors::find(&code).is_some() {
+                async_graphql::Error::new(msg).extend_with(|_, ext| ext.set("code", code.as_str()))
+            } else {
+                internal_error()
+            }
+        }
+        DomainError::Repository(_) => internal_error(),
+    }
+}
+
+/// The generic catalogued `Internal` fallback (errors.yaml): unexpected/infrastructure failures
+/// never leak their detail to the client.
+fn internal_error() -> async_graphql::Error {
+    use async_graphql::ErrorExtensions;
+    let def = domain::generated::errors::INTERNAL;
+    async_graphql::Error::new(def.message_en).extend_with(|_, ext| ext.set("code", def.code))
 }

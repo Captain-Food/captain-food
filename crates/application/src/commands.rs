@@ -5,14 +5,19 @@
 //! commands are idempotent: replaying one hits the UNIQUE(stream_name, version) guard and is absorbed
 //! as an already-registered no-op instead of duplicating the fact.
 //!
-//! Rejections carry the errors.yaml CODE: [`DomainError::Invariant`] only models a string, so the
-//! canonical shape is `"<Code>: <context>"` (see [`reject`] / [`rejection_code`]) until a structured
-//! error type lands.
+//! Rejections are STRUCTURED (`DomainError::Rejected { code, context }`, ADR-0046 follow-up): the
+//! errors.yaml CODE plus the error's typed context as a JSON object whose keys are the errors.yaml
+//! `context` field names (camelCase). The generated catalog (`domain::generated::errors`) owns the
+//! localized `{placeholder}` message templates; the GraphQL layer maps a rejection onto
+//! `extensions.code` + the interpolated message (error contract P-10). See [`reject`] /
+//! [`rejection_code`].
 //!
 //! Cross-aggregate invariants that still lack a read port are explicit `TODO(invariant)` markers —
 //! they are NOT silently skipped semantics, they are the documented gap.
 
 use std::collections::HashSet;
+
+use serde_json::json;
 
 use domain::catalog::CatalogState;
 use domain::customer::CustomerState;
@@ -100,15 +105,20 @@ fn idempotent_on_existing(result: Result<i64, DomainError>) -> Result<(), Domain
     }
 }
 
-/// Build the canonical rejection for an `errors.yaml` invariant: the CODE, then the context detail —
-/// `"<Code>: <detail>"`. [`rejection_code`] is the matching reader.
-fn reject(code: &str, detail: impl std::fmt::Display) -> DomainError {
-    DomainError::Invariant(format!("{code}: {detail}"))
+/// Build the canonical rejection for an `errors.yaml` invariant: the stable PascalCase CODE plus its
+/// typed context as a JSON object (keys = the error's errors.yaml `context` fields, camelCase).
+/// [`rejection_code`] is the matching reader; the GraphQL layer maps the rejection onto
+/// `extensions.code` + the interpolated localized message (P-10).
+fn reject(code: &str, context: serde_json::Value) -> DomainError {
+    DomainError::rejected(code, context)
 }
 
-/// The errors.yaml code a command rejection carries (`"<Code>: <detail>"`), if this is one.
+/// The errors.yaml code a command rejection carries, if this is one. Structured rejections carry it
+/// first-class; the legacy `"<Code>: <detail>"` [`DomainError::Invariant`] shape (still produced by
+/// interim adapters, e.g. the fail-closed payment stand-in) is parsed as before.
 pub fn rejection_code(err: &DomainError) -> Option<&str> {
     match err {
+        DomainError::Rejected { code, .. } => Some(code),
         DomainError::Invariant(msg) => msg.split(':').next().map(str::trim),
         DomainError::Repository(_) => None,
     }
@@ -137,7 +147,7 @@ async fn require_restaurant(
     let (state, version) = load_restaurant(store, id).await?;
     match state {
         Some(state) => Ok((state, version)),
-        None => Err(reject("RestaurantNotFound", format!("restaurantId={}", id.0))),
+        None => Err(reject("RestaurantNotFound", json!({ "restaurantId": id }))),
     }
 }
 
@@ -164,7 +174,7 @@ async fn require_restaurant_account(
     let (state, version) = load_restaurant_account(store, id).await?;
     match state {
         Some(state) => Ok((state, version)),
-        None => Err(reject("RestaurantAccountNotFound", format!("restaurantAccountId={}", id.0))),
+        None => Err(reject("RestaurantAccountNotFound", json!({ "restaurantAccountId": id }))),
     }
 }
 
@@ -186,7 +196,7 @@ pub async fn register_restaurant_account(
     // TODO(invariant): RefAlreadyUsed — reject when cmd.ref is already owned by another aggregate
     //                  (needs an external-reference read-model lookup).
     if !is_valid_iso4217(&cmd.default_currency) {
-        return Err(reject("InvalidCurrency", format!("currency={}", cmd.default_currency.0)));
+        return Err(reject("InvalidCurrency", json!({ "currency": cmd.default_currency })));
     }
     let stream_name = restaurant_account_stream(&cmd.restaurant_account_id);
     let event = DomainEvent::RestaurantAccountRegistered(RestaurantAccountRegistered {
@@ -215,7 +225,7 @@ pub async fn update_restaurant_account(
         || cmd.default_tax_rate.is_some()
         || cmd.timezone.is_some();
     if !has_editable_field {
-        return Err(reject("NoEditableFieldProvided", "update carried no editable field"));
+        return Err(reject("NoEditableFieldProvided", json!({})));
     }
     let stream_name = restaurant_account_stream(&cmd.restaurant_account_id);
     let event = DomainEvent::RestaurantAccountUpdated(RestaurantAccountUpdated {
@@ -263,7 +273,7 @@ pub async fn register_restaurant(
     //                  (needs an external-reference read-model lookup port).
     if let Some(existing) = restaurants.by_slug(cmd.slug.clone()).await? {
         if existing.restaurant_id != cmd.restaurant_id {
-            return Err(reject("SlugAlreadyTaken", format!("slug={}", cmd.slug.0)));
+            return Err(reject("SlugAlreadyTaken", json!({ "slug": cmd.slug })));
         }
     }
     let stream_name = restaurant_stream(&cmd.restaurant_id);
@@ -335,7 +345,7 @@ pub async fn update_restaurant(
         || cmd.preparation_time_minutes.is_some()
         || !cmd.opening_hours.is_empty();
     if !has_editable_field {
-        return Err(reject("NoEditableFieldProvided", "update carried no editable field"));
+        return Err(reject("NoEditableFieldProvided", json!({})));
     }
     let stream_name = restaurant_stream(&cmd.restaurant_id);
     let event = DomainEvent::RestaurantUpdated(RestaurantUpdated {
@@ -389,16 +399,17 @@ pub async fn change_order_acceptance_mode(
     if state.status != RestaurantStatus::ACTIVE {
         return Err(reject(
             "RestaurantNotActive",
-            format!("restaurantId={} restaurantName={}", cmd.restaurant_id.0, state.display_name.0),
+            json!({ "restaurantId": cmd.restaurant_id, "restaurantName": state.display_name }),
         ));
     }
     if state.order_acceptance == cmd.mode {
         return Err(reject(
             "AcceptanceModeUnchanged",
-            format!(
-                "restaurantId={} restaurantName={} mode={:?}",
-                cmd.restaurant_id.0, state.display_name.0, cmd.mode
-            ),
+            json!({
+                "restaurantId": cmd.restaurant_id,
+                "restaurantName": state.display_name,
+                "mode": cmd.mode,
+            }),
         ));
     }
     let stream_name = restaurant_stream(&cmd.restaurant_id);
@@ -473,15 +484,12 @@ pub async fn claim_restaurant_listing(
 ) -> Result<(), DomainError> {
     let (state, version) = require_restaurant(store, &cmd.restaurant_id).await?;
     if state.listing_claimed {
-        return Err(reject(
-            "ListingAlreadyClaimed",
-            format!("restaurantId={}", cmd.restaurant_id.0),
-        ));
+        return Err(reject("ListingAlreadyClaimed", json!({ "restaurantId": cmd.restaurant_id })));
     }
     if !ownership.verify(cmd.restaurant_id, &cmd.google_ownership_proof).await? {
         return Err(reject(
             "ListingOwnershipNotVerified",
-            format!("restaurantId={}", cmd.restaurant_id.0),
+            json!({ "restaurantId": cmd.restaurant_id }),
         ));
     }
     let stream_name = restaurant_stream(&cmd.restaurant_id);
@@ -505,7 +513,7 @@ pub async fn opt_out_restaurant_listing(
     if !ownership.verify(cmd.restaurant_id, &cmd.google_ownership_proof).await? {
         return Err(reject(
             "ListingOwnershipNotVerified",
-            format!("restaurantId={}", cmd.restaurant_id.0),
+            json!({ "restaurantId": cmd.restaurant_id }),
         ));
     }
     let stream_name = restaurant_stream(&cmd.restaurant_id);
@@ -563,10 +571,7 @@ pub async fn verify_gbp_order_link(
 ) -> Result<(), DomainError> {
     let (state, version) = require_restaurant(store, &cmd.restaurant_id).await?;
     let Some(url) = state.gbp_order_url else {
-        return Err(reject(
-            "GbpOrderLinkNotConfigured",
-            format!("restaurantId={}", cmd.restaurant_id.0),
-        ));
+        return Err(reject("GbpOrderLinkNotConfigured", json!({ "restaurantId": cmd.restaurant_id })));
     };
     let status = probe.probe(&url).await?;
     let stream_name = restaurant_stream(&cmd.restaurant_id);
@@ -606,13 +611,13 @@ async fn require_cart(
     let (state, version) = load_cart(store, id).await?;
     match state {
         Some(state) => Ok((state, version)),
-        None => Err(reject("CartNotFound", format!("cartId={}", id.0))),
+        None => Err(reject("CartNotFound", json!({ "cartId": id }))),
     }
 }
 
 /// The `errors.yaml#/CartNotOpen` rejection for `cart_id` in `status`.
 fn cart_not_open(cart_id: &CartId, status: CartStatus) -> DomainError {
-    reject("CartNotOpen", format!("cartId={} status={:?}", cart_id.0, status))
+    reject("CartNotOpen", json!({ "cartId": cart_id, "status": status }))
 }
 
 /// Validate a cart line against the LIVE catalog read model (offer-level `CatalogReadRepository`
@@ -628,15 +633,16 @@ async fn require_orderable_line(
     line: &CartLineItem,
 ) -> Result<(), DomainError> {
     let Some(offer) = catalogs.offer_by_id(*restaurant_id, line.offer_id).await? else {
-        return Err(reject("OfferNotFound", format!("offerId={}", line.offer_id.0)));
+        return Err(reject("OfferNotFound", json!({ "offerId": line.offer_id })));
     };
     if offer.availability == CatalogItemAvailability::UNAVAILABLE {
         return Err(reject(
             "OfferUnavailable",
-            format!(
-                "offerId={} productName={} offerName={}",
-                offer.offer_id.0, offer.product_name.0, offer.offer_name.0
-            ),
+            json!({
+                "offerId": offer.offer_id,
+                "productName": offer.product_name,
+                "offerName": offer.offer_name,
+            }),
         ));
     }
     require_stock_covers(&offer, line.quantity)?;
@@ -654,10 +660,13 @@ fn require_stock_covers(offer: &OfferView, requested: i64) -> Result<(), DomainE
     if (requested as f64) > available {
         return Err(reject(
             "InsufficientStock",
-            format!(
-                "offerId={} productName={} offerName={} requested={} available={}",
-                offer.offer_id.0, offer.product_name.0, offer.offer_name.0, requested, available
-            ),
+            json!({
+                "offerId": offer.offer_id,
+                "productName": offer.product_name,
+                "offerName": offer.offer_name,
+                "requested": requested,
+                "available": available,
+            }),
         ));
     }
     Ok(())
@@ -670,10 +679,16 @@ fn require_valid_option_selection(
     offer: &OfferView,
     selected: &[OptionId],
 ) -> Result<(), DomainError> {
+    // `detail` is a diagnostic beyond the spec'd context (offerId, productName): WHICH option/list
+    // violated the bounds — kept for logs/observability, unused by the catalogued message.
     let invalid = |detail: String| {
         reject(
             "InvalidOptionSelection",
-            format!("offerId={} productName={} {detail}", offer.offer_id.0, offer.product_name.0),
+            json!({
+                "offerId": offer.offer_id,
+                "productName": offer.product_name,
+                "detail": detail,
+            }),
         )
     };
     for option_id in selected {
@@ -725,10 +740,9 @@ pub async fn add_cart_line(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     if cmd.line.quantity > MAX_LINE_QUANTITY {
-        return Err(reject(
-            "QuantityExceedsLimit",
-            format!("offerId={} quantity={}", cmd.line.offer_id.0, cmd.line.quantity),
-        ));
+        // Spec context also wants productName, but the cap is checked BEFORE the catalog lookup —
+        // a known context gap ({productName} stays uninterpolated in the catalogued message).
+        return Err(reject("QuantityExceedsLimit", json!({ "offerId": cmd.line.offer_id })));
     }
     let line = CartLineItem {
         cart_line_id: cmd.line.cart_line_id,
@@ -759,9 +773,11 @@ pub async fn add_cart_line(
                 return Err(cart_not_open(&cmd.cart_id, s.status));
             }
             if s.restaurant_id != cmd.restaurant_id {
+                // Spec context also wants restaurantName; the cart handlers have no Restaurant
+                // lookup — a known context gap.
                 return Err(reject(
                     "CartRestaurantMismatch",
-                    format!("cartId={} restaurantId={}", cmd.cart_id.0, cmd.restaurant_id.0),
+                    json!({ "cartId": cmd.cart_id, "restaurantId": cmd.restaurant_id }),
                 ));
             }
             if s.line_ids.contains(&line.cart_line_id) {
@@ -788,7 +804,7 @@ pub async fn remove_cart_line(
     if !state.line_ids.contains(&cmd.cart_line_id) {
         return Err(reject(
             "CartLineNotFound",
-            format!("cartId={} cartLineId={}", cmd.cart_id.0, cmd.cart_line_id.0),
+            json!({ "cartId": cmd.cart_id, "cartLineId": cmd.cart_line_id }),
         ));
     }
     let event = DomainEvent::CartLineRemoved(CartLineRemoved {
@@ -817,14 +833,13 @@ pub async fn change_cart_line_quantity(
     let Some(line) = state.lines.iter().find(|line| line.cart_line_id == cmd.cart_line_id) else {
         return Err(reject(
             "CartLineNotFound",
-            format!("cartId={} cartLineId={}", cmd.cart_id.0, cmd.cart_line_id.0),
+            json!({ "cartId": cmd.cart_id, "cartLineId": cmd.cart_line_id }),
         ));
     };
     if cmd.quantity > MAX_LINE_QUANTITY {
-        return Err(reject(
-            "QuantityExceedsLimit",
-            format!("cartLineId={} quantity={}", cmd.cart_line_id.0, cmd.quantity),
-        ));
+        // Spec context also wants productName, but the cap is checked BEFORE the catalog lookup —
+        // a known context gap ({productName} stays uninterpolated in the catalogued message).
+        return Err(reject("QuantityExceedsLimit", json!({ "offerId": line.offer_id })));
     }
     if let Some(offer) = catalogs.offer_by_id(state.restaurant_id, line.offer_id).await? {
         require_stock_covers(&offer, cmd.quantity)?;
@@ -857,13 +872,13 @@ async fn require_order(
     let (events, version) = store.load(&order_stream(order_id)).await?;
     match domain::order::fold(&events) {
         Some(state) if state.restaurant_id == *restaurant_id => Ok((state, version)),
-        _ => Err(reject("OrderNotFound", format!("orderId={}", order_id.0))),
+        _ => Err(reject("OrderNotFound", json!({ "orderId": order_id }))),
     }
 }
 
 /// The `errors.yaml#/InvalidOrderStatus` rejection for `order_id` currently in `status`.
 fn invalid_order_status(order_id: &OrderId, status: OrderStatus) -> DomainError {
-    reject("InvalidOrderStatus", format!("orderId={} currentStatus={:?}", order_id.0, status))
+    reject("InvalidOrderStatus", json!({ "orderId": order_id, "currentStatus": status }))
 }
 
 /// Handle `commands.yaml#/AcceptOrder` → emit `events.yaml#/OrderAcceptedByRestaurant`. Only a PLACED
@@ -1012,7 +1027,7 @@ pub async fn rate_order(
         return Err(invalid_order_status(&cmd.order_id, state.status));
     }
     if state.delivery_rated {
-        return Err(reject("OrderAlreadyRated", format!("orderId={}", cmd.order_id.0)));
+        return Err(reject("OrderAlreadyRated", json!({ "orderId": cmd.order_id })));
     }
     let event = DomainEvent::OrderRated(OrderRated {
         order_id: cmd.order_id,
@@ -1035,7 +1050,7 @@ pub async fn rate_restaurant(
         return Err(invalid_order_status(&cmd.order_id, state.status));
     }
     if state.restaurant_rated {
-        return Err(reject("RestaurantAlreadyRated", format!("orderId={}", cmd.order_id.0)));
+        return Err(reject("RestaurantAlreadyRated", json!({ "orderId": cmd.order_id })));
     }
     let event = DomainEvent::RestaurantRated(RestaurantRatedEvent {
         order_id: cmd.order_id,
@@ -1063,7 +1078,7 @@ pub async fn tip_order(
     if cmd.tips.is_empty() {
         // commands.yaml: `tips` minItems 1 — an intrinsic payload invariant (cross-cutting
         // ValidationError, not an actors.yaml `throws` entry).
-        return Err(reject("ValidationError", "tips must contain at least one tip"));
+        return Err(reject("ValidationError", json!({ "field": "tips" })));
     }
     // The business role that changes semantics (scalars.yaml#/Tipper), derived from the acting user's
     // envelope UserType ordinal (ADR-0037/0041): RESTAURANT_ACCOUNT (2) / RESTAURANT (3) tip as the
@@ -1078,7 +1093,7 @@ pub async fn tip_order(
     {
         return Err(reject(
             "InvalidTipRecipient",
-            format!("tippedBy={:?} recipient={:?}", tipped_by, TipRecipient::RESTAURANT),
+            json!({ "tippedBy": tipped_by, "recipient": TipRecipient::RESTAURANT }),
         ));
     }
     let event = DomainEvent::OrderTipped(OrderTipped {
@@ -1130,7 +1145,7 @@ async fn require_delivery_job(
     let (events, version) = store.load(&delivery_job_stream(id)).await?;
     match domain::delivery_job::fold(&events) {
         Some(state) => Ok((state, version)),
-        None => Err(reject("DeliveryJobNotFound", format!("deliveryJobId={}", id.0))),
+        None => Err(reject("DeliveryJobNotFound", json!({ "deliveryJobId": id }))),
     }
 }
 
@@ -1143,7 +1158,7 @@ fn invalid_delivery_status(
 ) -> DomainError {
     reject(
         "InvalidDeliveryStatus",
-        format!("deliveryJobId={} currentStatus={:?} expectedStatus={:?}", id.0, current, expected),
+        json!({ "deliveryJobId": id, "currentStatus": current, "expectedStatus": expected }),
     )
 }
 
@@ -1163,7 +1178,7 @@ pub async fn accept_delivery(
         {
             return Err(reject(
                 "DeliveryAlreadyAssigned",
-                format!("deliveryJobId={}", cmd.delivery_job_id.0),
+                json!({ "deliveryJobId": cmd.delivery_job_id }),
             ));
         }
         other => {
@@ -1194,15 +1209,15 @@ pub async fn confirm_pickup(
         ));
     }
     if state.rider_id != Some(cmd.rider_id) {
+        // `detail` is a diagnostic beyond the spec'd context: the job is not assigned to THIS rider.
         return Err(reject(
             "InvalidDeliveryStatus",
-            format!(
-                "deliveryJobId={} currentStatus={:?} expectedStatus={:?} (job is not assigned to rider {})",
-                cmd.delivery_job_id.0,
-                state.status,
-                DeliveryStatus::ASSIGNED,
-                cmd.rider_id.0
-            ),
+            json!({
+                "deliveryJobId": cmd.delivery_job_id,
+                "currentStatus": state.status,
+                "expectedStatus": DeliveryStatus::ASSIGNED,
+                "detail": format!("job is not assigned to rider {}", cmd.rider_id.0),
+            }),
         ));
     }
     let event = DomainEvent::DeliveryPickedUp(DeliveryPickedUp {
@@ -1231,15 +1246,15 @@ pub async fn complete_delivery(
         ));
     }
     if state.rider_id != Some(cmd.rider_id) {
+        // `detail` is a diagnostic beyond the spec'd context: the job is not assigned to THIS rider.
         return Err(reject(
             "InvalidDeliveryStatus",
-            format!(
-                "deliveryJobId={} currentStatus={:?} expectedStatus={:?} (job is not assigned to rider {})",
-                cmd.delivery_job_id.0,
-                state.status,
-                DeliveryStatus::PICKED_UP,
-                cmd.rider_id.0
-            ),
+            json!({
+                "deliveryJobId": cmd.delivery_job_id,
+                "currentStatus": state.status,
+                "expectedStatus": DeliveryStatus::PICKED_UP,
+                "detail": format!("job is not assigned to rider {}", cmd.rider_id.0),
+            }),
         ));
     }
     let event = DomainEvent::DeliveryCompleted(DeliveryCompleted {
@@ -1305,18 +1320,18 @@ pub async fn place_order(
     // race-free; the saga may read other aggregates' streams through the same EventStore port).
     let (restaurant_events, _) = store.load(&restaurant_stream(&cmd.restaurant_id)).await?;
     let Some(restaurant) = domain::restaurant::fold(&restaurant_events) else {
-        return Err(reject("RestaurantNotFound", format!("restaurantId={}", cmd.restaurant_id.0)));
+        return Err(reject("RestaurantNotFound", json!({ "restaurantId": cmd.restaurant_id })));
     };
     if restaurant.status != RestaurantStatus::ACTIVE {
         return Err(reject(
             "RestaurantNotActive",
-            format!("restaurantId={} restaurantName={}", cmd.restaurant_id.0, restaurant.display_name.0),
+            json!({ "restaurantId": cmd.restaurant_id, "restaurantName": restaurant.display_name }),
         ));
     }
     if restaurant.order_acceptance == OrderAcceptanceMode::PAUSED {
         return Err(reject(
             "RestaurantPaused",
-            format!("restaurantId={} restaurantName={}", cmd.restaurant_id.0, restaurant.display_name.0),
+            json!({ "restaurantId": cmd.restaurant_id, "restaurantName": restaurant.display_name }),
         ));
     }
     // Test-mode isolation (ADR-0038, rules.yaml#/OrderTestModeIsolation): a LIVE order (mode absent =
@@ -1325,10 +1340,7 @@ pub async fn place_order(
         .iter()
         .any(|e| matches!(e, DomainEvent::RestaurantRegistered(r) if r.mode == Some(Mode::TEST)));
     if restaurant_is_test && cmd.mode != Some(Mode::TEST) {
-        return Err(reject(
-            "CannotOrderTestRestaurant",
-            format!("restaurantId={}", cmd.restaurant_id.0),
-        ));
+        return Err(reject("CannotOrderTestRestaurant", json!({ "restaurantId": cmd.restaurant_id })));
     }
     // The cart must exist, be OPEN, belong to this restaurant and hold at least one line.
     let (cart, _cart_version) = require_cart(store, &cmd.cart_id).await?;
@@ -1338,15 +1350,19 @@ pub async fn place_order(
     if cart.restaurant_id != cmd.restaurant_id {
         return Err(reject(
             "CartRestaurantMismatch",
-            format!("cartId={} restaurantId={}", cmd.cart_id.0, cmd.restaurant_id.0),
+            json!({
+                "cartId": cmd.cart_id,
+                "restaurantId": cmd.restaurant_id,
+                "restaurantName": restaurant.display_name,
+            }),
         ));
     }
     if cart.line_ids.is_empty() {
-        return Err(reject("CartEmpty", format!("cartId={}", cmd.cart_id.0)));
+        return Err(reject("CartEmpty", json!({ "cartId": cmd.cart_id })));
     }
     // DELIVERY requires an address.
     if cmd.service_type == ServiceType::DELIVERY && cmd.delivery_address.is_none() {
-        return Err(reject("DeliveryAddressRequired", "serviceType=DELIVERY without deliveryAddress"));
+        return Err(reject("DeliveryAddressRequired", json!({})));
     }
     // TODO(invariant): OutsideDeliveryArea — needs a delivery-area policy port (the restaurant's
     //                  delivery zone is not modelled in any read port yet).
@@ -1409,7 +1425,7 @@ pub async fn record_prospect_contact(
     if state.as_ref().map_or(0, |s| s.contacts) >= 3 {
         return Err(reject(
             "ProspectContactLimitReached",
-            format!("restaurantId={}", cmd.restaurant_id.0),
+            json!({ "restaurantId": cmd.restaurant_id }),
         ));
     }
     let row = prospection
@@ -1421,7 +1437,7 @@ pub async fn record_prospect_contact(
         if chrono::Utc::now().signed_duration_since(last) < chrono::Duration::days(7) {
             return Err(reject(
                 "ProspectContactedTooRecently",
-                format!("restaurantId={}", cmd.restaurant_id.0),
+                json!({ "restaurantId": cmd.restaurant_id }),
             ));
         }
     }
@@ -1443,7 +1459,7 @@ pub async fn mark_prospect_cold(
 ) -> Result<(), DomainError> {
     let (state, version) = load_prospect(store, &cmd.restaurant_id).await?;
     if state.is_none() {
-        return Err(reject("ProspectNotFound", format!("restaurantId={}", cmd.restaurant_id.0)));
+        return Err(reject("ProspectNotFound", json!({ "restaurantId": cmd.restaurant_id })));
     }
     let stream_name = prospect_stream(&cmd.restaurant_id);
     let event = DomainEvent::ProspectMarkedCold(ProspectMarkedCold {
@@ -1462,7 +1478,7 @@ pub async fn record_prospect_reply(
 ) -> Result<(), DomainError> {
     let (state, version) = load_prospect(store, &cmd.restaurant_id).await?;
     if state.is_none() {
-        return Err(reject("ProspectNotFound", format!("restaurantId={}", cmd.restaurant_id.0)));
+        return Err(reject("ProspectNotFound", json!({ "restaurantId": cmd.restaurant_id })));
     }
     let stream_name = prospect_stream(&cmd.restaurant_id);
     let event = DomainEvent::ProspectReplied(ProspectReplied {
@@ -1498,7 +1514,7 @@ async fn require_catalog(
     let (state, version) = load_catalog(store, id).await?;
     match state {
         Some(state) => Ok((state, version)),
-        None => Err(reject("CatalogNotFound", format!("catalogId={}", id.0))),
+        None => Err(reject("CatalogNotFound", json!({ "catalogId": id }))),
     }
 }
 
@@ -1513,7 +1529,7 @@ fn ensure_refs_unique(
     let mut seen: HashSet<&str> = HashSet::new();
     for r in candidates {
         if existing.contains(r.0.as_str()) || !seen.insert(r.0.as_str()) {
-            return Err(reject("RefNotUnique", format!("ref={} catalogId={}", r.0, catalog_id.0)));
+            return Err(reject("RefNotUnique", json!({ "ref": r, "catalogId": catalog_id })));
         }
     }
     Ok(())
@@ -1534,10 +1550,7 @@ async fn ensure_prices_use_restaurant_currency(
         if price.currency != row.default_currency {
             return Err(reject(
                 "CurrencyMismatch",
-                format!(
-                    "restaurantName={} currency={}",
-                    row.display_name.0, row.default_currency.0
-                ),
+                json!({ "restaurantName": row.display_name, "currency": row.default_currency }),
             ));
         }
     }
@@ -1557,7 +1570,7 @@ pub async fn create_catalog(
     //                  an external-reference read-model index port; within this (new, empty) catalog
     //                  there is nothing to collide with yet.
     if restaurants.by_id(cmd.restaurant_id).await?.is_none() {
-        return Err(reject("RestaurantNotFound", format!("restaurantId={}", cmd.restaurant_id.0)));
+        return Err(reject("RestaurantNotFound", json!({ "restaurantId": cmd.restaurant_id })));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
     let event = DomainEvent::CatalogCreated(CatalogCreated {
@@ -1584,7 +1597,7 @@ pub async fn add_product(
     ensure_prices_use_restaurant_currency(restaurants, state.restaurant_id, &prices).await?;
     if let Some(category_ref) = &cmd.category_ref {
         if state.category_by_ref(category_ref).is_none() {
-            return Err(reject("CatalogCategoryRefNotFound", format!("ref={}", category_ref.0)));
+            return Err(reject("CatalogCategoryRefNotFound", json!({ "ref": category_ref })));
         }
     }
     let candidate_refs: Vec<&ExternalReference> =
@@ -1624,13 +1637,13 @@ pub async fn update_product(
     let (state, version) = load_catalog(store, &cmd.catalog_id).await?;
     let exists = state.as_ref().is_some_and(|s| s.product_by_id(cmd.product.id).is_some());
     if !exists {
-        return Err(reject("ProductNotFound", format!("productId={}", cmd.product.id.0)));
+        return Err(reject("ProductNotFound", json!({ "productId": cmd.product.id })));
     }
     let state = state.expect("existence checked above");
     if cmd.product.offers.is_empty() {
         return Err(reject(
             "ProductMustHaveOffer",
-            format!("productId={} productName={}", cmd.product.id.0, cmd.product.name.0),
+            json!({ "productId": cmd.product.id, "productName": cmd.product.name }),
         ));
     }
     let prices: Vec<&Money> = cmd.product.offers.iter().map(|o| &o.price).collect();
@@ -1654,7 +1667,7 @@ pub async fn remove_product(
     let (state, version) = load_catalog(store, &cmd.catalog_id).await?;
     let exists = state.as_ref().is_some_and(|s| s.product_by_id(cmd.product_id).is_some());
     if !exists {
-        return Err(reject("ProductNotFound", format!("productId={}", cmd.product_id.0)));
+        return Err(reject("ProductNotFound", json!({ "productId": cmd.product_id })));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
     let event = DomainEvent::ProductRemoved(ProductRemoved {
@@ -1676,10 +1689,7 @@ pub async fn add_catalog_category(
     let (state, version) = require_catalog(store, &cmd.catalog_id).await?;
     if let Some(parent_ref) = &cmd.category.parent_ref {
         if state.category_by_ref(parent_ref).is_none() {
-            return Err(reject(
-                "ParentCatalogCategoryNotFound",
-                format!("parentRef={}", parent_ref.0),
-            ));
+            return Err(reject("ParentCatalogCategoryNotFound", json!({ "parentRef": parent_ref })));
         }
     }
     let candidate_refs: Vec<&ExternalReference> = cmd.category.r#ref.iter().collect();
@@ -1706,14 +1716,14 @@ pub async fn update_catalog_category(
     if !exists {
         return Err(reject(
             "CatalogCategoryNotFound",
-            format!("productCategoryId={}", cmd.category.id.0),
+            json!({ "productCategoryId": cmd.category.id }),
         ));
     }
     let state = state.expect("existence checked above");
     if state.would_create_cycle(&cmd.category) {
         return Err(reject(
             "CatalogCategoryCycle",
-            format!("productCategoryId={} categoryName={}", cmd.category.id.0, cmd.category.name.0),
+            json!({ "productCategoryId": cmd.category.id, "categoryName": cmd.category.name }),
         ));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
@@ -1739,14 +1749,14 @@ pub async fn remove_catalog_category(
     else {
         return Err(reject(
             "CatalogCategoryNotFound",
-            format!("productCategoryId={}", cmd.product_category_id.0),
+            json!({ "productCategoryId": cmd.product_category_id }),
         ));
     };
     let state = state.expect("existence checked above");
     if state.category_has_dependents(&category) {
         return Err(reject(
             "CatalogCategoryNotEmpty",
-            format!("productCategoryId={} categoryName={}", category.id.0, category.name.0),
+            json!({ "productCategoryId": category.id, "categoryName": category.name }),
         ));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
@@ -1771,7 +1781,7 @@ pub async fn add_option_list(
     if ol.options.is_empty() {
         return Err(reject(
             "OptionListMustHaveOption",
-            format!("optionListId={} optionListName={}", ol.id.0, ol.name.0),
+            json!({ "optionListId": ol.id, "optionListName": ol.name }),
         ));
     }
     let out_of_bounds = ol.min_selections < 0
@@ -1780,7 +1790,7 @@ pub async fn add_option_list(
     if out_of_bounds {
         return Err(reject(
             "InvalidSelectionBounds",
-            format!("optionListId={} optionListName={}", ol.id.0, ol.name.0),
+            json!({ "optionListId": ol.id, "optionListName": ol.name }),
         ));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
@@ -1802,18 +1812,12 @@ pub async fn update_option_list(
     let (state, version) = load_catalog(store, &cmd.catalog_id).await?;
     let exists = state.as_ref().is_some_and(|s| s.option_list_by_id(cmd.option_list.id).is_some());
     if !exists {
-        return Err(reject(
-            "OptionListNotFound",
-            format!("optionListId={}", cmd.option_list.id.0),
-        ));
+        return Err(reject("OptionListNotFound", json!({ "optionListId": cmd.option_list.id })));
     }
     if cmd.option_list.options.is_empty() {
         return Err(reject(
             "OptionListMustHaveOption",
-            format!(
-                "optionListId={} optionListName={}",
-                cmd.option_list.id.0, cmd.option_list.name.0
-            ),
+            json!({ "optionListId": cmd.option_list.id, "optionListName": cmd.option_list.name }),
         ));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
@@ -1836,16 +1840,13 @@ pub async fn remove_option_list(
     let Some(option_list) =
         state.as_ref().and_then(|s| s.option_list_by_id(cmd.option_list_id)).cloned()
     else {
-        return Err(reject(
-            "OptionListNotFound",
-            format!("optionListId={}", cmd.option_list_id.0),
-        ));
+        return Err(reject("OptionListNotFound", json!({ "optionListId": cmd.option_list_id })));
     };
     let state = state.expect("existence checked above");
     if state.option_list_in_use(cmd.option_list_id) {
         return Err(reject(
             "OptionListInUse",
-            format!("optionListId={} optionListName={}", option_list.id.0, option_list.name.0),
+            json!({ "optionListId": option_list.id, "optionListName": option_list.name }),
         ));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
@@ -1870,7 +1871,7 @@ pub async fn update_offer_stock(
     let (state, version) = load_catalog(store, &cmd.catalog_id).await?;
     let exists = state.as_ref().is_some_and(|s| s.offer_by_id(cmd.offer_id).is_some());
     if !exists {
-        return Err(reject("OfferNotFound", format!("offerId={}", cmd.offer_id.0)));
+        return Err(reject("OfferNotFound", json!({ "offerId": cmd.offer_id })));
     }
     // TODO(invariant): OfferNotStockTracked — the Offer entity carries no stock-tracking flag (an
     //                  offer simply STARTS tracking on its first UpdateOfferStock, per the tests.yaml
@@ -1919,7 +1920,7 @@ pub async fn import_catalog(
             .iter()
             .any(|l| l.r#ref.is_none() || l.options.iter().any(|o| o.r#ref.is_none()));
     if missing_ref {
-        return Err(reject("MissingRef", "every imported entity must carry its ref"));
+        return Err(reject("MissingRef", json!({})));
     }
     let stream_name = catalog_stream(&cmd.catalog_id);
     let event = DomainEvent::CatalogImported(CatalogImported {
@@ -2001,10 +2002,10 @@ pub async fn verify_phone(
     {
         PhoneOtpCheck::Verified { auth_ref } => auth_ref,
         PhoneOtpCheck::Invalid => {
-            return Err(reject("InvalidVerificationCode", format!("phone={}", phone.0)));
+            return Err(reject("InvalidVerificationCode", json!({ "phone": phone })));
         }
         PhoneOtpCheck::Expired => {
-            return Err(reject("VerificationCodeExpired", format!("phone={}", phone.0)));
+            return Err(reject("VerificationCodeExpired", json!({})));
         }
     };
     if let Some(existing) = customers.by_phone(phone.clone()).await? {
@@ -2045,7 +2046,7 @@ pub async fn request_email_verification(
 ) -> Result<(), DomainError> {
     if let Some(owner) = customers.by_email(cmd.email.clone()).await? {
         if owner.customer_id != cmd.customer_id {
-            return Err(reject("EmailAlreadyInUse", format!("email={}", cmd.email.0)));
+            return Err(reject("EmailAlreadyInUse", json!({ "email": cmd.email })));
         }
     }
     let (state, _version) = load_customer(store, &cmd.customer_id).await?;
@@ -2066,10 +2067,10 @@ pub async fn confirm_email_verification(
     let email = match auth.verify_email_token(&cmd.token).await? {
         EmailTokenCheck::Verified { email } => email,
         EmailTokenCheck::Invalid => {
-            return Err(reject("InvalidVerificationToken", "magic-link token failed verification"));
+            return Err(reject("InvalidVerificationToken", json!({})));
         }
         EmailTokenCheck::Expired => {
-            return Err(reject("VerificationCodeExpired", "magic-link token expired"));
+            return Err(reject("VerificationCodeExpired", json!({})));
         }
     };
     let (_state, version) = load_customer(store, &cmd.customer_id).await?;
@@ -2094,7 +2095,7 @@ pub async fn request_phone_change(
     let new_phone = canonical_phone(&cmd.new_dialing_code, &cmd.new_national_number);
     if let Some(owner) = customers.by_phone(new_phone.clone()).await? {
         if owner.customer_id != cmd.customer_id {
-            return Err(reject("PhoneAlreadyInUse", format!("phone={}", new_phone.0)));
+            return Err(reject("PhoneAlreadyInUse", json!({ "phone": new_phone })));
         }
     }
     let (state, _version) = load_customer(store, &cmd.customer_id).await?;
@@ -2120,15 +2121,15 @@ pub async fn confirm_phone_change(
     {
         PhoneOtpCheck::Verified { .. } => {}
         PhoneOtpCheck::Invalid => {
-            return Err(reject("InvalidVerificationCode", format!("phone={}", new_phone.0)));
+            return Err(reject("InvalidVerificationCode", json!({ "phone": new_phone })));
         }
         PhoneOtpCheck::Expired => {
-            return Err(reject("VerificationCodeExpired", format!("phone={}", new_phone.0)));
+            return Err(reject("VerificationCodeExpired", json!({})));
         }
     }
     if let Some(owner) = customers.by_phone(new_phone.clone()).await? {
         if owner.customer_id != cmd.customer_id {
-            return Err(reject("PhoneAlreadyInUse", format!("phone={}", new_phone.0)));
+            return Err(reject("PhoneAlreadyInUse", json!({ "phone": new_phone })));
         }
     }
     let (_state, version) = load_customer(store, &cmd.customer_id).await?;
@@ -2165,7 +2166,7 @@ pub async fn mark_restaurant_as_favorite(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     if restaurants.by_id(cmd.restaurant_id).await?.is_none() {
-        return Err(reject("RestaurantNotFound", format!("restaurantId={}", cmd.restaurant_id.0)));
+        return Err(reject("RestaurantNotFound", json!({ "restaurantId": cmd.restaurant_id })));
     }
     let (_state, version) = load_customer(store, &cmd.customer_id).await?;
     let stream_name = customer_stream(&cmd.customer_id);
@@ -2206,7 +2207,7 @@ pub async fn update_customer_info(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     if cmd.display_name.is_none() {
-        return Err(reject("NoEditableFieldProvided", "update carried no editable field"));
+        return Err(reject("NoEditableFieldProvided", json!({})));
     }
     let (_state, version) = load_customer(store, &cmd.customer_id).await?;
     let stream_name = customer_stream(&cmd.customer_id);
