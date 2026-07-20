@@ -117,6 +117,11 @@ mutation/query is reached by a story step, and every test↔rule link holds both
   ADRs in the same change** — so concurrent sessions never diverge on state or intent. ADR ids are
   **date-time** (`ADR-YYYYMMDD-HHMMSS`) to avoid collisions (ADR-20260718-135417); legacy `0001`–`0047`
   keep their sequential ids.
+- **Respect the prioritised backlog**: [docs/BACKLOG.md](docs/BACKLOG.md) is the authoritative,
+  value-first work queue (ADR-20260720-213024) — pick issues from the top; skipping the top item needs a
+  stated reason. Re-ordering is a **product-owner decision** recorded as an ADR and applied to BOTH
+  BACKLOG.md and the issue header stamps in the same change. Keep BACKLOG.md current as issues
+  open/close, like STATUS.md.
 - Autonomous loops/routines run under the **weekly time budget** (`make budgeted-loop` or the routine
   guard) — Claude Code has no native cap; see [docs/claude/loops.md](docs/claude/loops.md) / ADR-0014.
 

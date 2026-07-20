@@ -61,10 +61,17 @@ dependency chain the issues themselves state.
 
 - Each open issue's header line now carries `**Value rank N/15** (foundations → value stream,
   ADR-20260720-213024)` in place of the old `Rank N/17 (simplest → largest)` fragment.
-- New issues get a value rank at triage using the two-tier test above; re-rank only when new
-  information arrives (unchanged rule).
+- **The ordering lives in the repository** as [`docs/BACKLOG.md`](../BACKLOG.md) (hand-maintained,
+  like STATUS.md) — the authoritative queue every session picks work from, top-down. The GitHub
+  header stamps are its mirror; any re-ordering updates BOTH in the same change so they never
+  drift. Skipping the top item requires a stated reason (blocked, plan-mode pending,
+  product-owner directive) — not preference.
+- New issues get a value rank at triage using the two-tier test above (plus a BACKLOG.md row);
+  re-rank only when new information arrives (unchanged rule) — a re-ordering is a product-owner
+  decision recorded by amending/superseding this ADR.
 - The denominator is the count of open ranked issues at stamping time; it is not rewritten across
-  all issues on every open/close — the order, not the denominator, is the contract.
+  all issues on every open/close — the order, not the denominator, is the contract. Closed issues
+  move to BACKLOG.md's Done section keeping their rank number.
 
 ## Alternatives considered
 
@@ -92,3 +99,5 @@ dependency chain the issues themselves state.
 ### Follow-up actions
 - All 15 open issues re-stamped with the value rank (this change).
 - ADR-20260720-143000 status annotated as amended by this ADR.
+- `docs/BACKLOG.md` created as the in-repo authoritative queue; CLAUDE.md non-negotiable added
+  ("respect the prioritised backlog") so every session picks work from it top-down (this change).

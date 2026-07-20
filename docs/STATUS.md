@@ -10,7 +10,9 @@
 > security, invariants, observability, retention) → #27 → #26 → #24 → #25 → #23 (codegen wave) →
 > #17 → #21 (customer stream) → #20 (restaurant onboarding) → #28 (delivery, post-V0). All 15 open
 > issues re-stamped `Value rank N/15 (foundations → value stream)`; sizing & pre-task-doc rules
-> unchanged. Docs-only change — no specs, no code.
+> unchanged. The ordering is kept **in-repo** as `docs/BACKLOG.md` (authoritative queue — sessions
+> pick work from the top; GitHub header stamps are its mirror) with a CLAUDE.md non-negotiable
+> ("respect the prioritised backlog"). Docs-only change — no specs, no code.
 
 > ✅ **2026-07-20 — #12: anonymous checkout survives restarts (ADR-20260720-213000).**
 > `place_order` now takes the dispatch-layer `X-SESSION-ID` as an ENVELOPE parameter (never command
