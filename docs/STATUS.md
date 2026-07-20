@@ -264,6 +264,11 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 > issue, not a table row; this file stays the narrative deployment/architecture snapshot. The table
 > below is the last pre-migration snapshot, kept for history.
 >
+> **Backlog order (2026-07-20, ADR-20260720-213024): work issues in the project's VALUE rank**
+> (foundations → value stream — the `Value rank N/15` header in each issue body + the board's
+> Priority/Effort fields), not the sizing rank. The issues are the live source; agents never
+> reorder on their own.
+>
 > **Issue workflow (2026-07-20, ADR-20260720-143000):** every issue is sized once with a
 > `size/XXXS`…`size/XXXL` label (AI-native scale: agent sessions + cost + review, see the ADR
 > table) and carries standard pre-task sections — *Why now? / What & why? / Impact / Sequence
