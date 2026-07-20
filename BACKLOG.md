@@ -17,6 +17,11 @@ stream). Only the product owner re-ranks (board/issue edit). Sizing method: ADR-
 3. Branch names are **`NN-slug`** (issue number first); the PR body carries **`Closes #NN`** —
    from then on GitHub's Development sidebar shows everyone the branch + PR for the issue.
 4. Merge (or close) ends the claim naturally (the issue closes). Abandoning? Remove the label.
+5. **Board mirror (one-way, label → Status)**: the org Project has a Workflow "label
+   `status/in-progress` added → Status: In Progress" (+ built-in "item closed → Done"), so the
+   board SHOWS the claim in its In Progress column. Sessions never write the Status column
+   directly — single writer, the label; the board is a view (needs org-project scopes agents'
+   tokens don't have, which is exactly why the label is the claim).
 
 ## Stale-claim reaper
 
