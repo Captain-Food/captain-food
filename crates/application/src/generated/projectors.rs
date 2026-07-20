@@ -270,7 +270,7 @@ pub fn project_order_tracking<C: OrderTrackingCompute>(c: &C, state: Option<Orde
     let next = match &env.event {
         DomainEvent::OrderPlaced(e) => Some(OrderTrackingRow {
             order_id: e.order_id.clone(),
-            r#ref: e.r#ref.clone().expect("ref required on OrderPlaced"),
+            r#ref: e.r#ref.clone().unwrap_or_default(),
             restaurant_id: e.restaurant_id.clone(),
             customer_id: e.customer_id.clone(),
             status: c.status(None, env),

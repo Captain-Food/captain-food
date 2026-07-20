@@ -166,11 +166,17 @@ impl ProcessManagerRunner {
 
     /// Poll forever: `run_once` then sleep ~1.5s. Consumes the runner (spawn it as a task); the shared
     /// [`ProcessManagerStatus`] handle stays readable through [`Self::status`] clones taken before.
+    /// Each tick runs in its own task so a PANIC escaping a drain (poison event, legacy payload in a
+    /// fold) kills only that tick, never the loop — a dead saga runner silently stops the money path.
     pub async fn run_loop(self) {
         self.status_mut().running = true;
+        let runner = std::sync::Arc::new(self);
         loop {
             // Errors are recorded on the status snapshot by run_once; the loop keeps polling.
-            let _ = self.run_once().await;
+            let r = std::sync::Arc::clone(&runner);
+            if let Err(join) = tokio::spawn(async move { let _ = r.run_once().await; }).await {
+                eprintln!("saga runner: tick panicked — resuming next tick: {join}");
+            }
             tokio::time::sleep(POLL_INTERVAL).await;
         }
     }

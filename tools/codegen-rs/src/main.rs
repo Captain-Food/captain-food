@@ -6401,7 +6401,10 @@ fn emit_domain_scalars(model: &Model) -> String {
             } else if ty == "number" {
                 ("Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize", "f64")
             } else {
-                ("Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize", "String")
+                // Default: a projection folding a legacy event that predates a required property
+                // falls back to the empty value instead of panicking the worker (see the
+                // ScalarLatest required-on-creation arm of the projector emitter).
+                ("Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize", "String")
             };
             out.push_str(&format!("#[derive({})]\n", derives));
             out.push_str(&format!("pub struct {}(pub {});\n", name, inner));
@@ -6813,7 +6816,11 @@ fn emit_projectors(model: &Model) -> String {
                             let ev_opt = event_prop_optional(model, &creation, prop);
                             match (ev_opt, opt) {
                                 (true, true) => format!("e.{}.clone()", field),
-                                (true, false) => format!("e.{}.clone().expect(\"{} required on {}\")", field, c.name, creation),
+                                // Optional on the event but NOT NULL in the row: legacy production
+                                // events can predate the property — defaulting keeps the projection
+                                // total (a panicking accessor wedges the whole worker at that
+                                // position forever).
+                                (true, false) => format!("e.{}.clone().unwrap_or_default()", field),
                                 (false, true) => format!("Some(e.{}.clone())", field),
                                 (false, false) => format!("e.{}.clone()", field),
                             }
