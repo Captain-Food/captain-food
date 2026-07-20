@@ -76,11 +76,12 @@ isn't enough.
 3. Branch names are **`NN-slug`** (issue number first); the PR body carries **`Closes #NN`** —
    from then on GitHub's Development sidebar shows everyone the branch + PR for the issue.
 4. Merge (or close) ends the claim naturally (the issue closes). Abandoning? Remove the label.
-5. **Board mirror (one-way, label → Status)**: the org Project has a Workflow "label
-   `status/in-progress` added → Status: In Progress" (+ built-in "item closed → Done"), so the
-   board SHOWS the claim in its In Progress column. Sessions never write the Status column
-   directly — single writer, the label; the board is a view (needs org-project scopes agents'
-   tokens don't have, which is exactly why the label is the claim).
+5. **Board mirror (native Project workflows — no label trigger exists)**: enable
+   "Pull request linked to issue → Status: In progress", "Pull request merged → Done" and
+   "Item closed → Done". The Status column therefore flips at PR-link time; during the short
+   claim→PR window the claim is visible as the `status/in-progress` label chip + claim comment.
+   Sessions never write the Status column directly — the label is the authoritative claim
+   (full label→Status sync would need a PAT-scoped Action; deliberately not adopted).
 
 ## Stale-claim reaper
 
