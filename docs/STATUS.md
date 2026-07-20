@@ -1,7 +1,35 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-19. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-20 (early). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> ✅ **2026-07-20 (early) — post-merge wave, all landed directly on `main` (user-directed), each
+> workstream gated in an isolated worktree then re-gated integrated (final: 29x tests green,
+> validate 0 errors, drift clean):** ① **Production JWT bug fixed** — `jsonwebtoken` v10 had no
+> crypto backend selected → every authenticated GraphQL request panicked (502) in prod; fixed with
+> the `rust_crypto` feature. ② **Automated prod E2E smoke test (Stripe TEST mode)** —
+> `tools/smoke/prod-smoke.sh` (`make smoke-prod`, `.github/workflows/prod-smoke.yml`
+> workflow_dispatch + daily cron; needs repo secrets `STRIPE_SECRET_KEY`/`RENDER_API_KEY`, not yet
+> configured): layered ping/health → public GraphQL → idempotent `smoke-test` tenant fixture →
+> full checkout with `pm_card_visa` confirmed server-side → poll until captured. Stripe test
+> webhook endpoint created → `https://api.captain.food/adapters/stripe/webhooks`
+> (`payment_intent.succeeded`/`payment_intent.payment_failed`/`charge.refunded`), signature
+> verified live; `STRIPE_WEBHOOK_SECRET` set in Render. ③ **Server-side pricing, fail-closed**
+> (ADR-20260720-002217): `place_order` reprices every folded cart line from the live catalog
+> (`application::pricing::price_cart`) → PaymentIntent amount + frozen snapshot; optional
+> `PlaceOrder.expectedTotal` equality check; `PriceMismatch`/`PriceUnresolvable`; rule
+> `ServerPriceAuthority`. ④ **`pendingRefunds` read model** (ADR-20260720-003142): new
+> `RefundOpened` event on the Payment stream, `View_PendingRefunds` fold view + migration,
+> `pendingRefunds` query (RESTAURANT+ADMIN) + story steps, rule `PendingRefundVisibleUntilDecided`.
+> ⑤ **Bounded partner re-offer policy** (ADR-20260720-004556): decline → re-offer, cap 3
+> (`offer_attempts` in the run row), exhaustion → `DeliveryDispatchFailed` + run FAILED (status
+> `FAILED` replaces `REOFFER_REQUIRED`); offer timeouts deferred (no time-based sweep host yet).
+> ⑥ **Codegen roadmap item 1, first slice** (ADR-20260720-004419): `lifecycle:` DSL in actors.yaml
+> (event-keyed), 8 `lc-*` validator rules + coverage warning, generated
+> `domain/src/generated/lifecycles.rs` transition tables + mermaid state diagrams in the docs;
+> Order wired end-to-end. Remaining open: fee/split breakdown (ADR-0016/0017), offer timeouts,
+> Rider/DeliveryJob/Restaurant lifecycle adoption, worker `DeliveryJob-%` drain, roadmap items 2–7,
+> GitHub repo secrets for the smoke workflow.
 
 > 🔀 **Parallel session engaged: command sourcing + inbound-event sourcing** (infrastructure
 > journals, branched from main after this branch merges). Two constraints agreed here carry over:
