@@ -121,6 +121,27 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 | `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
+### `View_PendingRefunds` · 🛶 V0 · source aggregate `Payment`
+
+- **Fed by**: `RefundOpened`, `RefundApproved`, `RefundDenied`, `PaymentRefunded`
+- **Rules**: A row exists only for a refund actually opened for decision: RefundOpened is delivered by RefundProcess ONLY when the order's payment is CAPTURED (the guard lives in the saga, so the fold needs no payment-status filter). `status` is derived from the lifecycle events: REQUESTED on RefundOpened → APPROVED on RefundApproved (Stripe refund requested) or DENIED on RefundDenied → REFUNDED on PaymentRefunded (Stripe settled). `amount_cents` is the captured order total eligible for refund; `approved_amount_cents` is the (possibly partial) approved amount, null until approved.
+- **Indexes**: `(restaurant_id, status)`
+
+| Column | Type | SQL | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `order_id` | `OrderId` | `UUID` | PK |  |
+| `restaurant_id` | `RestaurantId` | `UUID` | index |  |
+| `status` | `RefundStatus` | `INTEGER` | — | Derived from the latest lifecycle event type. |
+| `amount_cents` | `MoneyCents` | `BIGINT` | — | amountCents of RefundOpened.amount (Money) — the captured total eligible for refund. |
+| `currency` | `CurrencyCode` | `TEXT` | — | currency of RefundOpened.amount (Money). |
+| `approved_amount_cents` | `MoneyCents` | `BIGINT` | nullable | amountCents of RefundApproved.amount (Money — may be partial); null until approved. |
+| `reason` | `text` | `TEXT` | nullable | The latest recorded reason: the opening fact's, then the decision's. |
+| `refund_id` | `RefundId` | `TEXT` | nullable | The Stripe Refund id once settled; null before PaymentRefunded. |
+| `requested_at` | `timestamptz` | `TIMESTAMPTZ` | — | RefundOpened occurrence time. |
+| `decided_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | The decision's occurrence time (approval or denial); null while REQUESTED. |
+| `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
+
 ### `Restaurant` · 🛶 V0 · source aggregate `Restaurant`
 
 - **Fed by**: `RestaurantRegistered`, `RestaurantUpdated`, `RestaurantActivated`, `RestaurantDeactivated`, `RestaurantAcceptanceModeChanged`, `RestaurantRemoved`, `RestaurantGoogleBusinessProfileUpdated`, `RestaurantListingClaimed`, `RestaurantListingOptedOut`, `RestaurantMarkedClosed`, `RestaurantListingStatusChanged`, `RestaurantGoogleBusinessProfileOrderLinkConfigured`, `RestaurantGoogleBusinessProfileOrderLinkVerified`, `RestaurantAccountRegistered`

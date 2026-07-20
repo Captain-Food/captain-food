@@ -321,6 +321,9 @@ fixtures:
   paymentRefunded:
     type: { $ref: 'events.yaml#/PaymentRefunded' }
     data: { refundId: "re_1", paymentIntentId: "pi_123", orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
+  refundOpened:
+    type: { $ref: 'events.yaml#/RefundOpened' }
+    data: { orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" }, reason: "Out of ingredients" }
   refundApproved:
     type: { $ref: 'events.yaml#/RefundApproved' }
     data: { orderId: "order-1", amount: { amountCents: 1960, currency: "EUR" }, reason: "Order rejected by the restaurant" }
@@ -1858,7 +1861,8 @@ tests:
     when:
       type: { $ref: 'events.yaml#/OrderRejectedByRestaurant' }
       data: { orderId: "order-1", restaurantId: "resto-1", reason: "Out of ingredients" }
-    then: []
+    then:
+      - { $ref: '#/fixtures/refundOpened' }   # the refund-queue fact, delivered to the Payment (View_PendingRefunds)
 
   TestRefundOnOrderCancelledByCustomer:
     name: "Requests a Stripe refund when the customer cancels the order"
@@ -2179,6 +2183,19 @@ tests:
       data: { refundId: "re_1", paymentIntentId: "pi_123", orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" } }
     then:
       - { $ref: '#/fixtures/paymentRefunded' }
+
+  TestPendingRefundVisibleUntilDecided:
+    name: "The Payment records the opened refund (RefundOpened, idempotent) so the refund queue folds it as REQUESTED until decided"
+    rules: [{ $ref: 'rules.yaml#/PendingRefundVisibleUntilDecided' }]
+    actor: { $ref: 'actors.yaml#/Payment' }
+    given:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+      - { $ref: '#/fixtures/paymentCaptured' }
+    when:
+      type: { $ref: 'events.yaml#/RefundOpened' }
+      data: { orderId: "order-1", restaurantId: "resto-1", amount: { amountCents: 1960, currency: "EUR" }, reason: "Out of ingredients" }
+    then:
+      - { $ref: '#/fixtures/refundOpened' }
 
   TestPaymentRefundApprovedRecorded:
     name: "The Payment records the refund approval (restaurant or admin) delivered by RefundProcess"

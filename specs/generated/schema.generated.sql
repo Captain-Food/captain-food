@@ -68,6 +68,10 @@ INSERT INTO ref_order_acceptance_mode (value, sort_order) VALUES ('NORMAL',0),('
 CREATE TABLE ref_payment_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_payment_status (value, sort_order) VALUES ('PENDING',0),('CAPTURED',1),('FAILED',2),('REFUNDED',3);
 
+-- RefundStatus
+CREATE TABLE ref_refund_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_refund_status (value, sort_order) VALUES ('REQUESTED',0),('APPROVED',1),('DENIED',2),('REFUNDED',3);
+
 -- OperationStatus
 CREATE TABLE ref_operation_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_operation_status (value, sort_order) VALUES ('PENDING',0),('SUCCEEDED',1),('REJECTED',2),('FAILED',3);

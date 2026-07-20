@@ -799,6 +799,16 @@ pub struct RiderStatusChanged {
     pub status: RiderStatus,
 }
 
+/// A refundable fact on a paid order (rejection, cancellation, customer request) opened a refund for a restaurant/admin decision. Delivered by RefundProcess to the Payment aggregate ONLY when the payment is CAPTURED, so the refund queue (View_PendingRefunds) folds from the log, not from PM state. `amount` is the captured order total eligible for refund (an approval may still be partial).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundOpened {
+    pub order_id: OrderId,
+    pub restaurant_id: RestaurantId,
+    pub amount: Money,
+    pub reason: Option<String>,
+}
+
 /// The restaurant or an admin approved a refund; the RefundProcess will drive the Stripe refund for this amount.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -902,6 +912,7 @@ pub enum DomainEvent {
     RiderRegistered(RiderRegistered),
     RiderInfoUpdated(RiderInfoUpdated),
     RiderStatusChanged(RiderStatusChanged),
+    RefundOpened(RefundOpened),
     RefundApproved(RefundApproved),
     RefundDenied(RefundDenied),
 }

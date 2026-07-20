@@ -9,8 +9,8 @@
 use domain::generated::scalars::{
     CartStatus, ComparisonBasis, CuisineCategory, DeliveryDispatchProcessStatus, DeliveryProvider,
     DeliveryStatus, GbpLinkStatus, OrderAcceptanceMode, OrderStatus, PaymentProcessStatus,
-    PaymentStatus, ProspectPipelineStatus, RefundProcessStatus, RestaurantListingStatus,
-    RestaurantStatus, ServiceType, ThumbRating,
+    PaymentStatus, ProspectPipelineStatus, RefundProcessStatus, RefundStatus,
+    RestaurantListingStatus, RestaurantStatus, ServiceType, ThumbRating,
 };
 use domain::shared::errors::DomainError;
 
@@ -83,6 +83,12 @@ enum_ord!(ComparisonBasis { ESTIMATED => 0, REAL => 1 });
 enum_ord!(ThumbRating { UP => 0, DOWN => 1 });
 enum_ord!(PaymentStatus { PENDING => 0, CAPTURED => 1, FAILED => 2, REFUNDED => 3 });
 enum_ord!(PaymentProcessStatus { AWAITING_PAYMENT_RESULT => 0, ORDER_PLACED => 1, FAILED => 2 });
+enum_ord!(RefundStatus {
+    REQUESTED => 0,
+    APPROVED => 1,
+    DENIED => 2,
+    REFUNDED => 3,
+});
 enum_ord!(RefundProcessStatus {
     PENDING_APPROVAL => 0,
     APPROVED_AWAITING_SETTLEMENT => 1,

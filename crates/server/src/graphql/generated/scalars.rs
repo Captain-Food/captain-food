@@ -1493,6 +1493,39 @@ impl From<PaymentStatus> for ds::PaymentStatus {
     }
 }
 
+/// Lifecycle of a refund request as read models fold it from the domain facts (View_PendingRefunds): REQUESTED on RefundOpened (awaiting a restaurant/admin decision), APPROVED on RefundApproved (Stripe refund requested), DENIED on RefundDenied, REFUNDED once Stripe settles (PaymentRefunded). Distinct from RefundProcessStatus, the RefundProcess state-table run status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum RefundStatus {
+    #[graphql(name = "REQUESTED")]
+    REQUESTED,
+    #[graphql(name = "APPROVED")]
+    APPROVED,
+    #[graphql(name = "DENIED")]
+    DENIED,
+    #[graphql(name = "REFUNDED")]
+    REFUNDED,
+}
+impl From<ds::RefundStatus> for RefundStatus {
+    fn from(v: ds::RefundStatus) -> Self {
+        match v {
+            ds::RefundStatus::REQUESTED => Self::REQUESTED,
+            ds::RefundStatus::APPROVED => Self::APPROVED,
+            ds::RefundStatus::DENIED => Self::DENIED,
+            ds::RefundStatus::REFUNDED => Self::REFUNDED,
+        }
+    }
+}
+impl From<RefundStatus> for ds::RefundStatus {
+    fn from(v: RefundStatus) -> Self {
+        match v {
+            RefundStatus::REQUESTED => Self::REQUESTED,
+            RefundStatus::APPROVED => Self::APPROVED,
+            RefundStatus::DENIED => Self::DENIED,
+            RefundStatus::REFUNDED => Self::REFUNDED,
+        }
+    }
+}
+
 /// Live status of a command/operation streamed by the operationStatusChanged subscription: PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
 pub enum OperationStatus {

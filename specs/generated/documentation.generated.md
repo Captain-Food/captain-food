@@ -130,6 +130,7 @@ Runs a SINGLE location (HubRise location): handles the live order queue. Assigne
 |  | SetAcceptanceMode | [✏️ `changeOrderAcceptanceMode`](#mutation-changeorderacceptancemode) |
 |  | CancelOrder | [✏️ `cancelOrderByRestaurant`](#mutation-cancelorderbyrestaurant) |
 |  | ThankRiderOrCaptain | [✏️ `tipOrder`](#mutation-tiporder) |
+|  | ReviewPendingRefunds | [🔎 `pendingRefunds`](#query-pendingrefunds) |
 |  | ApproveRefund | [✏️ `approveRefund`](#mutation-approverefund) |
 |  | DenyRefund | [✏️ `denyRefund`](#mutation-denyrefund) |
 | 🧭 **TrackDeliveries** | ViewDeliveries | [🔎 `restaurantDeliveries`](#query-restaurantdeliveries) |
@@ -164,7 +165,8 @@ A platform operator who onboards accounts and oversees the platform.
 |  | MarkClosed | [✏️ `markRestaurantClosed`](#mutation-markrestaurantclosed) |
 | 🧭 **Prospection** | ReviewPipeline | [🔎 `prospectionPipeline`](#query-prospectionpipeline) |
 |  | LogReply | [✏️ `recordProspectReply`](#mutation-recordprospectreply) |
-| 🧭 **ArbitrateRefunds** | ApproveRefund | [✏️ `approveRefund`](#mutation-approverefund) |
+| 🧭 **ArbitrateRefunds** | ReviewPendingRefunds | [🔎 `pendingRefunds`](#query-pendingrefunds) |
+|  | ApproveRefund | [✏️ `approveRefund`](#mutation-approverefund) |
 |  | DenyRefund | [✏️ `denyRefund`](#mutation-denyrefund) |
 | 🧭 **Pricing** | ReviewPolicy | [🔎 `pricingPolicy`](#query-pricingpolicy) |
 |  | SetRestaurantMargin | [✏️ `updateRestaurant`](#mutation-updaterestaurant) |
@@ -190,7 +192,7 @@ The Sirene/Google sync ACL (a scheduled worker) acting as an EXTERNAL caller. It
 
 _Restaurant provider domain: accounts, locations, lifecycle, order-acceptance mode (incl. catalog & order-fulfilment operations performed by restaurant staff)._
 
-### 🧰 API operations _(22)_
+### 🧰 API operations _(23)_
 
 <a id="query-restaurantdeliveries"></a>
 #### 🔎 Query: `restaurantDeliveries`
@@ -200,6 +202,16 @@ A restaurant's active delivery jobs (delivery board; ownership enforced server-s
 - **Input**: 🧩 `RestaurantDeliveriesQueryInput!` — `restaurantId`: [🔤 `RestaurantId`](#scalar-restaurantid), `status?`: [🔤 `DeliveryStatus`](#scalar-deliverystatus)
 - **Returns**: [🧩 `DeliveryJob`](#type-deliveryjob) (list) · **reads** [🗄️ `View_DeliveryJob`](#view-view_deliveryjob)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
+
+<a id="query-pendingrefunds"></a>
+#### 🔎 Query: `pendingRefunds`
+
+The refund queue (RefundProcess): refunds opened for decision, with their lifecycle status (status = REQUESTED is the pending, awaiting-decision queue). The restaurant sees its own orders' refunds (restaurant-scoped, ownership enforced server-side); an admin arbitrates across restaurants.
+
+
+- **Input**: 🧩 `PendingRefundsQueryInput` — `restaurantId?`: [🔤 `RestaurantId`](#scalar-restaurantid), `status?`: [🔤 `RefundStatus`](#scalar-refundstatus)
+- **Returns**: [🧩 `Refund`](#type-refund) (list) · **reads** [🗄️ `View_PendingRefunds`](#view-view_pendingrefunds)
+- **Roles**: RESTAURANT, ADMIN · **slice** V0
 
 <a id="query-restaurantlocationsbyaccount"></a>
 #### 🔎 Query: `restaurantLocationsByAccount`
@@ -2935,7 +2947,7 @@ Order status change events (for the owning customer or restaurant).
 - **Streams**: [🧩 `Order`](#type-order)
 - **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
 
-### 🧩 Output types _(2)_
+### 🧩 Output types _(3)_
 
 <a id="type-cart"></a>
 #### 🧩 Type: `Cart`
@@ -2991,6 +3003,26 @@ An order with its tracking status and payment state.
 | <a id="type-order--estimateddropoffat"></a>`estimatedDropoffAt` | `string` _date-time_ | ⬜ |
 | <a id="type-order--ratedat"></a>`ratedAt` | `string` _date-time_ | ⬜ |
 
+<a id="type-refund"></a>
+#### 🧩 Type: `Refund`
+
+A refund opened for decision on a paid order (RefundProcess): REQUESTED until the restaurant/admin decides, then APPROVED (Stripe refund requested) or DENIED, and REFUNDED once Stripe settles. Serves the restaurant's and admin's refund queue (filter status = REQUESTED for pending ones).
+
+
+- **Read model**: [🗄️ `View_PendingRefunds`](#view-view_pendingrefunds)
+
+| Field | Type | Required |
+| --- | --- | --- |
+| <a id="type-refund--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |
+| <a id="type-refund--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |
+| <a id="type-refund--status"></a>`status` | [🔤 `RefundStatus`](#scalar-refundstatus) | ✅ |
+| <a id="type-refund--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |
+| <a id="type-refund--approvedamount"></a>`approvedAmount` | [📦 `Money`](#entity-money) | ⬜ |
+| <a id="type-refund--reason"></a>`reason` | `string` | ⬜ |
+| <a id="type-refund--refundid"></a>`refundId` | [🔤 `RefundId`](#scalar-refundid) | ⬜ |
+| <a id="type-refund--requestedat"></a>`requestedAt` | `string` _date-time_ | ✅ |
+| <a id="type-refund--decidedat"></a>`decidedAt` | `string` _date-time_ | ⬜ |
+
 ### 🎭 Actors _(5)_
 
 <a id="actor-cart"></a>
@@ -3037,6 +3069,7 @@ _🧩 aggregate_ — A payment for an order, driven to a terminal state. Born fr
 | [⚡ `PaymentCaptured`](#event-paymentcaptured) | [⚡ `PaymentCaptured`](#event-paymentcaptured) | — |
 | [⚡ `PaymentFailed`](#event-paymentfailed) | [⚡ `PaymentFailed`](#event-paymentfailed) | — |
 | [⚡ `PaymentRefunded`](#event-paymentrefunded) | [⚡ `PaymentRefunded`](#event-paymentrefunded) | — |
+| [⚡ `RefundOpened`](#event-refundopened) | [⚡ `RefundOpened`](#event-refundopened) | — |
 | [⚡ `RefundApproved`](#event-refundapproved) | [⚡ `RefundApproved`](#event-refundapproved) | — |
 | [⚡ `RefundDenied`](#event-refunddenied) | [⚡ `RefundDenied`](#event-refunddenied) | — |
 
@@ -3105,16 +3138,15 @@ sequenceDiagram
 <a id="actor-refundprocess"></a>
 #### 🎭 Actor: `RefundProcess`
 
-_⚙️ process manager_ — Approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a pending refund on the state row; the RESTAURANT (its own orders) or an ADMIN decides with ApproveRefund / DenyRefund (authz = api.yaml roles when the mutations land); on approval the outbound Stripe refund is requested and the run settles when Stripe reports PaymentRefunded (the fact itself is recorded by the Payment aggregate). The refund-eligibility window is a config value enforced at approval, not a domain rule.
+_⚙️ process manager_ — Approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a pending refund: RefundOpened is delivered to the Payment aggregate (so the refund queue, View_PendingRefunds, folds from the log) and the state row goes PENDING_APPROVAL; the RESTAURANT (its own orders) or an ADMIN decides with ApproveRefund / DenyRefund (authz = api.yaml roles); on approval the outbound Stripe refund is requested and the run settles when Stripe reports PaymentRefunded (the fact itself is recorded by the Payment aggregate). The refund-eligibility window is a config value enforced at approval, not a domain rule.
 
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
-| [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant) | _The restaurant rejected a paid order — open a pending refund for a restaurant/admin decision._ | — |
-| [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer) | _The customer cancelled a paid order — open a pending refund for a restaurant/admin decision._ | — |
-| [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | _The restaurant cancelled a paid order — open a pending refund for a restaurant/admin decision._ | — |
-| [⚡ `RefundRequested`](#event-refundrequested) | _The customer asked for a refund (the Order aggregate already validated RequestRefund) — open a pending refund for a restaurant/admin decision.
-_ | — |
+| [⚡ `OrderRejectedByRestaurant`](#event-orderrejectedbyrestaurant) | [⚡ `RefundOpened`](#event-refundopened) | — |
+| [⚡ `OrderCancelledByCustomer`](#event-ordercancelledbycustomer) | [⚡ `RefundOpened`](#event-refundopened) | — |
+| [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant) | [⚡ `RefundOpened`](#event-refundopened) | — |
+| [⚡ `RefundRequested`](#event-refundrequested) | [⚡ `RefundOpened`](#event-refundopened) | — |
 | [📩 `ApproveRefund`](#command-approverefund) | [⚡ `RefundApproved`](#event-refundapproved) | [⛔ `RefundNotPending`](#error-refundnotpending) |
 | [📩 `DenyRefund`](#command-denyrefund) | [⚡ `RefundDenied`](#event-refunddenied) | [⛔ `RefundNotPending`](#error-refundnotpending) |
 | [⚡ `PaymentRefunded`](#event-paymentrefunded) | _Stripe reported the settled refund (recorded by the Payment aggregate) — close the run. The fact is already in the log; nothing to emit.
@@ -3129,30 +3161,34 @@ sequenceDiagram
   participant PM as RefundProcess (decides)
   participant ST as refund_process_manager (state)
   participant RM_OrderTracking as OrderTracking (read model)
-  participant PT_payment as port payment (adapter)
   participant AG_Payment as Payment (aggregate)
+  participant PT_payment as port payment (adapter)
   rect rgb(245,245,245)
   IN->>PM: OrderRejectedByRestaurant (event)
   PM->>RM_OrderTracking: read as order [order_id=OrderRejectedByRestaurant.orderId]
   Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>AG_Payment: deliver RefundOpened — the aggregate records it
   PM->>ST: set order_id=OrderRejectedByRestaurant.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=OrderRejectedByRestaurant.reason
   end
   rect rgb(245,245,245)
   IN->>PM: OrderCancelledByCustomer (event)
   PM->>RM_OrderTracking: read as order [order_id=OrderCancelledByCustomer.orderId]
   Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>AG_Payment: deliver RefundOpened — the aggregate records it
   PM->>ST: set order_id=OrderCancelledByCustomer.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=OrderCancelledByCustomer.reason
   end
   rect rgb(245,245,245)
   IN->>PM: OrderCancelledByRestaurant (event)
   PM->>RM_OrderTracking: read as order [order_id=OrderCancelledByRestaurant.orderId]
   Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>AG_Payment: deliver RefundOpened — the aggregate records it
   PM->>ST: set order_id=OrderCancelledByRestaurant.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=OrderCancelledByRestaurant.reason
   end
   rect rgb(245,245,245)
   IN->>PM: RefundRequested (event)
   PM->>RM_OrderTracking: read as order [order_id=RefundRequested.orderId]
   Note over PM: skip unless order.payment_status == CAPTURED
+  PM->>AG_Payment: deliver RefundOpened — the aggregate records it
   PM->>ST: set order_id=RefundRequested.orderId, payment_intent_id=order.payment_intent_id, process_status=PENDING_APPROVAL, reason=RefundRequested.reason
   end
   rect rgb(245,245,245)
@@ -3177,7 +3213,29 @@ sequenceDiagram
   end
 ```
 
-### 🗄️ Views (read models) _(2)_
+### 🗄️ Views (read models) _(3)_
+
+<a id="view-view_pendingrefunds"></a>
+#### 🗄️ View: `View_PendingRefunds`
+
+- **Source**: [🎭 `Payment`](#actor-payment) · 🛶 V0
+- **Rules**: A row exists only for a refund actually opened for decision: RefundOpened is delivered by RefundProcess ONLY when the order's payment is CAPTURED (the guard lives in the saga, so the fold needs no payment-status filter). `status` is derived from the lifecycle events: REQUESTED on RefundOpened → APPROVED on RefundApproved (Stripe refund requested) or DENIED on RefundDenied → REFUNDED on PaymentRefunded (Stripe settled). `amount_cents` is the captured order total eligible for refund; `approved_amount_cents` is the (possibly partial) approved amount, null until approved.
+- **Fed by**: [⚡ `RefundOpened`](#event-refundopened), [⚡ `RefundApproved`](#event-refundapproved), [⚡ `RefundDenied`](#event-refunddenied), [⚡ `PaymentRefunded`](#event-paymentrefunded)
+
+| Column | Type | Sourced from | Constraints | Notes |
+| --- | --- | --- | --- | --- |
+| `order_id` | [🔤 `OrderId`](#scalar-orderid) _(derived)_ → [🗄️ `OrderTracking`](#view-ordertracking) | [⚡ `RefundOpened`.`orderId`](#event-refundopened--orderid) | PK |  |
+| `restaurant_id` | [🔤 `RestaurantId`](#scalar-restaurantid) _(derived)_ → [🗄️ `Restaurant`](#view-restaurant) | [⚡ `RefundOpened`.`restaurantId`](#event-refundopened--restaurantid) | index |  |
+| `status` | [🔤 `RefundStatus`](#scalar-refundstatus) | [⚡ `RefundOpened`](#event-refundopened), [⚡ `RefundApproved`](#event-refundapproved), [⚡ `RefundDenied`](#event-refunddenied), [⚡ `PaymentRefunded`](#event-paymentrefunded) | — | Derived from the latest lifecycle event type. |
+| `amount_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `RefundOpened`.`amount`](#event-refundopened--amount) | — | amountCents of RefundOpened.amount (Money) — the captured total eligible for refund. |
+| `currency` | [🔤 `CurrencyCode`](#scalar-currencycode) | [⚡ `RefundOpened`.`amount`](#event-refundopened--amount) | — | currency of RefundOpened.amount (Money). |
+| `approved_amount_cents` | [🔤 `MoneyCents`](#scalar-moneycents) | [⚡ `RefundApproved`.`amount`](#event-refundapproved--amount) | nullable | amountCents of RefundApproved.amount (Money — may be partial); null until approved. |
+| `reason` | `text` | [⚡ `RefundOpened`.`reason`](#event-refundopened--reason), [⚡ `RefundApproved`.`reason`](#event-refundapproved--reason), [⚡ `RefundDenied`.`reason`](#event-refunddenied--reason) | nullable | The latest recorded reason: the opening fact's, then the decision's. |
+| `refund_id` | [🔤 `RefundId`](#scalar-refundid) | [⚡ `PaymentRefunded`.`refundId`](#event-paymentrefunded--refundid) | nullable | The Stripe Refund id once settled; null before PaymentRefunded. |
+| `requested_at` | `timestamptz` | [⚡ `RefundOpened`](#event-refundopened) | — | RefundOpened occurrence time. |
+| `decided_at` | `timestamptz` | [⚡ `RefundApproved`](#event-refundapproved), [⚡ `RefundDenied`](#event-refunddenied) | nullable | The decision's occurrence time (approval or denial); null while REQUESTED. |
+| `created_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
+| `updated_at` | `timestamptz` | ⚠️ _(none)_ | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
 <a id="view-cart"></a>
 #### 🗄️ View: `Cart`
@@ -3529,7 +3587,7 @@ The RESTAURANT (its own orders) or an ADMIN denies a pending refund request.
 | <a id="command-denyrefund--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
 | <a id="command-denyrefund--reason"></a>`reason` | `string` | ✅ |  |
 
-### ⚡ Events _(24)_
+### ⚡ Events _(25)_
 
 <a id="event-cartboundtocustomer"></a>
 #### ⚡ Event: `CartBoundToCustomer`
@@ -3866,7 +3924,7 @@ A captured payment was refunded (e.g. after rejection or cancellation).
 
 - **Emitted by**: [🎭 `Payment`](#actor-payment)
 - **Consumed by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
-- **Projected into**: [🗄️ `OrderTracking`](#view-ordertracking)
+- **Projected into**: [🗄️ `View_PendingRefunds`](#view-view_pendingrefunds), [🗄️ `OrderTracking`](#view-ordertracking)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3877,6 +3935,22 @@ A captured payment was refunded (e.g. after rejection or cancellation).
 | <a id="event-paymentrefunded--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ |  |
 | <a id="event-paymentrefunded--reason"></a>`reason` | `string` | ⬜ |  |
 
+<a id="event-refundopened"></a>
+#### ⚡ Event: `RefundOpened`
+
+A refundable fact on a paid order (rejection, cancellation, customer request) opened a refund for a restaurant/admin decision. Delivered by RefundProcess to the Payment aggregate ONLY when the payment is CAPTURED, so the refund queue (View_PendingRefunds) folds from the log, not from PM state. `amount` is the captured order total eligible for refund (an approval may still be partial).
+
+- **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
+- **Consumed by**: [🎭 `Payment`](#actor-payment)
+- **Projected into**: [🗄️ `View_PendingRefunds`](#view-view_pendingrefunds)
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| <a id="event-refundopened--orderid"></a>`orderId` | [🔤 `OrderId`](#scalar-orderid) | ✅ |  |
+| <a id="event-refundopened--restaurantid"></a>`restaurantId` | [🔤 `RestaurantId`](#scalar-restaurantid) | ✅ |  |
+| <a id="event-refundopened--amount"></a>`amount` | [📦 `Money`](#entity-money) | ✅ | The captured order total eligible for refund (the decision may approve less). |
+| <a id="event-refundopened--reason"></a>`reason` | `string` | ⬜ |  |
+
 <a id="event-refundapproved"></a>
 #### ⚡ Event: `RefundApproved`
 
@@ -3884,7 +3958,7 @@ The restaurant or an admin approved a refund; the RefundProcess will drive the S
 
 - **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
 - **Consumed by**: [🎭 `Payment`](#actor-payment)
-- **Projected into**: —
+- **Projected into**: [🗄️ `View_PendingRefunds`](#view-view_pendingrefunds)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3899,7 +3973,7 @@ The restaurant or an admin denied a pending refund request.
 
 - **Emitted by**: [🎭 `Payment`](#actor-payment), [🎭 `RefundProcess`](#actor-refundprocess)
 - **Consumed by**: [🎭 `Payment`](#actor-payment)
-- **Projected into**: —
+- **Projected into**: [🗄️ `View_PendingRefunds`](#view-view_pendingrefunds)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -4056,7 +4130,7 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="entity-order--status"></a>`status` | [🔤 `OrderStatus`](#scalar-orderstatus) | ✅ |  |
 | <a id="entity-order--note"></a>`note` | [🔤 `OrderNote`](#scalar-ordernote) | ⬜ |  |
 
-### 🔤 Scalars _(17)_
+### 🔤 Scalars _(18)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
@@ -4076,6 +4150,7 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="scalar-tipper"></a>🔤 `Tipper` | enum (CUSTOMER \| RESTAURANT) | Who gives a tip: the CUSTOMER (may tip rider/restaurant/Captain) or the RESTAURANT (may tip rider/ Captain — e.g. thanking the courier). Derived server-side from the caller's role, not client-supplied.  |
 | <a id="scalar-cartstatus"></a>🔤 `CartStatus` | enum (OPEN \| CHECKED_OUT) | Lifecycle of a cart. Only an OPEN cart accepts line edits or checkout. Carts are never abandoned/expired — they persist until checked out, so there is no abandonment state.  |
 | <a id="scalar-paymentstatus"></a>🔤 `PaymentStatus` | enum (PENDING \| CAPTURED \| FAILED \| REFUNDED) | Order payment state, folded from Stripe facts (PaymentIntentCreated/Captured/Failed/Refunded). |
+| <a id="scalar-refundstatus"></a>🔤 `RefundStatus` | enum (REQUESTED \| APPROVED \| DENIED \| REFUNDED) | Lifecycle of a refund request as read models fold it from the domain facts (View_PendingRefunds): REQUESTED on RefundOpened (awaiting a restaurant/admin decision), APPROVED on RefundApproved (Stripe refund requested), DENIED on RefundDenied, REFUNDED once Stripe settles (PaymentRefunded). Distinct from RefundProcessStatus, the RefundProcess state-table run status.  |
 | <a id="scalar-comparisonbasis"></a>🔤 `ComparisonBasis` | enum (ESTIMATED \| REAL) | Provenance of an Uber Eats comparison amount: REAL (the restaurant's own Uber prices, shared via HubRise after explicit opt-in — ADR-0023) or ESTIMATED (coefficient-based, always labelled — ADR-0024).  |
 
 ### ⛔ Errors _(22)_
@@ -4105,7 +4180,7 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="error-refundnotpending"></a>⛔ `RefundNotPending` | The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.  | 🇬🇧 No refund is pending approval for this order. | 🇫🇷 Aucun remboursement n'est en attente d'approbation pour cette commande. | [📩 `ApproveRefund`](#command-approverefund), [📩 `DenyRefund`](#command-denyrefund) |
 | <a id="error-cannotordertestrestaurant"></a>⛔ `CannotOrderTestRestaurant` | A production (LIVE) order was placed against a TEST restaurant (ADR-0038 test-mode isolation). Real customers never reach test data; a TEST order may instead target a LIVE restaurant (receipt validation).  | 🇬🇧 This restaurant is not available. | 🇫🇷 Ce restaurant n'est pas disponible. | [📩 `PlaceOrder`](#command-placeorder) |
 
-### 📐 Business rules _(17)_
+### 📐 Business rules _(18)_
 
 <a id="rule-cartpricedfromlivecatalog"></a>
 #### 📐 Rule: `CartPricedFromLiveCatalog`
@@ -4218,6 +4293,13 @@ _Only an explicit decision — by the RESTAURANT for its own orders, or by an AD
 _The settled refund fact reported back by Stripe is recorded._
 
 - **Verified by**: [🧪 `TestRefundSettledFactRecorded`](#test-testrefundsettledfactrecorded), [🧪 `TestPaymentRefundedRecorded`](#test-testpaymentrefundedrecorded)
+
+<a id="rule-pendingrefundvisibleuntildecided"></a>
+#### 📐 Rule: `PendingRefundVisibleUntilDecided`
+
+_A refund opened for decision is recorded as a domain fact (RefundOpened on the Payment) and stays visible in the refund queue (pendingRefunds) as REQUESTED until an explicit decision resolves it; the decision and the Stripe settlement update its status (APPROVED/DENIED, then REFUNDED) instead of dropping it._
+
+- **Verified by**: [🧪 `TestPendingRefundVisibleUntilDecided`](#test-testpendingrefundvisibleuntildecided)
 
 <a id="rule-orphanpaymenteventflagged"></a>
 #### 📐 Rule: `OrphanPaymentEventFlagged`
@@ -4524,6 +4606,16 @@ _The Payment records the settled refund fact reported by Stripe (idempotent)_
 - **Then**: [⚡ `PaymentRefunded`](#event-paymentrefunded)
 - **Verifies**: [📐 `RefundSettledFactRecorded`](#rule-refundsettledfactrecorded)
 
+<a id="test-testpendingrefundvisibleuntildecided"></a>
+#### 🧪 Test: `TestPendingRefundVisibleUntilDecided`
+
+_The Payment records the opened refund (RefundOpened, idempotent) so the refund queue folds it as REQUESTED until decided_
+
+- **Given**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated), [⚡ `PaymentCaptured`](#event-paymentcaptured)
+- **When**: [📩 `RefundOpened`](#command-refundopened)
+- **Then**: [⚡ `RefundOpened`](#event-refundopened)
+- **Verifies**: [📐 `PendingRefundVisibleUntilDecided`](#rule-pendingrefundvisibleuntildecided)
+
 <a id="test-testpaymentrefundapprovedrecorded"></a>
 #### 🧪 Test: `TestPaymentRefundApprovedRecorded`
 
@@ -4645,7 +4737,7 @@ _Requests a Stripe refund when an order is rejected by the restaurant_
 
 - **Given**: _(none)_
 - **When**: [📩 `OrderRejectedByRestaurant`](#command-orderrejectedbyrestaurant)
-- **Then**: ∅ _no event (idempotent no-op)_
+- **Then**: [⚡ `RefundOpened`](#event-refundopened)
 - **Verifies**: [📐 `RefundOnRejectionOrCancellation`](#rule-refundonrejectionorcancellation)
 
 <a id="test-testrefundonordercancelledbycustomer"></a>

@@ -127,6 +127,8 @@ RefundRequiresApproval:
   description: "Only an explicit decision — by the RESTAURANT for its own orders, or by an ADMIN — resolves a pending refund: ApproveRefund (possibly partial) requests the Stripe refund, DenyRefund closes it; both are rejected when no refund is pending approval for the order."
 RefundSettledFactRecorded:
   description: "The settled refund fact reported back by Stripe is recorded."
+PendingRefundVisibleUntilDecided:
+  description: "A refund opened for decision is recorded as a domain fact (RefundOpened on the Payment) and stays visible in the refund queue (pendingRefunds) as REQUESTED until an explicit decision resolves it; the decision and the Stripe settlement update its status (APPROVED/DENIED, then REFUNDED) instead of dropping it."
 OrphanPaymentEventFlagged:
   description: "A Stripe payment outcome that matches no known checkout run is surfaced as a typed error (PaymentEventOrphaned) — the recorded fact stands, but the anomaly is never silently skipped."
 

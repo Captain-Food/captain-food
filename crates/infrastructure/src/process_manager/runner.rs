@@ -290,16 +290,32 @@ impl ProcessManagerRunner {
             }
             // --- RefundProcess -------------------------------------------------------------------
             (ProcessManager::Refund, DomainEvent::OrderRejectedByRestaurant(e)) => {
-                refund::on_order_rejected(&self.refund_state, &self.orders, e).await
+                refund::on_order_rejected(&self.store, &self.refund_state, &self.orders, e, env)
+                    .await
             }
             (ProcessManager::Refund, DomainEvent::OrderCancelledByCustomer(e)) => {
-                refund::on_order_cancelled_by_customer(&self.refund_state, &self.orders, e).await
+                refund::on_order_cancelled_by_customer(
+                    &self.store,
+                    &self.refund_state,
+                    &self.orders,
+                    e,
+                    env,
+                )
+                .await
             }
             (ProcessManager::Refund, DomainEvent::OrderCancelledByRestaurant(e)) => {
-                refund::on_order_cancelled_by_restaurant(&self.refund_state, &self.orders, e).await
+                refund::on_order_cancelled_by_restaurant(
+                    &self.store,
+                    &self.refund_state,
+                    &self.orders,
+                    e,
+                    env,
+                )
+                .await
             }
             (ProcessManager::Refund, DomainEvent::RefundRequested(e)) => {
-                refund::on_refund_requested(&self.refund_state, &self.orders, e).await
+                refund::on_refund_requested(&self.store, &self.refund_state, &self.orders, e, env)
+                    .await
             }
             (ProcessManager::Refund, DomainEvent::PaymentRefunded(e)) => {
                 refund::on_payment_refunded(&self.refund_state, e).await

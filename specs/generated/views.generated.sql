@@ -63,3 +63,30 @@ SELECT
      WHERE e.stream_name = c.stream_name AND e.event_type IN ('DeliveryRequested', 'DeliveryAcceptedByPartner', 'DeliveryRejectedByPartner', 'DeliveryStatusUpdated', 'DeliveryAcceptedByRider', 'DeliveryPickedUp', 'DeliveryCompleted', 'DeliveryCancelled')) AS updated_at
 FROM domain_events c
 WHERE c.event_type = 'DeliveryRequested';
+
+CREATE OR REPLACE VIEW View_PendingRefunds AS
+SELECT
+  (c.payload->>'orderId')::uuid AS order_id,
+  (c.payload->>'restaurantId')::uuid AS restaurant_id,
+  (SELECT CASE e.event_type WHEN 'RefundOpened' THEN 0 WHEN 'RefundApproved' THEN 1 WHEN 'RefundDenied' THEN 2 WHEN 'PaymentRefunded' THEN 3 END FROM domain_events e
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('RefundOpened', 'RefundApproved', 'RefundDenied', 'PaymentRefunded')
+     ORDER BY e.position DESC LIMIT 1) AS status,
+  (c.payload->'amount'->>'amountCents')::bigint AS amount_cents,
+  c.payload->'amount'->>'currency' AS currency,
+  (SELECT (e.payload->'amount'->>'amountCents')::bigint FROM domain_events e
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('RefundApproved') AND e.payload ? 'amount'
+     ORDER BY e.position DESC LIMIT 1) AS approved_amount_cents,
+  (SELECT e.payload->>'reason' FROM domain_events e
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('RefundOpened', 'RefundApproved', 'RefundDenied') AND e.payload ? 'reason'
+     ORDER BY e.position DESC LIMIT 1) AS reason,
+  (SELECT e.payload->>'refundId' FROM domain_events e
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('PaymentRefunded') AND e.payload ? 'refundId'
+     ORDER BY e.position DESC LIMIT 1) AS refund_id,
+  c.occurred_at AS requested_at,
+  (SELECT max(e.occurred_at) FROM domain_events e
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('RefundApproved', 'RefundDenied')) AS decided_at,
+  c.occurred_at AS created_at,
+  (SELECT max(e.occurred_at) FROM domain_events e
+     WHERE e.stream_name = c.stream_name AND e.event_type IN ('RefundOpened', 'RefundApproved', 'RefundDenied', 'PaymentRefunded')) AS updated_at
+FROM domain_events c
+WHERE c.event_type = 'RefundOpened';

@@ -21,7 +21,7 @@ pub use integrations::sync_sirene_worker::{SireneSyncSummary, SireneSyncWorker};
 pub use persistence::{
     AppendedEvent, EventBus, PgCartRepository, PgCatalogRepository, PgCustomerRepository,
     PgDeliveryRepository, PgEventStore, PgOrderRepository, PgPricingPolicyRepository,
-    PgProspectionRepository, PgRestaurantRepository,
+    PgProspectionRepository, PgRefundQueueRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,
 };
 pub use process_manager::{ProcessManagerRunner, ProcessManagerStatus};

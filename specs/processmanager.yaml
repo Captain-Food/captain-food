@@ -181,11 +181,12 @@ RefundProcess:
   type: process-manager
   description: >
     Approved refunds. A refundable fact (rejection, cancellation, customer request) OPENS a
-    pending refund on the state row; the RESTAURANT (its own orders) or an ADMIN decides with
-    ApproveRefund / DenyRefund (authz = api.yaml roles when the mutations land); on approval the
-    outbound Stripe refund is requested and the run settles when Stripe reports PaymentRefunded (the
-    fact itself is recorded by the Payment aggregate). The refund-eligibility window is a config value
-    enforced at approval, not a domain rule.
+    pending refund: RefundOpened is delivered to the Payment aggregate (so the refund queue,
+    View_PendingRefunds, folds from the log) and the state row goes PENDING_APPROVAL; the RESTAURANT
+    (its own orders) or an ADMIN decides with ApproveRefund / DenyRefund (authz = api.yaml roles); on
+    approval the outbound Stripe refund is requested and the run settles when Stripe reports
+    PaymentRefunded (the fact itself is recorded by the Payment aggregate). The refund-eligibility
+    window is a config value enforced at approval, not a domain rule.
   state_table: { $ref: 'database/tables/process_managers.yaml#/refund_process_manager' }
   ports:
     payment: { $ref: 'services.yaml#/payment' }
@@ -201,6 +202,15 @@ RefundProcess:
             that: { order: { payment_status: { const: CAPTURED } } }
             skip: true
             note: "Nothing captured → nothing to refund."
+        - deliver:
+            event: { $ref: 'events.yaml#/RefundOpened' }
+            to: { $ref: 'actors.yaml#/Payment' }
+            with:
+              orderId: { from: { $ref: 'events.yaml#/OrderRejectedByRestaurant/properties/orderId' } }
+              restaurantId: { from: { $ref: 'events.yaml#/OrderRejectedByRestaurant/properties/restaurantId' } }
+              amount: { from_read: order.total_amount_cents }
+              reason: { from: { $ref: 'events.yaml#/OrderRejectedByRestaurant/properties/reason' } }
+            note: "The refund queue fact (View_PendingRefunds); the Payment records it idempotently."
         - state:
             set:
               order_id: { from: { $ref: 'events.yaml#/OrderRejectedByRestaurant/properties/orderId' } }
@@ -218,6 +228,15 @@ RefundProcess:
             that: { order: { payment_status: { const: CAPTURED } } }
             skip: true
             note: "Nothing captured → nothing to refund."
+        - deliver:
+            event: { $ref: 'events.yaml#/RefundOpened' }
+            to: { $ref: 'actors.yaml#/Payment' }
+            with:
+              orderId: { from: { $ref: 'events.yaml#/OrderCancelledByCustomer/properties/orderId' } }
+              restaurantId: { from: { $ref: 'events.yaml#/OrderCancelledByCustomer/properties/restaurantId' } }
+              amount: { from_read: order.total_amount_cents }
+              reason: { from: { $ref: 'events.yaml#/OrderCancelledByCustomer/properties/reason' } }
+            note: "The refund queue fact (View_PendingRefunds); the Payment records it idempotently."
         - state:
             set:
               order_id: { from: { $ref: 'events.yaml#/OrderCancelledByCustomer/properties/orderId' } }
@@ -235,6 +254,15 @@ RefundProcess:
             that: { order: { payment_status: { const: CAPTURED } } }
             skip: true
             note: "Nothing captured → nothing to refund."
+        - deliver:
+            event: { $ref: 'events.yaml#/RefundOpened' }
+            to: { $ref: 'actors.yaml#/Payment' }
+            with:
+              orderId: { from: { $ref: 'events.yaml#/OrderCancelledByRestaurant/properties/orderId' } }
+              restaurantId: { from: { $ref: 'events.yaml#/OrderCancelledByRestaurant/properties/restaurantId' } }
+              amount: { from_read: order.total_amount_cents }
+              reason: { from: { $ref: 'events.yaml#/OrderCancelledByRestaurant/properties/reason' } }
+            note: "The refund queue fact (View_PendingRefunds); the Payment records it idempotently."
         - state:
             set:
               order_id: { from: { $ref: 'events.yaml#/OrderCancelledByRestaurant/properties/orderId' } }
@@ -254,6 +282,15 @@ RefundProcess:
             that: { order: { payment_status: { const: CAPTURED } } }
             skip: true
             note: "Nothing captured → nothing to refund."
+        - deliver:
+            event: { $ref: 'events.yaml#/RefundOpened' }
+            to: { $ref: 'actors.yaml#/Payment' }
+            with:
+              orderId: { from: { $ref: 'events.yaml#/RefundRequested/properties/orderId' } }
+              restaurantId: { from: { $ref: 'events.yaml#/RefundRequested/properties/restaurantId' } }
+              amount: { from_read: order.total_amount_cents }
+              reason: { from: { $ref: 'events.yaml#/RefundRequested/properties/reason' } }
+            note: "The refund queue fact (View_PendingRefunds); the Payment records it idempotently."
         - state:
             set:
               order_id: { from: { $ref: 'events.yaml#/RefundRequested/properties/orderId' } }

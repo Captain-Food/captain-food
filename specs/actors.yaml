@@ -421,6 +421,9 @@ Payment:
     - message:
         $ref: 'events.yaml#/PaymentRefunded'
       emits: [{ $ref: 'events.yaml#/PaymentRefunded' }]
+    - message: { $ref: 'events.yaml#/RefundOpened' }
+      emits: [{ $ref: 'events.yaml#/RefundOpened' }]
+      effect: "RefundProcess opened a refund on this captured payment for a restaurant/admin decision; the Payment records it (idempotent) so View_PendingRefunds folds the queue from the log."
     - message: { $ref: 'events.yaml#/RefundApproved' }
       emits: [{ $ref: 'events.yaml#/RefundApproved' }]
       effect: "RefundProcess delivers the approval decision (restaurant or admin); the Payment records it (idempotent)."

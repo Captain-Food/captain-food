@@ -491,6 +491,15 @@ PaymentStatus:
   enum: [PENDING, CAPTURED, FAILED, REFUNDED]
   description: "Order payment state, folded from Stripe facts (PaymentIntentCreated/Captured/Failed/Refunded)."
 
+RefundStatus:
+  type: string
+  enum: [REQUESTED, APPROVED, DENIED, REFUNDED]
+  description: >
+    Lifecycle of a refund request as read models fold it from the domain facts (View_PendingRefunds):
+    REQUESTED on RefundOpened (awaiting a restaurant/admin decision), APPROVED on RefundApproved
+    (Stripe refund requested), DENIED on RefundDenied, REFUNDED once Stripe settles (PaymentRefunded).
+    Distinct from RefundProcessStatus, the RefundProcess state-table run status.
+
 OperationStatus:
   type: string
   enum: [PENDING, SUCCEEDED, REJECTED, FAILED]

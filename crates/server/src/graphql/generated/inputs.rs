@@ -1032,6 +1032,15 @@ pub struct RestaurantDeliveriesQueryInput {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
 #[serde(rename_all = "camelCase")]
+pub struct PendingRefundsQueryInput {
+    #[graphql(name = "restaurantId")]
+    pub restaurant_id: Option<RestaurantId>,
+    #[graphql(name = "status")]
+    pub status: Option<RefundStatus>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
+#[serde(rename_all = "camelCase")]
 pub struct RestaurantLocationsByAccountQueryInput {
     #[graphql(name = "accountId")]
     pub account_id: RestaurantAccountId,
