@@ -10,7 +10,9 @@
 pub mod acl;
 mod http;
 pub mod outbound;
+pub mod raw;
 
-pub use acl::StripeWebhookIngestor;
+pub use acl::{RawStripeEvents, StripeWebhookIngestor};
 pub use http::routes;
 pub use outbound::StripePaymentGateway;
+pub use raw::PgRawStripeEvents;

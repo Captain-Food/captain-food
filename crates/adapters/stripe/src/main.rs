@@ -6,8 +6,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use infrastructure::PgEventStore;
-use stripe_adapter::{routes, StripeWebhookIngestor};
+use infrastructure::{PgCommandJournal, PgEventStore, PgInboundEvents};
+use stripe_adapter::{routes, PgRawStripeEvents, StripeWebhookIngestor};
 
 #[tokio::main]
 async fn main() {
@@ -19,7 +19,24 @@ async fn main() {
         .acquire_timeout(Duration::from_secs(10))
         .connect_lazy(&url)
         .unwrap_or_else(|e| panic!("DATABASE_URL pool init failed: {e}"));
-    let ingestor = Arc::new(StripeWebhookIngestor::new(Arc::new(PgEventStore::new(pool))));
+    // Standalone deployment: mirror + stage on ingest, and run our OWN drain worker (the monolith's
+    // worker is a different process here) delivering staged facts through the normal write path.
+    let inbox = Arc::new(PgInboundEvents::new(pool.clone()));
+    let drain = Arc::new(infrastructure::InboundEventsDrainWorker::new(
+        inbox.clone(),
+        Arc::new(PgCommandJournal::new(pool.clone())),
+        Arc::new(PgEventStore::new(pool.clone())),
+    ));
+    tokio::spawn(drain.clone().run_loop());
+    let nudge_worker = drain.clone();
+    let ingestor = Arc::new(
+        StripeWebhookIngestor::new(Arc::new(PgRawStripeEvents::new(pool)), inbox).with_nudge(
+            Arc::new(move || {
+                let w = nudge_worker.clone();
+                tokio::spawn(async move { w.run_once().await });
+            }),
+        ),
+    );
 
     let addr = format!("0.0.0.0:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)

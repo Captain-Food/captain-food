@@ -59,7 +59,16 @@ async fn stripe_webhook(
         )
             .into_response();
     };
-    let event: StripeEvent = match serde_json::from_slice(&body) {
+    // The verbatim body is mirrored into `external_stripe_events` (ADR-20260720-015400); the typed
+    // subset drives the ACL. Parse the raw JSON once, derive the typed view from it.
+    let raw_body: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("unparsable Stripe event: {e}"))
+                .into_response()
+        }
+    };
+    let event: StripeEvent = match serde_json::from_value(raw_body.clone()) {
         Ok(e) => e,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, format!("unparsable Stripe event: {e}"))
@@ -67,7 +76,7 @@ async fn stripe_webhook(
         }
     };
 
-    match ingestor.ingest(&event).await {
+    match ingestor.ingest(&event, &raw_body).await {
         // Definitive outcomes ACK with 200 so Stripe stops redelivering; `unmappable` (verified but
         // missing our metadata) is logged — a retry would carry the same payload.
         Ok(outcome) => {

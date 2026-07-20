@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hubrise_adapter::api::HubRiseApiClient;
-use hubrise_adapter::enrich::Enricher;
 use hubrise_adapter::{routes, HubRiseEnricher};
 use infrastructure::PgEventStore;
 
@@ -18,30 +17,39 @@ async fn main() {
 
     // The enricher needs BOTH a database (to append) and a HubRise API token (to pull). Missing either
     // → run ingress-only (verified callbacks ACK as pending), never crash.
-    let enricher: Option<Arc<dyn Enricher>> =
-        match (std::env::var("DATABASE_URL"), HubRiseApiClient::from_env()) {
-            (Ok(url), Ok(api)) if !url.trim().is_empty() => {
-                let pool = sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(4)
-                    .acquire_timeout(Duration::from_secs(10))
-                    .connect_lazy(&url)
-                    .unwrap_or_else(|e| panic!("DATABASE_URL pool init failed: {e}"));
-                let store = Arc::new(PgEventStore::new(pool));
-                Some(Arc::new(HubRiseEnricher::new(store, api)))
+    let mut state = hubrise_adapter::HubRiseWebhookState::default();
+    match (std::env::var("DATABASE_URL"), HubRiseApiClient::from_env()) {
+        (Ok(url), api) if !url.trim().is_empty() => {
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .max_connections(4)
+                .acquire_timeout(Duration::from_secs(10))
+                .connect_lazy(&url)
+                .unwrap_or_else(|e| panic!("DATABASE_URL pool init failed: {e}"));
+            // The raw mirror (external_hubrise_callbacks) needs only the database.
+            state.raw = Some(Arc::new(hubrise_adapter::PgRawHubRiseCallbacks::new(pool.clone())));
+            match api {
+                Ok(api) => {
+                    let store = Arc::new(PgEventStore::new(pool));
+                    state.enricher = Some(Arc::new(HubRiseEnricher::new(store, api)));
+                }
+                Err(_) => eprintln!(
+                    "hubrise-webhook: enrichment disabled (HUBRISE_ACCESS_TOKEN unset); \
+                     mirroring + verifying callbacks only"
+                ),
             }
-            _ => {
-                eprintln!(
-                    "hubrise-webhook: enrichment disabled (need DATABASE_URL + HUBRISE_ACCESS_TOKEN); \
-                     verifying callbacks only"
-                );
-                None
-            }
-        };
+        }
+        _ => {
+            eprintln!(
+                "hubrise-webhook: enrichment disabled (need DATABASE_URL + HUBRISE_ACCESS_TOKEN); \
+                 verifying callbacks only"
+            );
+        }
+    };
 
     let addr = format!("0.0.0.0:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .unwrap_or_else(|e| panic!("failed to bind {addr}: {e}"));
     println!("hubrise-webhook adapter listening on {addr}");
-    axum::serve(listener, routes(enricher)).await.expect("server error");
+    axum::serve(listener, routes(state)).await.expect("server error");
 }

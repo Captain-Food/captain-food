@@ -22,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # Deterministic domain ids from HubRise identifiers (UUIDv5), like the SIRENE ACL.
 uuid = { workspace = true, features = ["v5"] }
+chrono = { workspace = true }
 # Object-safe Enricher / HubRisePuller traits (async).
 async-trait = { workspace = true }
 # Signature verification.
