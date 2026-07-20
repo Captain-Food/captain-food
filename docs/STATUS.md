@@ -276,6 +276,10 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 - ✅ Keep the web service **warm via uptimerobot `/ping` every 5 min** (prevents free-tier spin-down so the in-process projector + SIRENE worker keep running).
 - 🗑️ `INTERNAL_TRIGGER_TOKEN` / `POST /internal/sirene/drain` — agreed to **remove** (superseded by the `/ping` warmth approach); code removal deferred to avoid colliding with concurrent `routes.rs` edits — harmless meanwhile (fail-closed 503 when the secret is unset).
 
+> **Claim protocol (2026-07-20, ADR-20260720-233000, #39):** before working an issue, add the
+> `status/in-progress` label + a claim comment naming the `NN-slug` branch; NEVER work a claimed
+> issue; the hourly stale-claim reaper releases claims silent for >24h. Method: `BACKLOG.md`.
+
 ## 📋 Remaining work — todo & session split
 
 > **⚠️ TRACKING MOVED (2026-07-20, user-directed): remaining work now lives in
