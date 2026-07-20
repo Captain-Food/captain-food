@@ -60,6 +60,7 @@ mod hosts;
 /// The role-as-path ACL seam (RequestRole/RoleGuard, ADR-0006), re-exported so integration tests can
 /// execute the schema under a specific role (the HTTP layer injects it from the URL path).
 pub use graphql::acl as graphql_acl;
+pub use graphql::session as graphql_session;
 /// The schema composition surface (build_schema/ReadDeps/WriteDeps), re-exported so integration tests
 /// (and the embedding `desktop` shell) can build the master schema over their own adapters.
 pub use graphql::schema as graphql_schema;
@@ -119,6 +120,10 @@ pub fn router() -> Router {
     // Constructed unconditionally so the schema always carries a bus (subscriptions without a DB
     // simply never receive anything).
     let event_bus = EventBus::default();
+    // Journal-transition broadcast (ADR-20260720-015500): the acceptance-first dispatch publishes
+    // every command_journal transition here; operationStatusChanged streams it. Like the event bus,
+    // constructed unconditionally so the schema always carries one.
+    let operation_status_bus = infrastructure::OperationStatusBus::default();
     let mut read_deps: Option<ReadDeps> = None;
     let mut write_deps: Option<WriteDeps> = None;
     let mut projector_status: Option<Arc<Mutex<ProjectionStatus>>> = None;
@@ -207,6 +212,10 @@ pub fn router() -> Router {
                     refund_state: Arc::new(infrastructure::persistence::PgRefundProcessState::new(
                         pool.clone(),
                     )),
+                    // Acceptance-first dispatch (ADR-20260720-015300/-015500): the durable command
+                    // journal + the journal-transition broadcast behind operationStatus(+Changed).
+                    journal: Arc::new(infrastructure::PgCommandJournal::new(pool.clone())),
+                    status_bus: operation_status_bus.clone(),
                 });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.

@@ -19,10 +19,59 @@ impl QueryRoot {
     async fn phone_countries(&self) -> async_graphql::Result<Vec<PhoneCountry>> {
         Err(async_graphql::Error::new("not implemented"))
     }
-    /// Poll a command/operation's status by its correlationId (the pull counterpart of the operationStatusChanged subscription). Transient — resolver-served, no View_*.
-    #[graphql(name = "operation", guard = "RoleGuard::new(ALLOW_CUSTOMER_RESTAURANT_ACCOUNT_RESTAURANT_ADMIN)", visible = "visible_customer_restaurant_account_restaurant_admin")]
-    async fn operation(&self, input: OperationQueryInput) -> async_graphql::Result<Option<Operation>> {
-        Err(async_graphql::Error::new("not implemented"))
+    /// Poll a journaled command's status by its messageId acceptance handle (the pull counterpart of the operationStatusChanged subscription, ADR-20260720-015500). PUBLIC but OWNERSHIP-SCOPED in the resolver: the row is returned only to the journaling actor (JWT subject match), the journaling session (X-SESSION-ID match — anonymous users), or ADMIN; anything else resolves null (no existence oracle). Transient — served from the command_journal, no View_*.
+    #[graphql(name = "operationStatus")]
+    async fn operation_status(&self, ctx: &async_graphql::Context<'_>, input: OperationStatusQueryInput) -> async_graphql::Result<Option<Operation>> {
+        let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?;
+        let Some(row) = journal
+            .by_message(input.message_id.0)
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+        if !super::mutation::operation_owned(ctx, &row) {
+            return Ok(None);
+        }
+        Ok(Some(super::mutation::operation_from_journal(&row)))
+    }
+    /// The checkout payment state for an order (ADR-20260720-015500): paymentIntentId, clientSecret while the run is in flight, and the folded PaymentStatus — the read-side home of the values placeOrder used to return. Served from the PlaceOrderProcess run row (the declared exception to PM-table privacy); ownership-scoped to the checkout's customer (or session) and ADMIN.
+    #[graphql(name = "paymentStatus", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
+    async fn payment_status(&self, ctx: &async_graphql::Context<'_>, input: PaymentStatusQueryInput) -> async_graphql::Result<Option<PaymentIntent>> {
+        let pm = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?;
+        let Some(row) = pm
+            .by_order(input.order_id.into())
+            .await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+        let admin = matches!(
+            ctx.data_opt::<crate::graphql::acl::RequestRole>(),
+            Some(crate::graphql::acl::RequestRole::Admin)
+        );
+        let session = ctx.data_opt::<crate::graphql::session::SessionHeader>().and_then(|s| s.0);
+        let session_owned = session.is_some() && session == row.session_id.as_ref().map(|s| s.0);
+        let mut customer_owned = false;
+        if let (Some(auth_ref), Some(row_customer)) = (
+            ctx.data_opt::<crate::auth::Principal>().and_then(|p| p.user_id.clone()),
+            row.customer_id.as_ref(),
+        ) {
+            let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?;
+            customer_owned = customers
+                .by_auth_ref(domain::generated::scalars::ExternalReference(auth_ref))
+                .await
+                .map_err(|e| async_graphql::Error::new(e.to_string()))?
+                .is_some_and(|c| c.customer_id == *row_customer);
+        }
+        if !(admin || customer_owned || session_owned) {
+            return Ok(None);
+        }
+        Ok(Some(PaymentIntent {
+            payment_intent_id: row.payment_intent_id.into(),
+            client_secret: row.client_secret,
+            status: row.payment_status.into(),
+        }))
     }
     /// The signed-in customer's own profile (resolves the session authRef → Customer via Customer).
     #[graphql(name = "me", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]

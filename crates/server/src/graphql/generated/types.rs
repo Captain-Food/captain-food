@@ -652,26 +652,50 @@ pub struct PhoneCountry {
     pub default_locale: Locale,
 }
 
-/// Stripe PaymentIntent handle for the checkout step. NON-PROJECTED (transient): it is returned via the PlaceOrder mutation payload, never read through a View_* — hence no `reads`.
+/// Checkout payment state for one order (ADR-20260720-015500): the read-side home of the values placeOrder used to return, served from the PlaceOrderProcess run row by `paymentStatus` / `paymentStatusChanged`. `clientSecret` is present only while the run is in flight (NULLed when it resolves — a revocable Stripe credential, never event-sourced). NON-PROJECTED (transient): resolver-served from the saga state row, never a View_* — hence no `reads`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::SimpleObject)]
 #[serde(rename_all = "camelCase")]
 pub struct PaymentIntent {
     #[graphql(name = "paymentIntentId")]
     pub payment_intent_id: PaymentIntentId,
     #[graphql(name = "clientSecret")]
-    pub client_secret: String,
+    pub client_secret: Option<String>,
     #[graphql(name = "status")]
-    pub status: String,
+    pub status: PaymentStatus,
 }
 
-/// Live status of a command/operation, streamed by the `operationStatusChanged` subscription and correlated by `correlationId` (every mutation payload carries one). NON-PROJECTED (transient) — no backing View_*, hence no `reads`.
+/// The uniform acceptance EVERY mutation returns (acceptance-first writes, ADR-20260720-015500): the EFFECTIVE technical envelope echoed back (server-computed where the client supplied nothing) plus the journaled operation status. Business outcomes are never here — read them via queries/subscriptions (`operationStatus`, `paymentStatus`, the read models). NON-PROJECTED (transient) — built from the command_journal acceptance, no `reads`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::SimpleObject)]
+#[serde(rename_all = "camelCase")]
+pub struct MutationAcceptance {
+    #[graphql(name = "messageId")]
+    pub message_id: MessageId,
+    #[graphql(name = "correlationId")]
+    pub correlation_id: CorrelationId,
+    #[graphql(name = "causeId")]
+    pub cause_id: Option<CauseId>,
+    #[graphql(name = "sessionId")]
+    pub session_id: Option<SessionId>,
+    #[graphql(name = "traceId")]
+    pub trace_id: Option<TraceId>,
+    #[graphql(name = "operationStatus")]
+    pub operation_status: OperationStatus,
+    #[graphql(name = "duplicate")]
+    pub duplicate: bool,
+}
+
+/// Live status of a journaled command (ADR-20260720-015300), keyed by its `messageId` acceptance handle: polled by `operationStatus`, streamed by `operationStatusChanged`. `errorCode` is the stable errors.yaml code when the operation REJECTED/FAILED after acceptance (the async home of the P-10 rejection contract — sync validation failures still use GraphQL errors). Ownership- scoped in the resolver: the journaling actor (JWT), the journaling session (X-SESSION-ID), or ADMIN. NON-PROJECTED (transient) — served from the command_journal, no backing View_*.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::SimpleObject)]
 #[serde(rename_all = "camelCase")]
 pub struct Operation {
+    #[graphql(name = "messageId")]
+    pub message_id: MessageId,
     #[graphql(name = "correlationId")]
     pub correlation_id: CorrelationId,
     #[graphql(name = "status")]
     pub status: OperationStatus,
+    #[graphql(name = "errorCode")]
+    pub error_code: Option<String>,
     #[graphql(name = "message")]
     pub message: Option<String>,
     #[graphql(name = "occurredAt")]

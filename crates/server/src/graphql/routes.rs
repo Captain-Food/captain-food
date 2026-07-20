@@ -148,8 +148,18 @@ async fn graphql_handler(
         Ok(p) => p,
         Err(e) => return e.into_response(),
     };
-    let resp: GraphQLResponse =
-        schema.execute(req.into_inner().data(role).data(principal)).await.into();
+    // Transport envelope (ADR-20260720-015500): the anonymous session id (X-SESSION-ID — a present
+    // but malformed value is a client bug, fail-visible 400) and the W3C trace context, injected
+    // next to the Principal for the journal envelope + ownership scopes.
+    let session = match crate::graphql::session::session_header(&headers) {
+        Ok(s) => s,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid X-SESSION-ID (must be a UUID)").into_response(),
+    };
+    let trace = crate::graphql::session::trace_context(&headers);
+    let resp: GraphQLResponse = schema
+        .execute(req.into_inner().data(role).data(principal).data(session).data(trace))
+        .await
+        .into();
     resp.into_response()
 }
 
@@ -205,6 +215,17 @@ async fn graphql_get(
                         headers.insert(AUTHORIZATION, value);
                     }
                 }
+                // X-SESSION-ID rides the init payload too (browsers cannot set WS headers) — the
+                // anonymous ownership scope of operationStatusChanged (ADR-20260720-015500).
+                if let Some(session) = payload
+                    .get("X-SESSION-ID")
+                    .or_else(|| payload.get("x-session-id"))
+                    .and_then(|v| v.as_str())
+                {
+                    if let Ok(value) = session.parse() {
+                        headers.insert(crate::graphql::session::SESSION_HEADER, value);
+                    }
+                }
                 let principal = auth.authorize(role, &headers).await.map_err(|e| {
                     async_graphql::Error::new(match e {
                         crate::auth::AuthError::Unauthorized => {
@@ -219,6 +240,11 @@ async fn graphql_get(
                 let mut data = async_graphql::Data::default();
                 data.insert(role);
                 data.insert(principal);
+                // A malformed session id rejects the connection (fail-visible, like a bad token).
+                let session = crate::graphql::session::session_header(&headers)
+                    .map_err(|_| async_graphql::Error::new("invalid X-SESSION-ID (must be a UUID)"))?;
+                data.insert(session);
+                data.insert(crate::graphql::session::trace_context(&headers));
                 Ok(data)
             })
             .serve()

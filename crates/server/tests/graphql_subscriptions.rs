@@ -1,16 +1,20 @@
-//! GraphQL SUBSCRIPTIONS over the in-process EventBus (no external deps — no DB, no WebSocket): the
+//! GraphQL SUBSCRIPTIONS over the in-process buses (no external deps — no DB, no WebSocket): the
 //! generated `SubscriptionRoot` executed directly via `schema.execute_stream` with a `RequestRole` in
 //! the request context (what the `/{role}/graphql` WS handshake injects at `connection_init`).
 //!
-//! - `orderStatusChanged(correlationId)`: a published envelope whose correlation matches re-resolves
-//!   the CURRENT Order from the read model and pushes it; identical consecutive states are deduped;
-//!   a terminal status completes the stream. A non-matching correlation yields nothing.
-//! - `operationStatusChanged(correlationId)`: each matching envelope yields a SUCCEEDED Operation tick.
+//! - `orderStatusChanged(correlationId)`: a published EventBus envelope whose correlation matches
+//!   re-resolves the CURRENT Order from the read model and pushes it; identical consecutive states
+//!   are deduped; a terminal status completes the stream. A non-matching correlation yields nothing.
+//! - `operationStatusChanged(messageId)` (ADR-20260720-015500): snapshot-first from the
+//!   command_journal, then every OperationStatusBus transition; ownership-scoped (session/actor/
+//!   ADMIN) — a non-owned messageId yields an EMPTY stream; a terminal status completes it.
+//! - `paymentStatusChanged(orderId)`: re-resolves the PlaceOrderProcess run row on Payment-stream
+//!   envelopes; initiator-scoped; completes when the run resolves.
 //! - ACL: the per-field guard rejects roles outside api.yaml `roles` (FORBIDDEN) before any streaming.
 //!
-//! Free-tier caveat (documented contract): the bus and the WebSocket live only while the app instance
-//! is warm — the uptimerobot ping keeps the free tier from idling, but a restart drops connections and
-//! clients must resubscribe and re-sync via the pull queries (`order` / `operation`).
+//! Free-tier caveat (documented contract): the buses and the WebSocket live only while the app
+//! instance is warm — a restart drops connections and clients resubscribe + re-sync via the pull
+//! queries (`order` / `operationStatus` / `paymentStatus`).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -363,46 +367,189 @@ async fn order_status_changed_ignores_other_correlations() {
     assert!(nothing.is_err(), "non-matching correlation must yield nothing: {nothing:?}");
 }
 
-/// Every matching envelope is a durable SUCCEEDED confirmation for the operation.
+/// The journal entry an acceptance would have written (RECEIVED, session-owned).
+fn journal_entry(message_id: uuid::Uuid, session: uuid::Uuid) -> application::journal::CommandJournalEntry {
+    application::journal::CommandJournalEntry {
+        message_id,
+        correlation_id: message_id,
+        cause_id: None,
+        session_id: Some(session),
+        trace_id: None,
+        user_id: None,
+        user_type: 0,
+        channel: ds::CommandChannel::GRAPHQL,
+        command_type: "AddCartLine".into(),
+        payload: serde_json::json!({}),
+        payload_hash: "h".into(),
+    }
+}
+
+/// Snapshot-first + status-bus transitions, completing on a terminal status (ADR-20260720-015500).
 #[tokio::test(flavor = "multi_thread")]
-async fn operation_status_changed_yields_succeeded_ticks() {
-    // Only the bus matters to this resolver — no read/write deps at all.
+async fn operation_status_changed_streams_the_journal_lifecycle() {
+    let schema = build_schema(None, None, None);
+    let journal: Arc<dyn application::journal::CommandJournal> =
+        Arc::new(application::journal::mem::MemCommandJournal::default());
+    let status_bus = infrastructure::OperationStatusBus::default();
+
+    let message_id = uuid::Uuid::new_v4();
+    let session = uuid::Uuid::new_v4();
+    journal.insert(&journal_entry(message_id, session)).await.unwrap();
+
+    let query = format!(
+        r#"subscription {{ operationStatusChanged(input: {{ messageId: "{message_id}" }}) {{ messageId status errorCode }} }}"#
+    );
+    // PUBLIC + the owning session (what connection_init injects from the X-SESSION-ID payload).
+    let mut stream = schema.execute_stream(
+        Request::new(query)
+            .data(RequestRole::Public)
+            .data(server::graphql_session::SessionHeader(Some(session)))
+            .data(journal.clone())
+            .data(status_bus.clone()),
+    );
+
+    // Snapshot-first: the current (PENDING) state arrives without any bus publish.
+    let first = tokio::time::timeout(Duration::from_secs(10), stream.next())
+        .await
+        .expect("snapshot in time")
+        .expect("stream item");
+    assert!(first.errors.is_empty(), "snapshot errored: {:?}", first.errors);
+    let data = first.data.into_json().expect("json");
+    assert_eq!(data["operationStatusChanged"]["status"], serde_json::json!("PENDING"));
+    assert_eq!(
+        data["operationStatusChanged"]["messageId"],
+        serde_json::json!(message_id.to_string())
+    );
+
+    // The handler completes REJECTED → the transition is pushed and the stream completes.
+    let bus = status_bus.clone();
+    tokio::spawn(async move {
+        for _ in 0..50 {
+            bus.publish(infrastructure::OperationUpdate {
+                message_id,
+                correlation_id: message_id,
+                status: ds::CommandJournalStatus::REJECTED,
+                error_code: Some("OfferNotFound".into()),
+                message: Some("Offer not found.".into()),
+            });
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    });
+    let second = tokio::time::timeout(Duration::from_secs(10), stream.next())
+        .await
+        .expect("transition in time")
+        .expect("stream item");
+    assert!(second.errors.is_empty(), "transition errored: {:?}", second.errors);
+    let data = second.data.into_json().expect("json");
+    assert_eq!(data["operationStatusChanged"]["status"], serde_json::json!("REJECTED"));
+    assert_eq!(data["operationStatusChanged"]["errorCode"], serde_json::json!("OfferNotFound"));
+    let end = tokio::time::timeout(Duration::from_secs(10), stream.next()).await.expect("ends");
+    assert!(end.is_none(), "stream must complete after a terminal status");
+}
+
+/// A messageId journaled under ANOTHER session yields an empty stream (no existence oracle).
+#[tokio::test(flavor = "multi_thread")]
+async fn operation_status_changed_hides_non_owned_operations() {
+    let schema = build_schema(None, None, None);
+    let journal: Arc<dyn application::journal::CommandJournal> =
+        Arc::new(application::journal::mem::MemCommandJournal::default());
+    let status_bus = infrastructure::OperationStatusBus::default();
+
+    let message_id = uuid::Uuid::new_v4();
+    journal.insert(&journal_entry(message_id, uuid::Uuid::new_v4())).await.unwrap();
+
+    let query = format!(
+        r#"subscription {{ operationStatusChanged(input: {{ messageId: "{message_id}" }}) {{ status }} }}"#
+    );
+    let mut stream = schema.execute_stream(
+        Request::new(query)
+            .data(RequestRole::Public)
+            .data(server::graphql_session::SessionHeader(Some(uuid::Uuid::new_v4())))
+            .data(journal.clone())
+            .data(status_bus.clone()),
+    );
+    // The non-owned stream completes EMPTY (Ok(None)) — no item, no error, no oracle.
+    let nothing = tokio::time::timeout(Duration::from_secs(5), stream.next())
+        .await
+        .expect("empty stream completes promptly");
+    assert!(nothing.is_none(), "a stranger session must receive nothing: {nothing:?}");
+}
+
+/// paymentStatusChanged re-resolves the run row on Payment-stream envelopes, pushes the
+/// clientSecret while in flight, and completes (secret NULLed) when the run resolves.
+#[tokio::test(flavor = "multi_thread")]
+async fn payment_status_changed_streams_the_checkout_run() {
+    use application::pm_state::{mem::MemPaymentProcessState, PaymentProcessRow, PaymentProcessStateStore};
+
     let bus = EventBus::default();
     let schema = build_schema(None, None, Some(bus.clone()));
+    let pm = Arc::new(MemPaymentProcessState::default());
+    let pm_port: Arc<dyn PaymentProcessStateStore> = pm.clone();
 
-    let correlation = uuid::Uuid::new_v4();
+    let (cart_id, order_id, session) =
+        (uuid::Uuid::new_v4(), uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    let row = PaymentProcessRow {
+        cart_id: ds::CartId(cart_id),
+        order_id: ds::OrderId(order_id),
+        payment_intent_id: ds::PaymentIntentId("pi_1".into()),
+        process_status: ds::PaymentProcessStatus::AWAITING_PAYMENT_RESULT,
+        payment_status: ds::PaymentStatus::PENDING,
+        customer_id: None,
+        session_id: Some(ds::SessionId(session)),
+        client_secret: Some("pi_1_secret".into()),
+        last_processed_stripe_event_id: None,
+        last_update_utc: chrono::Utc::now(),
+    };
+    pm.upsert(&row).await.unwrap();
+
     let query = format!(
-        r#"subscription {{ operationStatusChanged(input: {{ correlationId: "{correlation}" }}) {{ correlationId status message }} }}"#
+        r#"subscription {{ paymentStatusChanged(input: {{ orderId: "{order_id}" }}) {{ paymentIntentId clientSecret status }} }}"#
     );
-    let mut stream = schema.execute_stream(Request::new(query).data(RequestRole::RestaurantAccount));
+    let mut stream = schema.execute_stream(
+        Request::new(query)
+            .data(RequestRole::Customer)
+            .data(server::graphql_session::SessionHeader(Some(session)))
+            .data(pm_port.clone()),
+    );
+
+    // Initial resolve: the in-flight run with its clientSecret.
+    let first = tokio::time::timeout(Duration::from_secs(10), stream.next())
+        .await
+        .expect("initial in time")
+        .expect("stream item");
+    assert!(first.errors.is_empty(), "initial errored: {:?}", first.errors);
+    let data = first.data.into_json().expect("json");
+    assert_eq!(data["paymentStatusChanged"]["clientSecret"], serde_json::json!("pi_1_secret"));
+    assert_eq!(data["paymentStatusChanged"]["status"], serde_json::json!("PENDING"));
+
+    // The run resolves (capture leg): secret NULLed, terminal → one final push, then completion.
+    pm.upsert(&PaymentProcessRow {
+        process_status: ds::PaymentProcessStatus::ORDER_PLACED,
+        payment_status: ds::PaymentStatus::CAPTURED,
+        client_secret: None,
+        ..row
+    })
+    .await
+    .unwrap();
     spawn_publisher(
         bus.clone(),
         AppendedEvent {
-            stream_name: format!("Restaurant-{}", uuid::Uuid::new_v4()),
-            event_type: "RestaurantRegistered".into(),
-            correlation_id: correlation,
+            stream_name: "Payment-pi_1".into(),
+            event_type: "PaymentCaptured".into(),
+            correlation_id: uuid::Uuid::new_v4(),
             position: 1,
         },
     );
-
-    let first = tokio::time::timeout(Duration::from_secs(10), stream.next())
+    let second = tokio::time::timeout(Duration::from_secs(15), stream.next())
         .await
-        .expect("tick in time")
+        .expect("terminal in time")
         .expect("stream item");
-    assert!(first.errors.is_empty(), "tick errored: {:?}", first.errors);
-    let data = first.data.into_json().expect("json");
-    assert_eq!(data["operationStatusChanged"]["status"], serde_json::json!("SUCCEEDED"));
-    assert_eq!(
-        data["operationStatusChanged"]["correlationId"],
-        serde_json::json!(correlation.to_string())
-    );
-    assert!(
-        data["operationStatusChanged"]["message"]
-            .as_str()
-            .expect("message")
-            .contains("RestaurantRegistered"),
-        "message names the event: {data}"
-    );
+    assert!(second.errors.is_empty(), "terminal errored: {:?}", second.errors);
+    let data = second.data.into_json().expect("json");
+    assert_eq!(data["paymentStatusChanged"]["status"], serde_json::json!("CAPTURED"));
+    assert!(data["paymentStatusChanged"]["clientSecret"].is_null(), "secret NULLed on resolve");
+    let end = tokio::time::timeout(Duration::from_secs(10), stream.next()).await.expect("ends");
+    assert!(end.is_none(), "stream must complete once the run resolves");
 }
 
 /// The generated guard rejects roles outside the subscription's api.yaml `roles`

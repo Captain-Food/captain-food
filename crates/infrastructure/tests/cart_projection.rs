@@ -32,6 +32,7 @@ async fn reset_schema(pool: &PgPool) {
         CREATE TABLE cart (
           cart_id UUID PRIMARY KEY,
           restaurant_id UUID NOT NULL,
+          session_id UUID NOT NULL,
           customer_id UUID,
           status INTEGER NOT NULL,
           lines JSONB NOT NULL,
@@ -101,6 +102,7 @@ async fn cart_events_fold_into_the_read_model() {
         serde_json::json!({
             "cartId": cart_id,
             "restaurantId": restaurant_id,
+            "sessionId": uuid::Uuid::new_v4(),
             "customerId": customer_id
         }),
     )

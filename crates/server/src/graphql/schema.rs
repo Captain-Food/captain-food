@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use async_graphql::Schema;
+use application::journal::CommandJournal;
 use application::pm_state::{PaymentProcessStateStore, RefundProcessStateStore};
 use application::ports::{
     AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier, PaymentGateway,
@@ -19,7 +20,7 @@ use application::queries::{
     RestaurantReadRepository, UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 
-use infrastructure::EventBus;
+use infrastructure::{EventBus, OperationStatusBus};
 
 use super::generated::mutation::MutationRoot;
 use super::generated::query::QueryRoot;
@@ -60,6 +61,11 @@ pub struct WriteDeps {
     /// The `refund_process_manager` state rows the refund DECISION legs (`approveRefund` /
     /// `denyRefund`) resolve the pending run on (rules.yaml#/RefundRequiresApproval).
     pub refund_state: Arc<dyn RefundProcessStateStore>,
+    /// The durable command journal every mutation writes BEFORE handling (acceptance-first,
+    /// ADR-20260720-015300/-015500) — also the `operationStatus` read.
+    pub journal: Arc<dyn CommandJournal>,
+    /// The in-process journal-transition broadcast feeding `operationStatusChanged`.
+    pub status_bus: OperationStatusBus,
 }
 
 /// Build the master schema served under every role path. With `Some(deps)`/`Some(writes)` the
@@ -93,6 +99,8 @@ pub fn build_schema(
         builder = builder.data(w.payments);
         builder = builder.data(w.pm_state);
         builder = builder.data(w.refund_state);
+        builder = builder.data(w.journal);
+        builder = builder.data(w.status_bus);
     }
     if let Some(bus) = events {
         builder = builder.data(bus);
@@ -120,16 +128,22 @@ mod tests {
             "input RestaurantsQueryInput {",
             "phoneCountries: [PhoneCountry!]!",
             "restaurantLocationsByAccount(input: RestaurantLocationsByAccountQueryInput!): [Restaurant!]!",
-            "operation(input: OperationQueryInput!): Operation\n",
-            // Write side (mutation_block/payloads_block runtime mirror).
+            "operationStatus(input: OperationStatusQueryInput!): Operation\n",
+            "paymentStatus(input: PaymentStatusQueryInput!): PaymentIntent\n",
+            // Write side — acceptance-first (ADR-20260720-015500): every mutation takes the optional
+            // metadata envelope and returns the ONE shared MutationAcceptance.
             "type Mutation {",
-            "registerRestaurant(input: RegisterRestaurantInput!): RegisterRestaurantPayload!",
-            "correlationId: CorrelationId!",
-            "verifyPhone(input: VerifyPhoneInput!): VerifyPhonePayload!",
+            "type MutationAcceptance {",
+            "messageId: MessageId!",
+            "operationStatus: OperationStatus!",
+            "input MetadataInput {",
+            "registerRestaurant(input: RegisterRestaurantInput!, metadata: MetadataInput): MutationAcceptance!",
+            "verifyPhone(input: VerifyPhoneInput!, metadata: MetadataInput): MutationAcceptance!",
             // Subscriptions (subscription_block's runtime mirror).
             "type Subscription {",
             "orderStatusChanged(input: OrderStatusChangedSubscriptionInput!): Order!",
             "operationStatusChanged(input: OperationStatusChangedSubscriptionInput!): Operation!",
+            "paymentStatusChanged(input: PaymentStatusChangedSubscriptionInput!): PaymentIntent!",
         ] {
             assert!(sdl.contains(expected), "runtime SDL missing `{}`:\n{}", expected, sdl);
         }

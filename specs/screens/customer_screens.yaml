@@ -64,7 +64,8 @@ resolvers:
   orders.mine:          { query: { $ref: 'api.yaml#/queries/orders' } }
   me.profile:           { query: { $ref: 'api.yaml#/queries/me' } }
   favorites.mine:       { query: { $ref: 'api.yaml#/queries/favoriteRestaurants' } }
-  operation.byCorrelation: { query: { $ref: 'api.yaml#/queries/operation' } }
+  operationStatus.byMessage: { query: { $ref: 'api.yaml#/queries/operationStatus' } }
+  paymentStatus.byOrder:     { query: { $ref: 'api.yaml#/queries/paymentStatus' } }
   # ── GAPS — UI data needs with no backing API query yet ──
   promotions.active: { gap: "No promotions/deals query — HubRise deals not modelled in V0 (home promo banners)." }
   dishes.search:     { gap: "No dish/product search query — only restaurant search (queries/restaurants) exists." }
@@ -434,7 +435,7 @@ screens:
       - type: checkout_section
         title: { $ref: 'translations.yaml#/checkout.payment' }
         content:
-          - { type: stripe_express_checkout_element, id: stripe_payment, payment_intent_source: "{{ payment_intent_client_secret }}", on_confirm: { type: confirm_payment } }
+          - { type: stripe_express_checkout_element, id: stripe_payment, payment_intent_source: "{{ payment_status.clientSecret }}", on_confirm: { type: confirm_payment } }
       - type: sticky_bottom_bar
         content:
           - type: button
@@ -446,7 +447,11 @@ screens:
             action:
               type: place_order
               variables: { restaurantId: "{{ restaurant.id }}", cartId: "{{ cart.id }}", customerInfo: "{{ contact_form.values }}", deliveryMode: "{{ selected_delivery_mode }}", deliveryAddress: "{{ delivery_address }}", paymentMethodId: "{{ stripe_payment.paymentMethodId }}" }
-              on_success: { type: navigate, route: "/orders/{{ result.orderId }}/confirmation" }
+              # acceptance-first (ADR-20260720-015500): the mutation returns only the acceptance envelope;
+              # orderId is CLIENT-GENERATED (PlaceOrder command input — the client mints it before
+              # dispatch), and the confirmation screen resolves paymentStatus.byOrder / subscribes
+              # paymentStatusChanged + operationStatusChanged for the outcome.
+              on_success: { type: navigate, route: "/orders/{{ variables.orderId }}/confirmation" }
               on_error: { type: show_toast, variant: error }
 
   # SCREEN 6 — Order confirmation & tracking (NOT SDUI — realtime subscription + state machine)
