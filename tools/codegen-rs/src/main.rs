@@ -7850,7 +7850,9 @@ fn wired_mutation_dispatch(name: &str) -> Option<(String, String)> {
     if name == "placeOrder" {
         return Some((
             "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?.clone();\n        let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?.clone();\n        let pm_state = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?.clone();\n".into(),
-            "application::commands::place_order(store.as_ref(), catalogs.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, &actor).await.map(|_| ())".into(),
+            // env.session_id rides into the spawn (disjoint capture of a Copy field): the anonymous
+            // session scope for the paymentStatus read survives an app restart (#12).
+            "application::commands::place_order(store.as_ref(), catalogs.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, env.session_id.map(domain::generated::scalars::SessionId), &actor).await.map(|_| ())".into(),
         ));
     }
     // The refund DECISION legs run on the RefundProcess orchestrator (application::process_managers::

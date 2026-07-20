@@ -61,16 +61,18 @@ uuid() {
   if command -v uuidgen >/dev/null; then uuidgen | tr 'A-Z' 'a-z'; else cat /proc/sys/kernel/random/uuid; fi
 }
 
-# gql_raw <endpoint> <bearer-token-or-empty> <query> [variables-json]
+# gql_raw <endpoint> <bearer-token-or-empty> <query> [variables-json] [session-id]
 # Prints "<body>\n<http_code>" (the code travels in-band: helpers run inside $(...) subshells, so
-# a global variable would be lost).
+# a global variable would be lost). The optional session id is sent as the X-SESSION-ID envelope
+# header — the anonymous checkout identity (#12, ADR-20260720-213000).
 gql_raw() {
-  local endpoint="$1" token="$2" query="$3" variables="${4:-null}"
-  local body auth=() out
+  local endpoint="$1" token="$2" query="$3" variables="${4:-null}" session="${5:-}"
+  local body auth=() sess=() out
   if [ -n "$token" ]; then auth=(-H "Authorization: Bearer $token"); fi
+  if [ -n "$session" ]; then sess=(-H "X-SESSION-ID: $session"); fi
   body=$(jq -cn --arg q "$query" --argjson v "$variables" '{query:$q, variables:$v}')
   out=$(curl -sS -m 30 -w $'\n%{http_code}' -X POST "$endpoint" \
-    -H "Content-Type: application/json" "${auth[@]}" -d "$body") || { printf '{}\ntransport-error'; return 0; }
+    -H "Content-Type: application/json" "${auth[@]}" "${sess[@]}" -d "$body") || { printf '{}\ntransport-error'; return 0; }
   printf '%s' "$out"
 }
 
@@ -79,12 +81,12 @@ gql() {
   local out; out=$(gql_raw "$@"); printf '%s' "${out%$'\n'*}"
 }
 
-# gql_ok <layer> <endpoint> <token> <query> [variables] — fails the run on HTTP!=200 or GraphQL
-# errors with full diagnostics; prints the response body on success.
+# gql_ok <layer> <endpoint> <token> <query> [variables] [session-id] — fails the run on HTTP!=200
+# or GraphQL errors with full diagnostics; prints the response body on success.
 gql_ok() {
-  local layer="$1" endpoint="$2" token="$3" query="$4" variables="${5:-null}"
+  local layer="$1" endpoint="$2" token="$3" query="$4" variables="${5:-null}" session="${6:-}"
   local out code resp
-  out=$(gql_raw "$endpoint" "$token" "$query" "$variables")
+  out=$(gql_raw "$endpoint" "$token" "$query" "$variables" "$session")
   code="${out##*$'\n'}"
   resp="${out%$'\n'*}"
   if [ "$code" != "200" ]; then
@@ -266,14 +268,16 @@ l4() {
   # 2. Checkout as the smoke CUSTOMER (TEST mode order against the TEST restaurant).
   #    Acceptance-first (ADR-20260720-015500): placeOrder returns only the acceptance envelope; the
   #    outcome is read by polling operationStatus(messageId) — owned by this customer's JWT subject
-  #    (the journal row's user_id) — until it leaves PENDING.
+  #    (the journal row's user_id) — until it leaves PENDING. The cart's session id rides along as
+  #    the X-SESSION-ID envelope header: the run row stamps it (#12), so the session-scoped
+  #    paymentStatus read below works exactly like a real guest checkout.
   customer=$(mint_token "$SMOKE_CUSTOMER_EMAIL" "CUSTOMER")
   resp=$(gql_ok "L4" "$API_BASE/customer/graphql" "$customer" \
     'mutation($i: PlaceOrderInput!){ placeOrder(input:$i){ messageId operationStatus duplicate } }' \
     "$(jq -cn --arg o "$order_id" --arg r "$FIX_RESTAURANT_ID" --arg c "$cart_id" '{i:{
         mode:"TEST", orderId:$o, restaurantId:$r, cartId:$c,
         customerContact:{displayName:"Smoke Customer", phone:"+33600000000"},
-        serviceType:"COLLECTION", paymentMethodId:"pm_card_visa"}}')")
+        serviceType:"COLLECTION", paymentMethodId:"pm_card_visa"}}')" "$session_id")
   message_id=$(printf '%s' "$resp" | jq -r '.data.placeOrder.messageId // empty')
   [ -n "$message_id" ] || fail "L4: placeOrder returned no messageId (acceptance): $resp"
   say "      L4: placeOrder accepted (messageId $message_id) — polling operationStatus"
@@ -295,20 +299,21 @@ l4() {
   [ "$op_status" = "SUCCEEDED" ] || fail "L4: placeOrder operation not terminal after 60s — last: $last"
   say "      L4: placeOrder SUCCEEDED — locating the Stripe PaymentIntent"
 
-  # The Stripe intent id is server-assigned; the checkout UI reads it via paymentStatus (PUBLIC +
-  # ownership-scoped since #13), but the smoke customer has no Customer aggregate and place_order
-  # does not stamp session_id onto the run row yet (#12) — so ownership resolves null and the
-  # TEST-mode stand-in reads the intent back from Stripe by OUR orderId metadata (set at
-  # create-intent, required by the webhook ACL). Switch to paymentStatus once #12 lands.
+  # The Stripe intent id is server-assigned; the run row carries the checkout's X-SESSION-ID
+  # (#12, ADR-20260720-213000), so the GUEST-visible paymentStatus(orderId) on /public/graphql
+  # serves it — the exact read a real anonymous checkout performs (roles [PUBLIC, CUSTOMER, ADMIN]
+  # per #31, session ownership in the resolver; strangers get null).
   pi=""; t=0
   while [ "$t" -le 30 ]; do
-    pi=$(curl -sS -m 20 "$STRIPE_API/v1/payment_intents?limit=20" -u "$STRIPE_SECRET_KEY:" \
-      | jq -r --arg o "$order_id" '.data[] | select(.metadata.orderId==$o) | .id' | head -1)
+    resp=$(gql "$API_BASE/public/graphql" "" \
+      'query($id: OrderId!){ paymentStatus(input:{orderId:$id}) { paymentIntentId clientSecret status } }' \
+      "$(jq -cn --arg id "$order_id" '{id:$id}')" "$session_id")
+    pi=$(printf '%s' "$resp" | jq -r '.data.paymentStatus.paymentIntentId // empty')
     [ -n "$pi" ] && break
     sleep 3; t=$((t+3))
   done
-  [ -n "$pi" ] || fail "L4: no Stripe PaymentIntent carries orderId=$order_id metadata after 30s"
-  say "      L4: payment intent $pi created"
+  [ -n "$pi" ] || fail "L4: paymentStatus(orderId=$order_id) served no intent to the checkout session after 30s — last: $(printf '%s' "${resp:-}" | head -c 300)"
+  say "      L4: payment intent $pi served by the session-scoped guest paymentStatus read"
 
   # 3. Server-side confirm with the universal test card (frontend stand-in; TEST mode key only).
   case "${STRIPE_SECRET_KEY:-}" in

@@ -2244,7 +2244,7 @@ impl MutationRoot {
         };
         let (message_id, correlation_id) = (env.message_id, env.correlation_id);
         tokio::spawn(async move {
-            let outcome = application::commands::place_order(store.as_ref(), catalogs.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, &actor).await.map(|_| ());
+            let outcome = application::commands::place_order(store.as_ref(), catalogs.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, env.session_id.map(domain::generated::scalars::SessionId), &actor).await.map(|_| ());
             complete_operation(journal, status_bus, message_id, correlation_id, outcome).await;
         });
         Ok(acceptance(&env, OperationStatus::PENDING, false))

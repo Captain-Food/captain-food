@@ -3,6 +3,18 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-20 (13:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> ✅ **2026-07-20 — #12: anonymous checkout survives restarts (ADR-20260720-213000).**
+> `place_order` now takes the dispatch-layer `X-SESSION-ID` as an ENVELOPE parameter (never command
+> payload, ADR-0041) and stamps it onto the `payment_process_manager` row — a guest resumes
+> `paymentStatus(orderId)` after force-closing the app with only the persisted session id
+> (`operationStatus`/cart were already session-keyed). Client rules recorded (web cookie
+> `SameSite=Lax` / app keychain; SAME id until a `customerId` exists — CartBindingProcess binds on
+> phone verify). Guest `order(id)` reads DEFERRED to phone verification (OrderTracking has no
+> session column; revisit with #14). Prod smoke upgraded: sends `X-SESSION-ID` on placeOrder and
+> reads the intent via the guest `paymentStatus` on `/public/graphql` — the Stripe-metadata
+> workaround is gone, so the daily smoke now proves the real anonymous read path. New behaviour
+> test `checkout_stamps_the_anonymous_session_onto_the_run_row`. Validate 0 errors, tests green.
+
 > ✅ **2026-07-20 — #31: LITERAL `roles:` lists (ADR-20260720-191500, product-owner directive).**
 > api.yaml `roles:` now means exactly what it says: **omitted** → open to every role path
 > (`@public`, no guard); **present** → only the listed paths, PUBLIC being just the anonymous
