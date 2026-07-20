@@ -220,7 +220,7 @@ enum RefundProcessStatus {
 enum DeliveryDispatchProcessStatus {
   OFFERED
   ACCEPTED
-  REOFFER_REQUIRED
+  FAILED
   COMPLETED
 }
 

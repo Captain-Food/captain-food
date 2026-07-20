@@ -96,8 +96,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 
 ### `View_DeliveryJob` · 🛶 V0 · source aggregate `DeliveryJob`
 
-- **Fed by**: `DeliveryRequested`, `DeliveryAcceptedByPartner`, `DeliveryRejectedByPartner`, `DeliveryStatusUpdated`, `DeliveryAcceptedByRider`, `DeliveryPickedUp`, `DeliveryCompleted`, `DeliveryCancelled`
-- **Rules**: `status` is derived from the lifecycle events: PENDING on DeliveryRequested → ASSIGNED on DeliveryAcceptedByRider/DeliveryAcceptedByPartner → PICKED_UP on DeliveryPickedUp → then partner DeliveryStatusUpdated (OUT_FOR_DELIVERY/DELIVERED/FAILED) or DeliveryCompleted (DELIVERED) / DeliveryCancelled (CANCELLED). `provider` is INDEPENDENT once a rider accepts, PARTNER once a partner accepts.
+- **Fed by**: `DeliveryRequested`, `DeliveryAcceptedByPartner`, `DeliveryRejectedByPartner`, `DeliveryStatusUpdated`, `DeliveryAcceptedByRider`, `DeliveryPickedUp`, `DeliveryCompleted`, `DeliveryCancelled`, `DeliveryDispatchFailed`
+- **Rules**: `status` is derived from the lifecycle events: PENDING on DeliveryRequested → ASSIGNED on DeliveryAcceptedByRider/DeliveryAcceptedByPartner → PICKED_UP on DeliveryPickedUp → then partner DeliveryStatusUpdated (OUT_FOR_DELIVERY/DELIVERED/FAILED) or DeliveryCompleted (DELIVERED) / DeliveryCancelled (CANCELLED) / DeliveryDispatchFailed (FAILED — offer cap exhausted, ADR-20260720-004556). `provider` is INDEPENDENT once a rider accepts, PARTNER once a partner accepts.
 - **Indexes**: `(restaurant_id, status)`, `(rider_id, status)`
 
 | Column | Type | SQL | Constraints | Notes |
@@ -105,7 +105,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `delivery_job_id` | `DeliveryJobId` | `UUID` | PK |  |
 | `order_id` | `OrderId` | `UUID` | index |  |
 | `restaurant_id` | `RestaurantId` | `UUID` | — |  |
-| `status` | `DeliveryStatus` | `INTEGER` | — | Derived from the lifecycle event type / DeliveryStatusUpdated.status. |
+| `status` | `DeliveryStatus` | `INTEGER` | — | Derived from the lifecycle event type / DeliveryStatusUpdated.status (DeliveryDispatchFailed → FAILED, the offer-cap exhaustion). |
 | `provider` | `DeliveryProvider` | `INTEGER` | nullable | INDEPENDENT (rider accepted) or PARTNER (partner accepted); null while PENDING. |
 | `rider_id` | `RiderId` | `UUID` | nullable | Set for an independent-rider delivery; null for a partner delivery. |
 | `courier` | `jsonb` | `JSONB` | nullable | Courier { displayName, phone?, riderId? }; from the partner on acceptance (independent rider is in rider_id). |
@@ -117,7 +117,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `requested_at` | `timestamptz` | `TIMESTAMPTZ` | — | DeliveryRequested occurrence time. |
 | `picked_up_at` | `timestamptz` | `TIMESTAMPTZ` | nullable |  |
 | `delivered_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Set on DeliveryCompleted or DeliveryStatusUpdated=DELIVERED (conditional occurrence). |
-| `last_partner_rejection` | `text` | `TEXT` | nullable | Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected. |
+| `last_partner_rejection` | `text` | `TEXT` | nullable | Reason of the latest partner decline (the job stays PENDING and is re-offered, up to the 3-offer cap — ADR-20260720-004556); null if never rejected. |
 | `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 | `updated_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |
 
@@ -256,7 +256,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 
 ### `OrderTracking` · 🛶 V0 · source aggregate `Order`
 
-- **Fed by**: `OrderPlaced`, `OrderAcceptedByRestaurant`, `OrderPreparationStarted`, `OrderMarkedReady`, `OrderDelivered`, `OrderRejectedByRestaurant`, `OrderCancelledByCustomer`, `OrderCancelledByRestaurant`, `PaymentCaptured`, `PaymentRefunded`, `OrderRated`, `RestaurantRated`, `OrderTipped`, `DeliveryAcceptedByPartner`, `DeliveryAcceptedByRider`, `DeliveryStatusUpdated`, `DeliveryCompleted`
+- **Fed by**: `OrderPlaced`, `OrderAcceptedByRestaurant`, `OrderPreparationStarted`, `OrderMarkedReady`, `OrderDelivered`, `OrderRejectedByRestaurant`, `OrderCancelledByCustomer`, `OrderCancelledByRestaurant`, `PaymentCaptured`, `PaymentRefunded`, `OrderRated`, `RestaurantRated`, `OrderTipped`, `DeliveryAcceptedByPartner`, `DeliveryAcceptedByRider`, `DeliveryStatusUpdated`, `DeliveryCompleted`, `DeliveryDispatchFailed`
 - **Rules**: `payment_status` is folded from the Stripe payment facts. `delivery_status`/`courier`/`estimated_dropoff_at` mirror the order's DeliveryJob (correlated by order_id) so the customer's order view shows live delivery progress (ADR-0031); the full operational board is View_DeliveryJob. Rating columns are populated from OrderRated (rider_thumb), RestaurantRated (restaurant_stars + comment); null until the customer acts. The restaurant reads restaurant_stars/comment to see its rating. `*_tip_cents` sum OrderTipped.tips by recipient (customer AND restaurant tippers combined; ADR-012); separate from the core split, Captain 0% skim; feed per-recipient Open-Collective totals. `uber_*` columns are the estimated Uber Eats comparison for the pedagogical receipt (ADR-0025), COMPUTED by the projection from breakdown.articles + the restaurant's cuisine_category → UberEstimationPolicy.price_coefficient + UberSplitPolicy. uber_total = coefficient·articles + avg_delivery_fee + platform fee; uber_restaurant = coefficient·articles·(1−uber_commission_pct/100); uber_rider ≈ rider_base_cents (per-km omitted, distance not modelled); uber_platform = uber_total − uber_restaurant − uber_rider. All null when the restaurant has no cuisine_category. uber_basis is ESTIMATED in V0 (REAL when opted-in + HubRise Uber prices — deferred). Contrast against the exact Captain split (restaurant_payout/rider_payout/captain_net).
 - **Note**: The single canonical Order read model. Folds the Order lifecycle + Stripe payment facts (secondary source). Serves every order query — by id (`order`), by customer (history) and by restaurant+status (back-office queue) — via the indexes below; there is no separate per-persona order projection.
 
@@ -297,7 +297,7 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `restaurant_tip_cents` | `MoneyCents` | `BIGINT` | nullable | Σ OrderTipped.tips[recipient==RESTAURANT].amount; null if none. |
 | `captain_tip_cents` | `MoneyCents` | `BIGINT` | nullable | Σ OrderTipped.tips[recipient==CAPTAIN].amount; null if none. |
 | `rated_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Occurrence time of the latest rating/tip event. |
-| `delivery_status` | `DeliveryStatus` | `INTEGER` | nullable | Mirror of the order's DeliveryJob status (correlated by order_id); null for COLLECTION / before dispatch. |
+| `delivery_status` | `DeliveryStatus` | `INTEGER` | nullable | Mirror of the order's DeliveryJob status (correlated by order_id); null for COLLECTION / before dispatch. DeliveryDispatchFailed (offer cap exhausted) mirrors FAILED (ADR-20260720-004556). |
 | `courier` | `jsonb` | `JSONB` | nullable | Assigned Courier { displayName, phone?, riderId? } once accepted; null before. |
 | `estimated_dropoff_at` | `timestamptz` | `TIMESTAMPTZ` | nullable | Partner-reported ETA to the customer; null when unknown. |
 | `created_at` | `timestamptz` | `TIMESTAMPTZ` | — | technical — stamped from event.occurred_at (implicit on every read model) |

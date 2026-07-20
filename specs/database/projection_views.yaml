@@ -95,8 +95,9 @@ View_DeliveryJob:
     - { $ref: 'events.yaml#/DeliveryPickedUp' }
     - { $ref: 'events.yaml#/DeliveryCompleted' }
     - { $ref: 'events.yaml#/DeliveryCancelled' }
+    - { $ref: 'events.yaml#/DeliveryDispatchFailed' }
   rules:
-    - "`status` is derived from the lifecycle events: PENDING on DeliveryRequested → ASSIGNED on DeliveryAcceptedByRider/DeliveryAcceptedByPartner → PICKED_UP on DeliveryPickedUp → then partner DeliveryStatusUpdated (OUT_FOR_DELIVERY/DELIVERED/FAILED) or DeliveryCompleted (DELIVERED) / DeliveryCancelled (CANCELLED)."
+    - "`status` is derived from the lifecycle events: PENDING on DeliveryRequested → ASSIGNED on DeliveryAcceptedByRider/DeliveryAcceptedByPartner → PICKED_UP on DeliveryPickedUp → then partner DeliveryStatusUpdated (OUT_FOR_DELIVERY/DELIVERED/FAILED) or DeliveryCompleted (DELIVERED) / DeliveryCancelled (CANCELLED) / DeliveryDispatchFailed (FAILED — offer cap exhausted, ADR-20260720-004556)."
     - "`provider` is INDEPENDENT once a rider accepts, PARTNER once a partner accepts."
   indexes:
     - [restaurant_id, status]   # restaurant delivery board
@@ -124,6 +125,7 @@ View_DeliveryJob:
         DeliveryStatusUpdated: { from: status }
         DeliveryCompleted: DELIVERED
         DeliveryCancelled: CANCELLED
+        DeliveryDispatchFailed: FAILED
       from:
         - { $ref: 'events.yaml#/DeliveryRequested' }
         - { $ref: 'events.yaml#/DeliveryAcceptedByRider' }
@@ -132,7 +134,8 @@ View_DeliveryJob:
         - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
         - { $ref: 'events.yaml#/DeliveryCompleted' }
         - { $ref: 'events.yaml#/DeliveryCancelled' }
-      note: "Derived from the lifecycle event type / DeliveryStatusUpdated.status."
+        - { $ref: 'events.yaml#/DeliveryDispatchFailed' }
+      note: "Derived from the lifecycle event type / DeliveryStatusUpdated.status (DeliveryDispatchFailed → FAILED, the offer-cap exhaustion)."
     provider:
       type: { $ref: 'scalars.yaml#/DeliveryProvider' }
       derive:
@@ -196,7 +199,7 @@ View_DeliveryJob:
       type: text
       from: [{ $ref: 'events.yaml#/DeliveryRejectedByPartner/properties/reason' }]
       nullable: true
-      note: "Reason of the latest partner decline (the job stays PENDING and is re-offered); null if never rejected."
+      note: "Reason of the latest partner decline (the job stays PENDING and is re-offered, up to the 3-offer cap — ADR-20260720-004556); null if never rejected."
 # Refund queue (RefundProcess) — the pendingRefunds read model. One row per refund opened on a captured
 # payment (RefundOpened, delivered by RefundProcess to the Payment aggregate), folded with the decision
 # and settlement facts recorded on the same Payment stream. The full lifecycle stays in the view

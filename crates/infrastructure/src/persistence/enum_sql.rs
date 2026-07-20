@@ -98,7 +98,8 @@ enum_ord!(RefundProcessStatus {
 enum_ord!(DeliveryDispatchProcessStatus {
     OFFERED => 0,
     ACCEPTED => 1,
-    REOFFER_REQUIRED => 2,
+    // FAILED keeps retired REOFFER_REQUIRED's slot (both flag manual handling; ADR-20260720-004556).
+    FAILED => 2,
     COMPLETED => 3,
 });
 
@@ -156,7 +157,7 @@ mod tests {
         assert_eq!(DeliveryDispatchProcessStatus::COMPLETED.to_ord(), 3);
         assert_eq!(
             DeliveryDispatchProcessStatus::from_ord(2).unwrap(),
-            DeliveryDispatchProcessStatus::REOFFER_REQUIRED
+            DeliveryDispatchProcessStatus::FAILED
         );
         assert!(RestaurantStatus::from_ord(99).is_err());
     }

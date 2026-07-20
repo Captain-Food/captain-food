@@ -145,6 +145,8 @@ impl OrderTrackingCompute for OrderTrackingProjector {
                 Some(DeliveryStatus::ASSIGNED)
             }
             DomainEvent::DeliveryCompleted(_) => Some(DeliveryStatus::DELIVERED),
+            // Terminal dispatch failure — the offer cap was exhausted (ADR-20260720-004556).
+            DomainEvent::DeliveryDispatchFailed(_) => Some(DeliveryStatus::FAILED),
             _ => prev.and_then(|r| r.delivery_status.clone()),
         }
     }

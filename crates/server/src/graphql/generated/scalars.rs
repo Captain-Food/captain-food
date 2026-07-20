@@ -1621,15 +1621,15 @@ impl From<RefundProcessStatus> for ds::RefundProcessStatus {
     }
 }
 
-/// State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order).
+/// State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order). FAILED keeps REOFFER_REQUIRED's ordinal slot (both flag manual handling; ADR-20260720-004556).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
 pub enum DeliveryDispatchProcessStatus {
     #[graphql(name = "OFFERED")]
     OFFERED,
     #[graphql(name = "ACCEPTED")]
     ACCEPTED,
-    #[graphql(name = "REOFFER_REQUIRED")]
-    REOFFER_REQUIRED,
+    #[graphql(name = "FAILED")]
+    FAILED,
     #[graphql(name = "COMPLETED")]
     COMPLETED,
 }
@@ -1638,7 +1638,7 @@ impl From<ds::DeliveryDispatchProcessStatus> for DeliveryDispatchProcessStatus {
         match v {
             ds::DeliveryDispatchProcessStatus::OFFERED => Self::OFFERED,
             ds::DeliveryDispatchProcessStatus::ACCEPTED => Self::ACCEPTED,
-            ds::DeliveryDispatchProcessStatus::REOFFER_REQUIRED => Self::REOFFER_REQUIRED,
+            ds::DeliveryDispatchProcessStatus::FAILED => Self::FAILED,
             ds::DeliveryDispatchProcessStatus::COMPLETED => Self::COMPLETED,
         }
     }
@@ -1648,7 +1648,7 @@ impl From<DeliveryDispatchProcessStatus> for ds::DeliveryDispatchProcessStatus {
         match v {
             DeliveryDispatchProcessStatus::OFFERED => Self::OFFERED,
             DeliveryDispatchProcessStatus::ACCEPTED => Self::ACCEPTED,
-            DeliveryDispatchProcessStatus::REOFFER_REQUIRED => Self::REOFFER_REQUIRED,
+            DeliveryDispatchProcessStatus::FAILED => Self::FAILED,
             DeliveryDispatchProcessStatus::COMPLETED => Self::COMPLETED,
         }
     }

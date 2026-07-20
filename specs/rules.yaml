@@ -155,6 +155,8 @@ PartnerAcceptanceRecordsCourier:
   description: "When the partner accepts (inbound), the assigned courier is recorded on the job."
 PartnerRejectionReoffers:
   description: "When the partner declines (inbound), the job is re-offered or flagged for manual handling."
+DispatchRetriesAreBounded:
+  description: "A delivery job is offered at most 3 times in total (the birth offer + 2 re-offers); when the partner declines the last allowed offer the dispatch fails terminally (DeliveryDispatchFailed, run FAILED) and is surfaced to the restaurant for manual handling — never an unbounded retry loop (ADR-20260720-004556)."
 OrderClosedOnDeliveryCompletion:
   description: "The order is closed (OrderDelivered) when the partner reports DELIVERED or an independent rider completes the delivery."
 DeliveryPartnerAssignmentLifecycle:

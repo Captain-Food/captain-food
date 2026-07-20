@@ -86,7 +86,7 @@ INSERT INTO ref_refund_process_status (value, sort_order) VALUES ('PENDING_APPRO
 
 -- DeliveryDispatchProcessStatus
 CREATE TABLE ref_delivery_dispatch_process_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
-INSERT INTO ref_delivery_dispatch_process_status (value, sort_order) VALUES ('OFFERED',0),('ACCEPTED',1),('REOFFER_REQUIRED',2),('COMPLETED',3);
+INSERT INTO ref_delivery_dispatch_process_status (value, sort_order) VALUES ('OFFERED',0),('ACCEPTED',1),('FAILED',2),('COMPLETED',3);
 
 -- CatalogItemAvailability
 CREATE TABLE ref_catalog_item_availability(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
@@ -193,6 +193,7 @@ CREATE TABLE delivery_dispatch_process_manager (
   restaurant_id UUID NOT NULL,
   delivery_job_id UUID NOT NULL UNIQUE,
   process_status INTEGER NOT NULL,
+  offer_attempts INTEGER NOT NULL,
   last_update_utc TIMESTAMPTZ NOT NULL
 );
 

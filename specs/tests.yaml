@@ -358,6 +358,9 @@ fixtures:
   deliveryRejectedByPartner:
     type: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
     data: { deliveryJobId: "deliv-1", reason: "No courier available" }
+  deliveryDispatchFailed:
+    type: { $ref: 'events.yaml#/DeliveryDispatchFailed' }
+    data: { deliveryJobId: "deliv-1", orderId: "order-1", restaurantId: "resto-1", attempts: 3, lastReason: "No courier available" }
   deliveryStatusUpdatedDelivered:
     type: { $ref: 'events.yaml#/DeliveryStatusUpdated' }
     data: { deliveryJobId: "deliv-1", status: "DELIVERED" }
@@ -2054,8 +2057,10 @@ tests:
     then: []
 
   TestDispatchPartnerRejected:
-    name: "Re-offers or flags for manual handling when the partner declines (inbound)"
-    rules: [{ $ref: 'rules.yaml#/PartnerRejectionReoffers' }]
+    name: "Re-offers the declined job to the partner while under the 3-offer cap (inbound decline)"
+    rules:
+      - { $ref: 'rules.yaml#/PartnerRejectionReoffers' }
+      - { $ref: 'rules.yaml#/DispatchRetriesAreBounded' }
     actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
     given:
       - { $ref: '#/fixtures/deliveryRequested' }
@@ -2063,6 +2068,34 @@ tests:
       type: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
       data: { deliveryJobId: "deliv-1", reason: "No courier available" }
     then: []
+
+  TestDispatchAcceptedAfterReoffer:
+    name: "The partner accepts a re-offered job: the run advances to ACCEPTED (happy path after a decline)"
+    rules:
+      - { $ref: 'rules.yaml#/DispatchRetriesAreBounded' }
+      - { $ref: 'rules.yaml#/PartnerAcceptanceRecordsCourier' }
+    actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryRejectedByPartner' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+      data: { deliveryJobId: "deliv-1", partnerRef: "avelo-77", courier: { displayName: "Léa", phone: "+33611223344" } }
+    then: []
+
+  TestDispatchFailsAfterOfferCap:
+    name: "The 3rd partner decline exhausts the offer cap: DeliveryDispatchFailed is recorded and the run closes FAILED"
+    rules: [{ $ref: 'rules.yaml#/DispatchRetriesAreBounded' }]
+    actor: { $ref: 'processmanager.yaml#/DeliveryDispatchProcess' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+      - { $ref: '#/fixtures/deliveryRejectedByPartner' }
+      - { $ref: '#/fixtures/deliveryRejectedByPartner' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+      data: { deliveryJobId: "deliv-1", reason: "No courier available" }
+    then:
+      - { $ref: '#/fixtures/deliveryDispatchFailed' }
 
   TestDispatchClosesOrderOnPartnerDelivered:
     name: "Closes the order when the partner reports DELIVERED (inbound)"
@@ -2320,7 +2353,7 @@ tests:
       - { $ref: '#/fixtures/deliveryAcceptedByPartner' }
 
   TestDeliveryJobRecordsPartnerRejection:
-    name: "The DeliveryJob records the inbound partner rejection (the dispatcher re-offers)"
+    name: "The DeliveryJob records the inbound partner rejection (the dispatcher re-offers, bounded)"
     rules: [{ $ref: 'rules.yaml#/PartnerRejectionReoffers' }]
     actor: { $ref: 'actors.yaml#/DeliveryJob' }
     given:
@@ -2330,6 +2363,18 @@ tests:
       data: { deliveryJobId: "deliv-1", reason: "No courier available" }
     then:
       - { $ref: '#/fixtures/deliveryRejectedByPartner' }
+
+  TestDeliveryJobRecordsDispatchFailure:
+    name: "The DeliveryJob records the terminal dispatch failure delivered by DeliveryDispatchProcess (job → FAILED)"
+    rules: [{ $ref: 'rules.yaml#/DispatchRetriesAreBounded' }]
+    actor: { $ref: 'actors.yaml#/DeliveryJob' }
+    given:
+      - { $ref: '#/fixtures/deliveryRequested' }
+    when:
+      type: { $ref: 'events.yaml#/DeliveryDispatchFailed' }
+      data: { deliveryJobId: "deliv-1", orderId: "order-1", restaurantId: "resto-1", attempts: 3, lastReason: "No courier available" }
+    then:
+      - { $ref: '#/fixtures/deliveryDispatchFailed' }
 
   TestDeliveryStatusUpdatedByCommand:
     name: "The delivery status is driven through valid transitions to DELIVERED"

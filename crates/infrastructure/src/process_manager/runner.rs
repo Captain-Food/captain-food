@@ -352,6 +352,7 @@ impl ProcessManagerRunner {
                     &self.dispatch_state,
                     self.partner.as_ref(),
                     e,
+                    env,
                 )
                 .await
             }

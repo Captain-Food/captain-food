@@ -441,13 +441,13 @@ pub enum RefundProcessStatus {
     REFUNDED,
 }
 
-/// State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order).
+/// State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order). FAILED keeps REOFFER_REQUIRED's ordinal slot (both flag manual handling; ADR-20260720-004556).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum DeliveryDispatchProcessStatus {
     OFFERED,
     ACCEPTED,
-    REOFFER_REQUIRED,
+    FAILED,
     COMPLETED,
 }
 

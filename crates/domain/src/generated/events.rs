@@ -686,6 +686,17 @@ pub struct DeliveryCancelled {
     pub reason: Option<String>,
 }
 
+/// Dispatch failed terminally: the delivery partner declined the job at every offer attempt (cap of 3 total offers, ADR-20260720-004556). Emitted by DeliveryDispatchProcess (like DeliveryRequested) so read models surface the failed job to the restaurant for manual handling; no automatic retry follows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryDispatchFailed {
+    pub delivery_job_id: DeliveryJobId,
+    pub order_id: OrderId,
+    pub restaurant_id: RestaurantId,
+    pub attempts: i64,
+    pub last_reason: Option<String>,
+}
+
 /// The delivery partner (e.g. Avelo37) accepted the job and assigned one of its couriers (inbound).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -900,6 +911,7 @@ pub enum DomainEvent {
     DeliveryPickedUp(DeliveryPickedUp),
     DeliveryCompleted(DeliveryCompleted),
     DeliveryCancelled(DeliveryCancelled),
+    DeliveryDispatchFailed(DeliveryDispatchFailed),
     DeliveryAcceptedByPartner(DeliveryAcceptedByPartner),
     DeliveryRejectedByPartner(DeliveryRejectedByPartner),
     DeliveryStatusUpdated(DeliveryStatusUpdated),
