@@ -32,6 +32,7 @@ async fn reset_schema(pool: &PgPool) {
         CREATE TABLE cart (
           cart_id UUID PRIMARY KEY,
           restaurant_id UUID NOT NULL,
+          session_id UUID NOT NULL,
           customer_id UUID,
           status INTEGER NOT NULL,
           lines JSONB NOT NULL,
@@ -90,6 +91,7 @@ async fn cart_events_fold_into_the_read_model() {
     let cart_id = uuid::Uuid::new_v4();
     let restaurant_id = uuid::Uuid::new_v4();
     let customer_id = uuid::Uuid::new_v4();
+    let session_id = uuid::Uuid::new_v4();
     let stream = format!("Cart-{cart_id}");
 
     // 1) The creation fact, camelCase payload matching domain::generated::events::CartStarted.
@@ -101,6 +103,7 @@ async fn cart_events_fold_into_the_read_model() {
         serde_json::json!({
             "cartId": cart_id,
             "restaurantId": restaurant_id,
+            "sessionId": session_id,
             "customerId": customer_id
         }),
     )
@@ -111,8 +114,8 @@ async fn cart_events_fold_into_the_read_model() {
 
     // The row materialized, OPEN, under the group's own 'Cart' checkpoint. The priced columns hold the
     // projector's documented defaults (lines [], total 0 EUR — pricing is TODO(runtime)).
-    let (status, total, currency): (i32, i64, String) = sqlx::query_as(
-        "SELECT status, total_amount_cents, currency FROM cart WHERE cart_id = $1",
+    let (status, total, currency, projected_session): (i32, i64, String, uuid::Uuid) = sqlx::query_as(
+        "SELECT status, total_amount_cents, currency, session_id FROM cart WHERE cart_id = $1",
     )
     .bind(cart_id)
     .fetch_one(&pool)
@@ -121,6 +124,7 @@ async fn cart_events_fold_into_the_read_model() {
     assert_eq!(status, 0); // CartStatus::OPEN ordinal
     assert_eq!(total, 0);
     assert_eq!(currency, "EUR");
+    assert_eq!(projected_session, session_id);
     let checkpoint: i64 =
         sqlx::query_scalar("SELECT position FROM projection_checkpoint WHERE projector = 'Cart'")
             .fetch_one(&pool)
