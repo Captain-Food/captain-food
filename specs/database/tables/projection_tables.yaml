@@ -574,9 +574,13 @@ OrderTracking:
     payment_status:
       type: text
       from:
+        - { $ref: 'events.yaml#/OrderPlaced' }
         - { $ref: 'events.yaml#/PaymentCaptured' }
         - { $ref: 'events.yaml#/PaymentRefunded' }
-      note: "Folded from Stripe facts; candidate for a PaymentStatus enum."
+      note: >
+        Folded from Stripe facts; candidate for a PaymentStatus enum. OrderPlaced seeds CAPTURED:
+        PlaceOrderProcess emits it only in reaction to PaymentCaptured (V0 prepaid-online), and that
+        capture sits earlier in the log than the row it would fold into.
     restaurant_stars:
       from: [{ $ref: 'events.yaml#/RestaurantRated/properties/stars' }]
       nullable: true

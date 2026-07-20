@@ -122,6 +122,11 @@ impl OrderTrackingCompute for OrderTrackingProjector {
         match &env.event {
             DomainEvent::PaymentCaptured(_) => "CAPTURED".to_string(),
             DomainEvent::PaymentRefunded(_) => "REFUNDED".to_string(),
+            // PlaceOrderProcess emits OrderPlaced ONLY in reaction to PaymentCaptured (the V0 flow is
+            // prepaid-online by construction), and that capture sits at an EARLIER log position than
+            // the OrderPlaced that creates this row — folding it again here would find no row and be
+            // lost. The saga invariant IS the value. Revisit when a non-prepaid service lands.
+            DomainEvent::OrderPlaced(_) => "CAPTURED".to_string(),
             _ => prev.map(|r| r.payment_status.clone()).unwrap_or_else(|| "PENDING".to_string()),
         }
     }

@@ -289,7 +289,8 @@ DDL for these tables is generated to `specs/generated/views.generated.sql`.
 | `placed_at` | `timestamptz` | `TIMESTAMPTZ` | — | OrderPlaced occurrence time. |
 | `status_changed_at` | `timestamptz` | `TIMESTAMPTZ` | — | Occurrence time of the latest status-changing event. |
 | `payment_intent_id` | `PaymentIntentId` | `TEXT` | nullable | The captured Stripe PaymentIntent; RefundProcess reads it to open a pending refund. |
-| `payment_status` | `text` | `TEXT` | — | Folded from Stripe facts; candidate for a PaymentStatus enum. |
+| `payment_status` | `text` | `TEXT` | — | Folded from Stripe facts; candidate for a PaymentStatus enum. OrderPlaced seeds CAPTURED: PlaceOrderProcess emits it only in reaction to PaymentCaptured (V0 prepaid-online), and that capture sits earlier in the log than the row it would fold into.
+ |
 | `restaurant_stars` | `StarRating` | `INTEGER` | nullable | Customer's 0–5 rating of the restaurant; null until rated. |
 | `rating_comment` | `RatingComment` | `TEXT` | nullable |  |
 | `rider_thumb` | `ThumbRating` | `INTEGER` | nullable |  |
