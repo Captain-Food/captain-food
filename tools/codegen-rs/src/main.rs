@@ -203,6 +203,8 @@ struct Coverage {
     screens: usize,
     screen_bindings: usize,
     screen_gaps: usize,
+    lifecycles: usize,
+    lifecycle_transitions: usize,
 }
 
 struct Report {
@@ -413,6 +415,15 @@ fn validate(model: &Model) -> Report {
 
     // --- 2b. Process managers (processmanager.yaml): typed-step validation -----------------------
     validate_process_managers(model, &mut issues);
+
+    // --- 2c. Aggregate lifecycle state machines (actors.yaml `lifecycle`, ADR-20260720-004419) ---
+    validate_lifecycles(model, &mut issues);
+    {
+        let lcs = parse_lifecycles(model);
+        cov.lifecycles = lcs.len();
+        cov.lifecycle_transitions =
+            lcs.iter().map(|l| l.transitions.iter().map(|t| t.from.len()).sum::<usize>()).sum();
+    }
 
     // --- 2d. Service catalog (services.yaml, ADR-20260719-214500) --------------------------------
     validate_services(model, &mut issues);
@@ -3288,6 +3299,288 @@ fn validate_process_managers(model: &Model, issues: &mut Vec<Issue>) {
     }
 }
 
+// ─── §2c — aggregate lifecycle state machines (actors.yaml `lifecycle`, ADR-20260720-004419) ────
+
+/// One `{ from: [states], event, to }` transition of a declared lifecycle.
+struct LifecycleTransition {
+    from: Vec<String>,
+    event_ref: String,
+    to: String,
+}
+
+/// One `{ event, to }` birth entry of a declared lifecycle.
+struct LifecycleInitial {
+    event_ref: String,
+    to: String,
+}
+
+/// A parsed `lifecycle:` block of an actors.yaml aggregate: the status machine as declared data.
+/// Tolerant parsing (missing pieces → empty); `validate_lifecycles` reports the holes.
+struct Lifecycle {
+    aggregate: String,
+    status_ref: String,
+    initial: Vec<LifecycleInitial>,
+    transitions: Vec<LifecycleTransition>,
+    terminal: Vec<String>,
+}
+
+/// Parse every aggregate's `lifecycle:` block, in actors.yaml order.
+fn parse_lifecycles(model: &Model) -> Vec<Lifecycle> {
+    let mut out = Vec::new();
+    let actors = match model.defs.get("actors.yaml") {
+        Some(Value::Mapping(m)) => m,
+        _ => return out,
+    };
+    for (k, node) in actors {
+        let name = match k.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if node.get("type").and_then(|x| x.as_str()) != Some("aggregate") {
+            continue;
+        }
+        let lc = match node.get("lifecycle") {
+            Some(v) => v,
+            None => continue,
+        };
+        let str_seq = |v: Option<&Value>| -> Vec<String> {
+            v.and_then(|x| x.as_sequence())
+                .map(|s| s.iter().filter_map(|it| it.as_str().map(|x| x.to_string())).collect())
+                .unwrap_or_default()
+        };
+        let event_ref =
+            |e: &Value| e.get("event").and_then(|x| x.get("$ref")).and_then(|r| r.as_str()).unwrap_or("").to_string();
+        let initial = lc
+            .get("initial")
+            .and_then(|x| x.as_sequence())
+            .map(|s| {
+                s.iter()
+                    .map(|e| LifecycleInitial {
+                        event_ref: event_ref(e),
+                        to: e.get("to").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let transitions = lc
+            .get("transitions")
+            .and_then(|x| x.as_sequence())
+            .map(|s| {
+                s.iter()
+                    .map(|t| LifecycleTransition {
+                        from: str_seq(t.get("from")),
+                        event_ref: event_ref(t),
+                        to: t.get("to").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(Lifecycle {
+            aggregate: name.to_string(),
+            status_ref: lc
+                .get("status")
+                .and_then(|x| x.get("$ref"))
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string(),
+            initial,
+            transitions,
+            terminal: str_seq(lc.get("terminal")),
+        });
+    }
+    out
+}
+
+/// The enum values of a scalars.yaml enum scalar, or `None` when the name is not an enum scalar.
+fn scalar_enum_values(model: &Model, scalar: &str) -> Option<Vec<String>> {
+    model
+        .defs
+        .get("scalars.yaml")
+        .and_then(|s| s.get(scalar))
+        .and_then(|n| n.get("enum"))
+        .and_then(|e| e.as_sequence())
+        .map(|s| s.iter().filter_map(|v| v.as_str().map(|x| x.to_string())).collect())
+}
+
+/// §2c — validate the declared aggregate lifecycles (ADR-20260720-004419): the status is an enum
+/// scalar; every named state is a member of it; every claimed event is emitted by THIS aggregate;
+/// the machine is deterministic (no two transitions from one state on one event); terminal states
+/// have no outgoing transition; every named state is reachable from an initial state. An aggregate
+/// whose `<Name>Status` scalar exists (trailing `Job` stripped, so DeliveryJob ↔ DeliveryStatus)
+/// but that declares no lifecycle WARNS (`lc-missing`) — adoption is incremental.
+fn validate_lifecycles(model: &Model, issues: &mut Vec<Issue>) {
+    let actors = match model.defs.get("actors.yaml") {
+        Some(Value::Mapping(m)) => m,
+        _ => return,
+    };
+    let lifecycles: BTreeSet<String> = parse_lifecycles(model).into_iter().map(|l| l.aggregate).collect();
+    // Coverage: an aggregate with a status scalar but no declared lifecycle.
+    for (k, node) in actors {
+        let name = match k.as_str() {
+            Some(s) => s,
+            None => continue,
+        };
+        if node.get("type").and_then(|x| x.as_str()) != Some("aggregate") || lifecycles.contains(name) {
+            continue;
+        }
+        let base = name.strip_suffix("Job").unwrap_or(name);
+        for candidate in [format!("{}Status", name), format!("{}Status", base)] {
+            if scalar_enum_values(model, &candidate).is_some() {
+                issues.push(warn(
+                    "lc-missing",
+                    format!("actors.yaml/{}", name),
+                    format!(
+                        "aggregate '{}' has a status scalar (scalars.yaml#/{}) but declares no `lifecycle` — its status machine stays implicit code (ADR-20260720-004419).",
+                        name, candidate
+                    ),
+                ));
+                break;
+            }
+        }
+    }
+    for lc in parse_lifecycles(model) {
+        let at = format!("actors.yaml/{}.lifecycle", lc.aggregate);
+        // status → a scalars.yaml ENUM scalar.
+        let enum_values: Vec<String> = match ref_name(&lc.status_ref) {
+            Some(scalar)
+                if ref_target_file(&lc.status_ref, "actors.yaml").as_deref() == Some("scalars.yaml") =>
+            {
+                match scalar_enum_values(model, &scalar) {
+                    Some(vals) => vals,
+                    None => {
+                        issues.push(err(
+                            "lc-status",
+                            format!("{}.status", at),
+                            format!("'{}' is not an enum scalar — the lifecycle status must enumerate its states.", scalar),
+                        ));
+                        continue;
+                    }
+                }
+            }
+            _ => {
+                issues.push(err(
+                    "lc-status",
+                    format!("{}.status", at),
+                    "status must be a { $ref: 'scalars.yaml#/<EnumScalar>' }.".into(),
+                ));
+                continue;
+            }
+        };
+        let state_set: BTreeSet<&str> = enum_values.iter().map(|s| s.as_str()).collect();
+        let check_state = |issues: &mut Vec<Issue>, state: &str, where_: String| {
+            if !state_set.contains(state) {
+                issues.push(err(
+                    "lc-state",
+                    where_,
+                    format!("'{}' is not a member of {} ({}).", state, ref_name(&lc.status_ref).unwrap_or_default(), enum_values.join(", ")),
+                ));
+            }
+        };
+        // The events THIS aggregate emits, per its receives[].emits (actors.yaml stays the wiring truth).
+        let emitted: BTreeSet<String> = actors
+            .get(lc.aggregate.as_str())
+            .and_then(|n| n.get("receives"))
+            .and_then(|r| r.as_sequence())
+            .map(|seq| {
+                seq.iter()
+                    .flat_map(|e| ref_strings(e.get("emits")))
+                    .filter_map(|r| ref_name(&r))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let check_event = |issues: &mut Vec<Issue>, event_ref: &str, where_: String| -> Option<String> {
+            if ref_target_file(event_ref, "actors.yaml").as_deref() != Some("events.yaml") {
+                issues.push(err(
+                    "lc-event",
+                    where_,
+                    format!("event must be a {{ $ref: 'events.yaml#/<Event>' }}, got '{}'.", event_ref),
+                ));
+                return None;
+            }
+            let name = ref_name(event_ref)?; // resolution itself is §1's job (ref-dangling)
+            if !emitted.contains(&name) {
+                issues.push(err(
+                    "lc-event-not-emitted",
+                    where_,
+                    format!("event '{}' is not emitted by aggregate '{}' (per its receives[].emits) — the machine may only claim its own facts.", name, lc.aggregate),
+                ));
+            }
+            Some(name)
+        };
+        // initial — at least one birth entry; unique events; states in the enum.
+        if lc.initial.is_empty() {
+            issues.push(err("lc-shape", format!("{}.initial", at), "lifecycle must declare at least one `initial` { event, to } entry.".into()));
+        }
+        let mut initial_events: BTreeSet<String> = BTreeSet::new();
+        for (i, ini) in lc.initial.iter().enumerate() {
+            let w = format!("{}.initial[{}]", at, i);
+            check_state(issues, &ini.to, w.clone());
+            if let Some(name) = check_event(issues, &ini.event_ref, w.clone()) {
+                if !initial_events.insert(name.clone()) {
+                    issues.push(err("lc-ambiguous", w, format!("duplicate initial event '{}' — the machine must be deterministic.", name)));
+                }
+            }
+        }
+        // transitions — states/events valid, deterministic per (from, event).
+        let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+        for (i, t) in lc.transitions.iter().enumerate() {
+            let w = format!("{}.transitions[{}]", at, i);
+            if t.from.is_empty() {
+                issues.push(err("lc-shape", w.clone(), "a transition must declare a non-empty `from: [states]`.".into()));
+            }
+            check_state(issues, &t.to, w.clone());
+            let ev = check_event(issues, &t.event_ref, w.clone());
+            for f in &t.from {
+                check_state(issues, f, w.clone());
+                if let Some(name) = &ev {
+                    if !seen.insert((f.clone(), name.clone())) {
+                        issues.push(err(
+                            "lc-ambiguous",
+                            w.clone(),
+                            format!("two transitions from '{}' on '{}' — the machine must be deterministic.", f, name),
+                        ));
+                    }
+                }
+            }
+        }
+        // terminal — in the enum, and with NO outgoing transition.
+        for (i, s) in lc.terminal.iter().enumerate() {
+            let w = format!("{}.terminal[{}]", at, i);
+            check_state(issues, s, w.clone());
+            if lc.transitions.iter().any(|t| t.from.iter().any(|f| f == s)) {
+                issues.push(err("lc-terminal-outgoing", w, format!("terminal state '{}' has an outgoing transition.", s)));
+            }
+        }
+        // reachability — every state the lifecycle names is reachable from an initial state.
+        let mut reachable: BTreeSet<String> = lc.initial.iter().map(|i| i.to.clone()).collect();
+        loop {
+            let before = reachable.len();
+            for t in &lc.transitions {
+                if t.from.iter().any(|f| reachable.contains(f)) {
+                    reachable.insert(t.to.clone());
+                }
+            }
+            if reachable.len() == before {
+                break;
+            }
+        }
+        let mut named: BTreeSet<String> = lc.terminal.iter().cloned().collect();
+        for t in &lc.transitions {
+            named.extend(t.from.iter().cloned());
+            named.insert(t.to.clone());
+        }
+        for s in named {
+            if state_set.contains(s.as_str()) && !reachable.contains(&s) {
+                issues.push(err(
+                    "lc-unreachable",
+                    at.clone(),
+                    format!("state '{}' is named by the lifecycle but not reachable from an initial state.", s),
+                ));
+            }
+        }
+    }
+}
+
 // ─── §2d — service-catalog validation (services.yaml, ADR-20260719-214500) ──────────────────────
 
 /// `^[a-z][a-z0-9_]*$` — a service operation name is a snake_case domain verb (never the
@@ -4670,8 +4963,10 @@ fn emit_documentation(model: &Model) -> String {
         ].join("\n") }
     }).collect();
 
-    // actorDocs — process managers also embed their saga sequence diagram (typed steps).
+    // actorDocs — process managers also embed their saga sequence diagram (typed steps); aggregates
+    // with a declared `lifecycle` embed their state diagram (ADR-20260720-004419).
     let pm_seq: HashMap<String, String> = pm_sequence_map(model).into_iter().collect();
+    let lc_state: HashMap<String, String> = lifecycle_state_map(model).into_iter().collect();
     let actor_docs: Vec<Doc> = actors.iter().map(|a| {
         let rows: Vec<Vec<String>> = a.receives.iter().map(|e| {
             let msg_name = ref_name(&e.message_ref).unwrap_or_else(|| "?".to_string());
@@ -4693,10 +4988,12 @@ fn emit_documentation(model: &Model) -> String {
             format!("\n_{}_{}\n", kind, a.description.as_deref().map(|d| format!(" — {}", d)).unwrap_or_default()),
             md_table(&["Receives", "Emits →", "Throws"], &rows),
         ];
-        if a.kind != "aggregate" {
-            if let Some(d) = pm_seq.get(&a.name) {
-                parts.push(format!("\nSequence (generated from the typed steps):\n\n```mermaid\n{}\n```", d));
+        if a.kind == "aggregate" {
+            if let Some(d) = lc_state.get(&a.name) {
+                parts.push(format!("\nLifecycle (generated from the declared state machine):\n\n```mermaid\n{}\n```", d));
             }
+        } else if let Some(d) = pm_seq.get(&a.name) {
+            parts.push(format!("\nSequence (generated from the typed steps):\n\n```mermaid\n{}\n```", d));
         }
         Doc { ctx: cx.of_actor(&a.name), md: parts.join("\n") }
     }).collect();
@@ -5333,9 +5630,11 @@ fn emit_documentation_html(model: &Model) -> String {
         HDoc { ctx: cx.of_type(&t.name), html: h_item("type", "Type", &t.name, &body, t.description.as_deref()) }
     }).collect();
 
-    // 3. Actors — process managers also embed their saga sequence diagram; the <pre class="mermaid">
+    // 3. Actors — process managers also embed their saga sequence diagram, aggregates with a declared
+    // `lifecycle` their state diagram (ADR-20260720-004419); the <pre class="mermaid">
     // source is rendered client-side by MERMAID_JS and stays readable as text when offline.
     let pm_seq: HashMap<String, String> = pm_sequence_map(model).into_iter().collect();
+    let lc_state: HashMap<String, String> = lifecycle_state_map(model).into_iter().collect();
     let actor_docs: Vec<HDoc> = actors.iter().map(|a| {
         let kind = if a.kind == "aggregate" { "🧩 aggregate" } else { "⚙️ process manager" };
         let rows: Vec<Vec<String>> = a.receives.iter().map(|e| {
@@ -5344,7 +5643,9 @@ fn emit_documentation_html(model: &Model) -> String {
             let throws = { let s = e.throws.iter().map(|r| h_link("error", &ref_name(r).unwrap_or_default())).collect::<Vec<_>>().join(", "); if s.is_empty() { "—".to_string() } else { s } };
             vec![h_link(if is_cmd { "command" } else { "event" }, &ref_name(&e.message_ref).unwrap_or_else(|| "?".to_string())), emits, throws]
         }).collect();
-        let seq = if a.kind == "aggregate" { String::new() } else {
+        let seq = if a.kind == "aggregate" {
+            lc_state.get(&a.name).map(|d| format!("<div class=\"pm-seq\"><pre class=\"mermaid\">{}</pre></div>", h_esc(d))).unwrap_or_default()
+        } else {
             pm_seq.get(&a.name).map(|d| format!("<div class=\"pm-seq\"><pre class=\"mermaid\">{}</pre></div>", h_esc(d))).unwrap_or_default()
         };
         HDoc { ctx: cx.of_actor(&a.name), html: h_item("actor", "Actor", &a.name, &format!("<div class=\"rel muted\">{}</div>{}{}", kind, h_table(&["Receives", "Emits →", "Throws"], &rows), seq), a.description.as_deref()) }
@@ -6703,6 +7004,115 @@ fn emit_domain_errors(model: &Model) -> String {
     out
 }
 
+// ─── crates/domain/src/generated/lifecycles.rs (aggregate lifecycle tables, ADR-20260720-004419) ──
+
+/// Emit `crates/domain/src/generated/lifecycles.rs` — one module per aggregate declaring a
+/// `lifecycle:` block in actors.yaml (ADR-20260720-004419): the status machine as plain data/match
+/// (no SDK, no I/O — the domain stays dependency-free). `initial` maps a birth event to its entry
+/// state; `transition` is the declared table (`Some(next)` iff legal — `None` = illegal move OR an
+/// event outside the machine, a status no-op for the fold); `TERMINAL`/`is_terminal` close it.
+fn emit_domain_lifecycles(model: &Model) -> String {
+    let mut out = String::from(
+        "// GENERATED by the Captain.Food codegen from specs/actors.yaml `lifecycle` blocks (ADR-20260720-004419)\n// — do not edit by hand. Aggregate lifecycle state machines as plain data/match: the fold and the\n// command handlers consult `transition` so the write side can never disagree with the declared spec.\n",
+    );
+    for lc in parse_lifecycles(model) {
+        let status = ref_name(&lc.status_ref).unwrap_or_default();
+        let module = snake_type(&lc.aggregate);
+        out.push_str(&format!(
+            "\n/// {} lifecycle over [`{}`] (specs/actors.yaml#/{}/lifecycle).\npub mod {} {{\n    use crate::generated::events::DomainEvent;\n    use crate::generated::scalars::{};\n\n",
+            lc.aggregate, status, lc.aggregate, module, status
+        ));
+        let terminal: Vec<String> = lc.terminal.iter().map(|s| format!("{}::{}", status, s)).collect();
+        out.push_str(&format!(
+            "    /// Terminal states — no outgoing transitions.\n    pub const TERMINAL: &[{}] = &[{}];\n\n",
+            status,
+            terminal.join(", ")
+        ));
+        out.push_str(&format!(
+            "    /// The state a birth event enters, or `None` when `event` does not birth this lifecycle.\n    pub fn initial(event: &DomainEvent) -> Option<{}> {{\n        match event {{\n",
+            status
+        ));
+        for ini in &lc.initial {
+            out.push_str(&format!(
+                "            DomainEvent::{}(_) => Some({}::{}),\n",
+                ref_name(&ini.event_ref).unwrap_or_default(),
+                status,
+                ini.to
+            ));
+        }
+        out.push_str("            _ => None,\n        }\n    }\n\n");
+        out.push_str(&format!(
+            "    /// The declared transition table: `Some(next)` iff `event` legally moves the machine from\n    /// `from`; `None` = illegal transition, or an event outside the machine (status no-op).\n    pub fn transition(from: {}, event: &DomainEvent) -> Option<{}> {{\n        match (from, event) {{\n",
+            status, status
+        ));
+        for t in &lc.transitions {
+            let ev = ref_name(&t.event_ref).unwrap_or_default();
+            for f in &t.from {
+                out.push_str(&format!(
+                    "            ({}::{}, DomainEvent::{}(_)) => Some({}::{}),\n",
+                    status, f, ev, status, t.to
+                ));
+            }
+        }
+        out.push_str("            _ => None,\n        }\n    }\n\n");
+        // target: the state an event drives the machine to IRRESPECTIVE of the current state — at
+        // fold time the recorded fact wins (legality was enforced at append time by `transition`).
+        // Only emitted for events with a single target across all their transitions.
+        let mut targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for t in &lc.transitions {
+            if let Some(ev) = ref_name(&t.event_ref) {
+                targets.entry(ev).or_default().insert(t.to.clone());
+            }
+        }
+        out.push_str(&format!(
+            "    /// The state `event` drives the machine to, irrespective of the current state — at fold\n    /// time the recorded fact wins (legality was enforced at append time by [`transition`]). `None`\n    /// for an event outside the machine (or whose target depends on the current state).\n    pub fn target(event: &DomainEvent) -> Option<{}> {{\n        match event {{\n",
+            status
+        ));
+        for t in &lc.transitions {
+            let ev = match ref_name(&t.event_ref) {
+                Some(e) => e,
+                None => continue,
+            };
+            if targets.get(&ev).map(|s| s.len()) != Some(1) {
+                continue;
+            }
+            targets.remove(&ev); // emit each single-target event once, in declaration order
+            out.push_str(&format!("            DomainEvent::{}(_) => Some({}::{}),\n", ev, status, t.to));
+        }
+        out.push_str("            _ => None,\n        }\n    }\n\n");
+        out.push_str(&format!(
+            "    /// Whether `state` is terminal (no outgoing transitions).\n    pub fn is_terminal(state: {}) -> bool {{\n        TERMINAL.contains(&state)\n    }}\n}}\n",
+            status
+        ));
+    }
+    out
+}
+
+/// Per-aggregate lifecycle state diagrams (mermaid `stateDiagram-v2`) from the declared `lifecycle`
+/// blocks — (aggregate → diagram body), in actors.yaml order. Mirrors [`pm_sequence_map`]: callers
+/// add their own framing (Markdown fence, HTML `<pre>`), so one source feeds every artifact.
+fn lifecycle_state_map(model: &Model) -> Vec<(String, String)> {
+    parse_lifecycles(model)
+        .into_iter()
+        .map(|lc| {
+            let mut lines: Vec<String> = vec!["stateDiagram-v2".into()];
+            for ini in &lc.initial {
+                lines.push(format!("  [*] --> {} : {}", ini.to, ref_name(&ini.event_ref).unwrap_or_default()));
+            }
+            for t in &lc.transitions {
+                let ev = ref_name(&t.event_ref).unwrap_or_default();
+                for f in &t.from {
+                    lines.push(format!("  {} --> {} : {}", f, t.to, ev));
+                }
+            }
+            for s in &lc.terminal {
+                lines.push(format!("  {} --> [*]", s));
+            }
+            (lc.aggregate, lines.join("\n"))
+        })
+        .collect()
+}
+
 // ─── crates/server/src/graphql/generated/ (Stage 1a — async-graphql type layer from api.yaml) ───
 //
 // The server hosts the GraphQL surface with async-graphql, but `domain` must stay GraphQL-free
@@ -7787,6 +8197,7 @@ fn main() {
     eprintln!("• validated against specs:");
     eprintln!("    - {} $refs resolve (scalars/entities/events/commands/errors/views/api)", coverage.refs);
     eprintln!("    - actor wiring: messages→commands/events, emits→events, throws→errors");
+    eprintln!("    - lifecycles: {} aggregate state machines, {} transitions (lc-*: states∈enum, events emitted, deterministic, terminal closed, reachable)", coverage.lifecycles, coverage.lifecycle_transitions);
     eprintln!("    - api↔model: {} command links→commands, {} reads→views, roles→UserType", coverage.mutation_links, coverage.reads_links);
     eprintln!("    - views: aggregate→actors, fedBy→events, column types→scalars, indexes→columns, fk→views");
     eprintln!("    - stories: {} step→op links resolve, persona role authorized, every mutation/query reached by a story step", coverage.story_links);
@@ -7873,7 +8284,8 @@ fn main() {
         ("events.rs", emit_domain_events(&model)),
         ("commands.rs", emit_domain_commands(&model)),
         ("errors.rs", emit_domain_errors(&model)),
-        ("mod.rs", "// GENERATED module index — do not edit by hand.\npub mod scalars;\npub mod entities;\npub mod events;\npub mod commands;\npub mod errors;\n".to_string()),
+        ("lifecycles.rs", emit_domain_lifecycles(&model)),
+        ("mod.rs", "// GENERATED module index — do not edit by hand.\npub mod scalars;\npub mod entities;\npub mod events;\npub mod commands;\npub mod errors;\npub mod lifecycles;\n".to_string()),
     ] {
         let path = gen_dir.join(name);
         if let Err(e) = fs::write(&path, content) {
@@ -7962,6 +8374,13 @@ mod tests {
         assert!(is_source_file("architecture/c4-l2.yaml"));
         assert!(is_source_file("services.yaml"));
         assert!(!is_source_file("nope.yaml"));
+    }
+
+    #[test]
+    fn snake_type_is_module_case() {
+        assert_eq!(snake_type("Order"), "order");
+        assert_eq!(snake_type("DeliveryJob"), "delivery_job");
+        assert_eq!(snake_type("RestaurantAccount"), "restaurant_account");
     }
 
     #[test]

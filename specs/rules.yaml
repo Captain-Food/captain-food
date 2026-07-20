@@ -91,6 +91,12 @@ CartRejectsUnorderableOrInvalidLine:
 # --- Order ---
 OrderLifecycleStatusMachine:
   description: "An order advances accept → prepare → ready → delivered (or reject/cancel), each transition allowed only from the correct status."
+OrderLifecycleIsExplicit:
+  description: >
+    The Order status machine is the DECLARED lifecycle (actors.yaml#/Order/lifecycle,
+    ADR-20260720-004419), not implicit code: a move the declared transition table does not contain —
+    a skipped/repeated step, or any transition out of a terminal state (DELIVERED, REJECTED,
+    CANCELLED_BY_CUSTOMER, CANCELLED_BY_RESTAURANT) — is rejected with InvalidOrderStatus.
 OrderRatedOnceWhenDelivered:
   description: "A delivered order can be rated (rider thumb) exactly once."
 RestaurantRatedOncePerOrder:

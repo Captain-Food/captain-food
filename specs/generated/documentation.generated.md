@@ -3038,6 +3038,15 @@ _🧩 aggregate_ — A visitor's in-progress selection for one restaurant, built
 | [📩 `BindCartToCustomer`](#command-bindcarttocustomer) | [⚡ `CartBoundToCustomer`](#event-cartboundtocustomer) | [⛔ `CartNotFound`](#error-cartnotfound) |
 | [⚡ `CartCheckedOut`](#event-cartcheckedout) | [⚡ `CartCheckedOut`](#event-cartcheckedout) | — |
 
+Lifecycle (generated from the declared state machine):
+
+```mermaid
+stateDiagram-v2
+  [*] --> OPEN : CartStarted
+  OPEN --> CHECKED_OUT : CartCheckedOut
+  CHECKED_OUT --> [*]
+```
+
 <a id="actor-order"></a>
 #### 🎭 Actor: `Order`
 
@@ -3058,6 +3067,27 @@ _🧩 aggregate_ — A single order through its lifecycle. Born from OrderPlaced
 | [📩 `TipOrder`](#command-tiporder) | [⚡ `OrderTipped`](#event-ordertipped) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus), [⛔ `InvalidTipRecipient`](#error-invalidtiprecipient) |
 | [📩 `RequestRefund`](#command-requestrefund) | [⚡ `RefundRequested`](#event-refundrequested) | [⛔ `OrderNotFound`](#error-ordernotfound), [⛔ `InvalidOrderStatus`](#error-invalidorderstatus) |
 
+Lifecycle (generated from the declared state machine):
+
+```mermaid
+stateDiagram-v2
+  [*] --> PLACED : OrderPlaced
+  PLACED --> ACCEPTED : OrderAcceptedByRestaurant
+  ACCEPTED --> PREPARING : OrderPreparationStarted
+  ACCEPTED --> READY : OrderMarkedReady
+  PREPARING --> READY : OrderMarkedReady
+  READY --> DELIVERED : OrderDelivered
+  PLACED --> REJECTED : OrderRejectedByRestaurant
+  PLACED --> CANCELLED_BY_CUSTOMER : OrderCancelledByCustomer
+  ACCEPTED --> CANCELLED_BY_RESTAURANT : OrderCancelledByRestaurant
+  PREPARING --> CANCELLED_BY_RESTAURANT : OrderCancelledByRestaurant
+  READY --> CANCELLED_BY_RESTAURANT : OrderCancelledByRestaurant
+  DELIVERED --> [*]
+  REJECTED --> [*]
+  CANCELLED_BY_CUSTOMER --> [*]
+  CANCELLED_BY_RESTAURANT --> [*]
+```
+
 <a id="actor-payment"></a>
 #### 🎭 Actor: `Payment`
 
@@ -3072,6 +3102,18 @@ _🧩 aggregate_ — A payment for an order, driven to a terminal state. Born fr
 | [⚡ `RefundOpened`](#event-refundopened) | [⚡ `RefundOpened`](#event-refundopened) | — |
 | [⚡ `RefundApproved`](#event-refundapproved) | [⚡ `RefundApproved`](#event-refundapproved) | — |
 | [⚡ `RefundDenied`](#event-refunddenied) | [⚡ `RefundDenied`](#event-refunddenied) | — |
+
+Lifecycle (generated from the declared state machine):
+
+```mermaid
+stateDiagram-v2
+  [*] --> PENDING : PaymentIntentCreated
+  PENDING --> CAPTURED : PaymentCaptured
+  PENDING --> FAILED : PaymentFailed
+  CAPTURED --> REFUNDED : PaymentRefunded
+  FAILED --> [*]
+  REFUNDED --> [*]
+```
 
 <a id="actor-placeorderprocess"></a>
 #### 🎭 Actor: `PlaceOrderProcess`
@@ -4180,7 +4222,7 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="error-refundnotpending"></a>⛔ `RefundNotPending` | The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.  | 🇬🇧 No refund is pending approval for this order. | 🇫🇷 Aucun remboursement n'est en attente d'approbation pour cette commande. | [📩 `ApproveRefund`](#command-approverefund), [📩 `DenyRefund`](#command-denyrefund) |
 | <a id="error-cannotordertestrestaurant"></a>⛔ `CannotOrderTestRestaurant` | A production (LIVE) order was placed against a TEST restaurant (ADR-0038 test-mode isolation). Real customers never reach test data; a TEST order may instead target a LIVE restaurant (receipt validation).  | 🇬🇧 This restaurant is not available. | 🇫🇷 Ce restaurant n'est pas disponible. | [📩 `PlaceOrder`](#command-placeorder) |
 
-### 📐 Business rules _(18)_
+### 📐 Business rules _(19)_
 
 <a id="rule-cartpricedfromlivecatalog"></a>
 #### 📐 Rule: `CartPricedFromLiveCatalog`
@@ -4201,7 +4243,14 @@ _Adding an unorderable offer or operating on an invalid/absent line is rejected.
 
 _An order advances accept → prepare → ready → delivered (or reject/cancel), each transition allowed only from the correct status._
 
-- **Verified by**: [🧪 `TestOrderAcceptedByRestaurant`](#test-testorderacceptedbyrestaurant), [🧪 `TestOrderAcceptIsRejected`](#test-testorderacceptisrejected), [🧪 `TestOrderPreparationStarted`](#test-testorderpreparationstarted), [🧪 `TestOrderMarkedReady`](#test-testordermarkedready), [🧪 `TestOrderDelivered`](#test-testorderdelivered), [🧪 `TestOrderRejected`](#test-testorderrejected), [🧪 `TestOrderCancelledByCustomer`](#test-testordercancelledbycustomer), [🧪 `TestOrderCancelledByRestaurant`](#test-testordercancelledbyrestaurant)
+- **Verified by**: [🧪 `TestOrderAcceptedByRestaurant`](#test-testorderacceptedbyrestaurant), [🧪 `TestOrderAcceptIsRejected`](#test-testorderacceptisrejected), [🧪 `TestOrderPreparationStarted`](#test-testorderpreparationstarted), [🧪 `TestOrderMarkedReady`](#test-testordermarkedready), [🧪 `TestOrderDelivered`](#test-testorderdelivered), [🧪 `TestOrderRejected`](#test-testorderrejected), [🧪 `TestOrderCancelledByCustomer`](#test-testordercancelledbycustomer), [🧪 `TestOrderCancelledByRestaurant`](#test-testordercancelledbyrestaurant), [🧪 `TestOrderLifecycleRejectsSkippedTransition`](#test-testorderlifecyclerejectsskippedtransition), [🧪 `TestOrderLifecycleTerminalStateRefusesTransitions`](#test-testorderlifecycleterminalstaterefusestransitions)
+
+<a id="rule-orderlifecycleisexplicit"></a>
+#### 📐 Rule: `OrderLifecycleIsExplicit`
+
+_The Order status machine is the DECLARED lifecycle (actors.yaml#/Order/lifecycle, ADR-20260720-004419), not implicit code: a move the declared transition table does not contain — a skipped/repeated step, or any transition out of a terminal state (DELIVERED, REJECTED, CANCELLED_BY_CUSTOMER, CANCELLED_BY_RESTAURANT) — is rejected with InvalidOrderStatus._
+
+- **Verified by**: [🧪 `TestOrderLifecycleRejectsSkippedTransition`](#test-testorderlifecyclerejectsskippedtransition), [🧪 `TestOrderLifecycleTerminalStateRefusesTransitions`](#test-testorderlifecycleterminalstaterefusestransitions)
 
 <a id="rule-orderratedoncewhendelivered"></a>
 #### 📐 Rule: `OrderRatedOnceWhenDelivered`
@@ -4473,6 +4522,26 @@ _Restaurant cancels an order it had accepted_
 - **When**: [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant)
 - **Then**: [⚡ `OrderCancelledByRestaurant`](#event-ordercancelledbyrestaurant)
 - **Verifies**: [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
+
+<a id="test-testorderlifecyclerejectsskippedtransition"></a>
+#### 🧪 Test: `TestOrderLifecycleRejectsSkippedTransition`
+
+_Rejects a move the declared Order state machine does not contain (accepting an already-accepted order)_
+
+- **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderAcceptedByRestaurant`](#event-orderacceptedbyrestaurant)
+- **When**: [📩 `AcceptOrder`](#command-acceptorder)
+- **Thrown**: [⛔ `InvalidOrderStatus`](#error-invalidorderstatus)
+- **Verifies**: [📐 `OrderLifecycleIsExplicit`](#rule-orderlifecycleisexplicit), [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
+
+<a id="test-testorderlifecycleterminalstaterefusestransitions"></a>
+#### 🧪 Test: `TestOrderLifecycleTerminalStateRefusesTransitions`
+
+_Rejects any lifecycle transition out of a terminal state (cancelling a delivered order)_
+
+- **Given**: [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `OrderMarkedReady`](#event-ordermarkedready), [⚡ `OrderDelivered`](#event-orderdelivered)
+- **When**: [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant)
+- **Thrown**: [⛔ `InvalidOrderStatus`](#error-invalidorderstatus)
+- **Verifies**: [📐 `OrderLifecycleIsExplicit`](#rule-orderlifecycleisexplicit), [📐 `OrderLifecycleStatusMachine`](#rule-orderlifecyclestatusmachine)
 
 <a id="test-testorderrated"></a>
 #### 🧪 Test: `TestOrderRated`

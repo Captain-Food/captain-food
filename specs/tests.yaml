@@ -1593,6 +1593,37 @@ tests:
     then:
       - { $ref: '#/fixtures/orderCancelledByRestaurant' }
 
+  TestOrderLifecycleRejectsSkippedTransition:
+    name: "Rejects a move the declared Order state machine does not contain (accepting an already-accepted order)"
+    rules:
+      - { $ref: 'rules.yaml#/OrderLifecycleIsExplicit' }
+      - { $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderAcceptedByRestaurant' }
+    when:
+      type: { $ref: 'commands.yaml#/AcceptOrder' }
+      data: { orderId: "order-1", restaurantId: "resto-1" }
+    thrown:
+      - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+
+  TestOrderLifecycleTerminalStateRefusesTransitions:
+    name: "Rejects any lifecycle transition out of a terminal state (cancelling a delivered order)"
+    rules:
+      - { $ref: 'rules.yaml#/OrderLifecycleIsExplicit' }
+      - { $ref: 'rules.yaml#/OrderLifecycleStatusMachine' }
+    actor: { $ref: 'actors.yaml#/Order' }
+    given:
+      - { $ref: '#/fixtures/orderPlaced' }
+      - { $ref: '#/fixtures/orderMarkedReady' }
+      - { $ref: '#/fixtures/orderDelivered' }
+    when:
+      type: { $ref: 'commands.yaml#/CancelOrderByRestaurant' }
+      data: { orderId: "order-1", restaurantId: "resto-1", reason: "Too late" }
+    thrown:
+      - { $ref: 'errors.yaml#/InvalidOrderStatus' }
+
   TestOrderRated:
     name: "Customer rates the delivery (rider thumb) after delivery"
     rules: [{ $ref: 'rules.yaml#/OrderRatedOnceWhenDelivered' }]
