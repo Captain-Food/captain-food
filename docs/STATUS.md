@@ -8,11 +8,14 @@
 > cross-functional/non-functional, tier 2 = features in value-stream order (customer ordering →
 > restaurant onboarding → delivery). New queue: #14 → #22 → #15 → #16 → #19 → #18 (contracts,
 > security, invariants, observability, retention) → #27 → #26 → #24 → #25 → #23 (codegen wave) →
-> #17 → #21 (customer stream) → #20 (restaurant onboarding) → #28 (delivery, post-V0). All 15 open
-> issues re-stamped `Value rank N/15 (foundations → value stream)`; sizing & pre-task-doc rules
-> unchanged. The ordering is kept **in-repo** as `docs/BACKLOG.md` (authoritative queue — sessions
-> pick work from the top; GitHub header stamps are its mirror) with a CLAUDE.md non-negotiable
-> ("respect the prioritised backlog"). Docs-only change — no specs, no code.
+> #17 → #21 (customer stream) → #20 (restaurant onboarding) → #28 (delivery, post-V0). The
+> ranking is applied to the **GitHub Project "Prioritized backlog"** — the single place priorities are
+> defined: Priority field = value bucket (Urgent = tier-1 foundations, High = codegen wave,
+> Medium = V0 features by value stream, Low = post-V0), Effort field mirrors the size label; no
+> rank stamps in issue bodies. The repo records the **method**: `docs/BACKLOG.md` (process + value
+> definition) + a CLAUDE.md non-negotiable ("respect the prioritised backlog" — pick from the top
+> of the board; re-prioritising is a product-owner decision made in the project). Sizing &
+> pre-task-doc rules unchanged. Docs-only change — no specs, no code.
 
 > ✅ **2026-07-20 — #12: anonymous checkout survives restarts (ADR-20260720-213000).**
 > `place_order` now takes the dispatch-layer `X-SESSION-ID` as an ENVELOPE parameter (never command

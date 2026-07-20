@@ -59,19 +59,22 @@ dependency chain the issues themselves state.
 
 ### 3. Mechanics
 
-- Each open issue's header line now carries `**Value rank N/15** (foundations → value stream,
-  ADR-20260720-213024)` in place of the old `Rank N/17 (simplest → largest)` fragment.
-- **The ordering lives in the repository** as [`docs/BACKLOG.md`](../BACKLOG.md) (hand-maintained,
-  like STATUS.md) — the authoritative queue every session picks work from, top-down. The GitHub
-  header stamps are its mirror; any re-ordering updates BOTH in the same change so they never
-  drift. Skipping the top item requires a stated reason (blocked, plan-mode pending,
-  product-owner directive) — not preference.
-- New issues get a value rank at triage using the two-tier test above (plus a BACKLOG.md row);
-  re-rank only when new information arrives (unchanged rule) — a re-ordering is a product-owner
-  decision recorded by amending/superseding this ADR.
-- The denominator is the count of open ranked issues at stamping time; it is not rewritten across
-  all issues on every open/close — the order, not the denominator, is the contract. Closed issues
-  move to BACKLOG.md's Done section keeping their rank number.
+- **Priorities are defined in the GitHub Project "Prioritized backlog"** — the org `Priority`
+  field holds the value bucket (`Urgent` = tier-1 contract/security/correctness/observability/NFR
+  foundations · `High` = codegen/operating-model foundations · `Medium` = V0 features in
+  value-stream order · `Low` = post-V0), row order within a bucket is the fine order, and the org
+  `Effort` field mirrors the `size/*` label (XXS–S → Low, M → Medium, L+ → High). Effort is
+  displayed but never drives the order.
+- **The repository records the method, not the ranking**: [`docs/BACKLOG.md`](../BACKLOG.md)
+  documents the process (prioritise in the project, pick work from the top) and the value
+  definition; issue bodies carry **no rank stamp** (the earlier `Rank N/17` fragment is removed,
+  not replaced). The ranking table in §2 is the initial ordering applied to the project on
+  2026-07-20 — a snapshot, not a living source; the project is the live authority from then on.
+- Sessions pick from the top of the board; skipping the top open item requires a stated reason
+  (blocked, plan-mode pending, product-owner directive) — not preference.
+- New issues get Priority + Effort at triage using the two-tier test above; **re-prioritising is a
+  product-owner decision made in the project** — agents never re-prioritise; a change to the
+  *method* is recorded by amending/superseding this ADR.
 
 ## Alternatives considered
 
@@ -97,7 +100,10 @@ dependency chain the issues themselves state.
   (see §3).
 
 ### Follow-up actions
-- All 15 open issues re-stamped with the value rank (this change).
+- The §2 ordering applied to the GitHub Project "Prioritized backlog" (Priority + Effort fields
+  set on all 15 open issues); rank stamps removed from issue bodies — the project is the only
+  place the ranking lives.
 - ADR-20260720-143000 status annotated as amended by this ADR.
-- `docs/BACKLOG.md` created as the in-repo authoritative queue; CLAUDE.md non-negotiable added
-  ("respect the prioritised backlog") so every session picks work from it top-down (this change).
+- `docs/BACKLOG.md` records the process (prioritise in the project) and the value definition;
+  CLAUDE.md non-negotiable added ("respect the prioritised backlog") so every session picks work
+  from the top of the board.
