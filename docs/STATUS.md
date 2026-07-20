@@ -226,6 +226,14 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 > Task/Bug/Feature) managed on the GitHub Project board — not in this file.** New work items get an
 > issue, not a table row; this file stays the narrative deployment/architecture snapshot. The table
 > below is the last pre-migration snapshot, kept for history.
+>
+> **Issue workflow (2026-07-20, ADR-20260720-143000):** every issue is sized once with a
+> `size/XXXS`…`size/XXXL` label (AI-native scale: agent sessions + cost + review, see the ADR
+> table) and carries standard pre-task sections — *Why now? / What & why? / Impact / Sequence
+> diagram / Estimation* (with its rank in the simplest→largest queue). The issue is the pre-task
+> contract; the PR is the post-task record — overlap is intentional, divergence is signal. No
+> Scrum: flow-based queue, cheapest-impactful first; re-size only on scope change; XXXL must be
+> split before starting.
 
 Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhone/other session. Pull-rebase before every push.
 
