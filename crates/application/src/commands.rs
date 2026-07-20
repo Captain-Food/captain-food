@@ -1703,6 +1703,9 @@ pub async fn place_order(
     payments: &dyn PaymentGateway,
     pm_state: &dyn PaymentProcessStateStore,
     cmd: PlaceOrder,
+    // Envelope data, not command payload (ADR-0041): the dispatch-layer X-SESSION-ID, stamped onto
+    // the PM run row so an anonymous checkout can read paymentStatus after a restart (#12).
+    session_id: Option<domain::generated::scalars::SessionId>,
     actor: &Actor,
 ) -> Result<CreatedPaymentIntent, DomainError> {
     // The restaurant must exist, be ACTIVE and not PAUSED — folded from ITS stream (authoritative,
@@ -1842,12 +1845,12 @@ pub async fn place_order(
             payment_intent_id: intent.payment_intent_id.clone(),
             process_status: PaymentProcessStatus::AWAITING_PAYMENT_RESULT,
             payment_status: PaymentStatus::PENDING,
-            // Initiator scope + credential for the paymentStatus read (ADR-20260720-015500). The
-            // anonymous session is dispatch-layer knowledge (X-SESSION-ID) — the acceptance-first
-            // dispatch stamps it when it wires through (placeOrder requires CUSTOMER, so the
-            // customer_id scope is the one that matters here).
+            // Initiator scope + credential for the paymentStatus read (ADR-20260720-015500): the
+            // customer when identified, and ALWAYS the dispatch-layer anonymous session when the
+            // header was present — a guest checkout survives an app restart on the session scope
+            // alone (#12, ADR-20260720-213000).
             customer_id: cmd.customer_id,
-            session_id: None,
+            session_id,
             client_secret: Some(intent.client_secret.clone()),
             last_processed_stripe_event_id: None,
             last_update_utc: chrono::Utc::now(),
