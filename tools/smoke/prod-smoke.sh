@@ -277,8 +277,11 @@ l4() {
     sk_test_*) ;;
     *) fail "L4: STRIPE_SECRET_KEY is not a sk_test_ key — refusing to confirm a payment" ;;
   esac
+  # return_url satisfies Stripe when redirect-based payment methods are enabled on the account;
+  # pm_card_visa never redirects, so the URL is never visited.
   confirm=$(curl -sS -m 30 -X POST "$STRIPE_API/v1/payment_intents/$pi/confirm" \
-    -u "$STRIPE_SECRET_KEY:" -d "payment_method=pm_card_visa")
+    -u "$STRIPE_SECRET_KEY:" -d "payment_method=pm_card_visa" \
+    -d "return_url=https://smoke-test.captain.food/checkout/return")
   [ "$(printf '%s' "$confirm" | jq -r '.status // empty')" = "succeeded" ] \
     || fail "L4: PaymentIntent confirm did not succeed: $(printf '%s' "$confirm" | jq -c '{status, error}' | head -c 500)"
   say "      L4: payment intent confirmed (succeeded) — waiting for the webhook + saga"
