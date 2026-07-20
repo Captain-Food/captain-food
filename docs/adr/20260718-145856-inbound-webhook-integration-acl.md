@@ -3,6 +3,11 @@
 ## Status
 Accepted. First adapter (Stripe) implemented in the same change; HubRise follows.
 
+**Amended by ADR-20260720-015400 (2026-07-20):** the webhook path gains a durable inbox —
+verify → UPSERT raw into the adapter's `external_*` staging table → ACL-translate into
+`inbound_events` → ACK; a drain worker delivers through the normal write path. This closes the
+"replay/idempotency storage" open point below (the journal is that storage).
+
 **Amended 2026-07-19:** partner webhook routes are namespaced per adapter crate —
 `POST /adapters/{partner}/webhooks` (was `POST /webhooks/{partner}`), symmetric across adapters and
 aligned with the self-contained adapter-crate layout (ADR-20260718-213352). Adapter `http.rs`, the server

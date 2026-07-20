@@ -1,4 +1,4 @@
-version: 1
+version: 2
 description: >
   Captain.Food API surface (GraphQL ports) — SOURCE OF TRUTH for operations, payloads and the ACL.
   Reuses scalars.yaml (scalars/enums), entities.yaml (output-type shapes), commands.yaml (mutation
@@ -23,9 +23,14 @@ description: >
                    return type's binding — reads are declared on the TYPE, never on the query.
     - mutations  : `command` is `{ $ref: 'commands.yaml#/<Command>' }` (→ @command, must be handled by an
                    actor). The input type is GENERATED from that command's payload (`<Command>Input`);
-                   only the GraphQL-specific bits live here (roles, slice, result payload).
-                   `payload` lists the MINIMAL extra result fields; `correlationId: CorrelationId!` is
-                   ALWAYS added by the generator, so a payload can grow without breaking clients.
+                   only the GraphQL-specific bits live here (roles, slice). Mutations are
+                   ACCEPTANCE-FIRST (ADR-20260720-015500): every mutation takes an optional
+                   `metadata: MetadataInput` argument (#/inputs/MetadataInput) and returns the ONE
+                   shared `#/types/MutationAcceptance` (the effective technical envelope +
+                   operationStatus) — a mutation declares NO per-operation payload; business
+                   outcomes are served by queries/subscriptions (results ARE reads).
+    - inputs     : the few GENERATOR-INJECTED input types that are not command payloads
+                   (MetadataInput today). Command inputs stay generated from commands.yaml.
     - roles      : list of scalars.yaml#/UserType values. [PUBLIC] alone → @public; otherwise
                    → @auth(requires: [...]). PUBLIC may be combined (anonymous-or-authenticated).
     - slice      : V0 | V1.
@@ -201,20 +206,43 @@ types:
       defaultLocale: { $ref: 'scalars.yaml#/Locale' }
   PaymentIntent:
     description: >
-      Stripe PaymentIntent handle for the checkout step. NON-PROJECTED (transient): it is returned via
-      the PlaceOrder mutation payload, never read through a View_* — hence no `reads`.
+      Checkout payment state for one order (ADR-20260720-015500): the read-side home of the values
+      placeOrder used to return, served from the PlaceOrderProcess run row by `paymentStatus` /
+      `paymentStatusChanged`. `clientSecret` is present only while the run is in flight (NULLed when
+      it resolves — a revocable Stripe credential, never event-sourced). NON-PROJECTED (transient):
+      resolver-served from the saga state row, never a View_* — hence no `reads`.
     properties:
       paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
-      clientSecret: { type: string }
-      status: { type: string }
+      clientSecret: { type: string, nullable: true }
+      status: { $ref: 'scalars.yaml#/PaymentStatus' }
+  MutationAcceptance:
+    description: >
+      The uniform acceptance EVERY mutation returns (acceptance-first writes, ADR-20260720-015500):
+      the EFFECTIVE technical envelope echoed back (server-computed where the client supplied
+      nothing) plus the journaled operation status. Business outcomes are never here — read them via
+      queries/subscriptions (`operationStatus`, `paymentStatus`, the read models). NON-PROJECTED
+      (transient) — built from the command_journal acceptance, no `reads`.
+    properties:
+      messageId: { $ref: 'scalars.yaml#/MessageId' }
+      correlationId: { $ref: 'scalars.yaml#/CorrelationId' }
+      causeId: { $ref: 'scalars.yaml#/CauseId', nullable: true }
+      sessionId: { $ref: 'scalars.yaml#/SessionId', nullable: true }   # echo of X-SESSION-ID; null when the header is absent
+      traceId: { $ref: 'scalars.yaml#/TraceId', nullable: true }       # traceparent-derived; null until tracing lands on the request
+      operationStatus: { $ref: 'scalars.yaml#/OperationStatus' }       # PENDING on first acceptance; the original's status on a duplicate
+      duplicate: { type: boolean }                                     # true when this messageId was already journaled (idempotent replay)
   Operation:
     description: >
-      Live status of a command/operation, streamed by the `operationStatusChanged` subscription and
-      correlated by `correlationId` (every mutation payload carries one). NON-PROJECTED (transient) —
-      no backing View_*, hence no `reads`.
+      Live status of a journaled command (ADR-20260720-015300), keyed by its `messageId` acceptance
+      handle: polled by `operationStatus`, streamed by `operationStatusChanged`. `errorCode` is the
+      stable errors.yaml code when the operation REJECTED/FAILED after acceptance (the async home of
+      the P-10 rejection contract — sync validation failures still use GraphQL errors). Ownership-
+      scoped in the resolver: the journaling actor (JWT), the journaling session (X-SESSION-ID), or
+      ADMIN. NON-PROJECTED (transient) — served from the command_journal, no backing View_*.
     properties:
+      messageId: { $ref: 'scalars.yaml#/MessageId' }
       correlationId: { $ref: 'scalars.yaml#/CorrelationId' }
       status: { $ref: 'scalars.yaml#/OperationStatus' }
+      errorCode: { type: string, nullable: true }
       message: { type: string, nullable: true }
       occurredAt: { type: string, format: date-time }
   DeliveryJob:
@@ -289,6 +317,21 @@ types:
       platformFeePct: { type: number }
       effectiveFrom: { type: string, format: date-time }
 
+# --- Generator-injected inputs (not command payloads) ---------------------------------------------
+inputs:
+
+  MetadataInput:
+    description: >
+      Optional client-suppliable technical envelope for ANY mutation (ADR-0041: envelope, never
+      payload; ADR-20260720-015500). The server computes anything missing (UUIDv7), validates what
+      is provided (ValidationError on shape; reusing a messageId with a DIFFERENT payload is a
+      Conflict), and echoes the effective values in MutationAcceptance. `sessionId` travels as the
+      X-SESSION-ID header and `traceId` derives from `traceparent` — neither is accepted here.
+    properties:
+      messageId: { $ref: 'scalars.yaml#/MessageId', nullable: true }
+      correlationId: { $ref: 'scalars.yaml#/CorrelationId', nullable: true }
+      causeId: { $ref: 'scalars.yaml#/CauseId', nullable: true }
+
 # --- Reads (queries) ------------------------------------------------------------------------------
 # A query declares only its args, return type (`$ref` into `#/types`), roles and slice. `@reads` is
 # INHERITED from the return type's binding above (reads live on the type, not the query).
@@ -305,12 +348,29 @@ queries:
     roles: [PUBLIC]
     slice: V0
 
-  operation:
-    description: "Poll a command/operation's status by its correlationId (the pull counterpart of the operationStatusChanged subscription). Transient — resolver-served, no View_*."
+  operationStatus:
+    description: >
+      Poll a journaled command's status by its messageId acceptance handle (the pull counterpart of
+      the operationStatusChanged subscription, ADR-20260720-015500). PUBLIC but OWNERSHIP-SCOPED in
+      the resolver: the row is returned only to the journaling actor (JWT subject match), the
+      journaling session (X-SESSION-ID match — anonymous users), or ADMIN; anything else resolves
+      null (no existence oracle). Transient — served from the command_journal, no View_*.
     args:
-      correlationId: { $ref: 'scalars.yaml#/CorrelationId', required: true }
+      messageId: { $ref: 'scalars.yaml#/MessageId', required: true }
     returns: { $ref: '#/types/Operation', nullable: true }
-    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]
+    roles: [PUBLIC]
+    slice: V0
+
+  paymentStatus:
+    description: >
+      The checkout payment state for an order (ADR-20260720-015500): paymentIntentId, clientSecret
+      while the run is in flight, and the folded PaymentStatus — the read-side home of the values
+      placeOrder used to return. Served from the PlaceOrderProcess run row (the declared exception
+      to PM-table privacy); ownership-scoped to the checkout's customer (or session) and ADMIN.
+    args:
+      orderId: { $ref: 'scalars.yaml#/OrderId', required: true }
+    returns: { $ref: '#/types/PaymentIntent', nullable: true }
+    roles: [CUSTOMER]
     slice: V0
 
   me:
@@ -477,367 +537,316 @@ queries:
 
 
 # --- Writes (mutations) ---------------------------------------------------------------------------
-# One mutation = one command. The input type is GENERATED from the command's payload in commands.yaml
-# (`<Command>Input`), so commands are NOT re-described here — only the GraphQL-specific parts are:
-# `roles` (→ @auth/@public), `slice`, and the result `payload`. `correlationId: CorrelationId!` is
-# auto-added to every payload. IDs are client-generated (sent in the command), so payloads carry only
-# what the client could NOT know: server-resolved/external values.
+# One mutation = one command, ACCEPTANCE-FIRST (ADR-20260720-015500). The input type is GENERATED
+# from the command's payload in commands.yaml (`<Command>Input`), so commands are NOT re-described
+# here — only the GraphQL-specific parts are: `roles` (→ @auth/@public) and `slice`. Every mutation
+# additionally takes an optional `metadata: MetadataInput` (#/inputs) and returns the ONE shared
+# `MutationAcceptance` payload (envelope echo + operationStatus). Mutations declare NO per-operation
+# payload (the validator forbids it): business outcomes are reads — poll/subscribe operationStatus,
+# and read the domain results from the read models (checkout's Stripe handle: queries/paymentStatus).
 mutations:
 
   addCartLine:
     command: { $ref: 'commands.yaml#/AddCartLine' }
     roles: [PUBLIC]
     slice: V0
-    payload: {}
   removeCartLine:
     command: { $ref: 'commands.yaml#/RemoveCartLine' }
     roles: [PUBLIC]
     slice: V0
-    payload: {}
   changeCartLineQuantity:
     command: { $ref: 'commands.yaml#/ChangeCartLineQuantity' }
     roles: [PUBLIC]
     slice: V0
-    payload: {}
 
   registerRestaurantAccount:
     command: { $ref: 'commands.yaml#/RegisterRestaurantAccount' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]   # platform onboarding OR owner self-signup
     slice: V0
-    payload: {}
   updateRestaurantAccount:
     command: { $ref: 'commands.yaml#/UpdateRestaurantAccount' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   deleteRestaurantAccount:
     command: { $ref: 'commands.yaml#/DeleteRestaurantAccount' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   registerRestaurant:
     command: { $ref: 'commands.yaml#/RegisterRestaurant' }
     roles: [ADMIN, RESTAURANT_ACCOUNT, EXTERNAL]   # EXTERNAL = the Sirene/Google sync ACL seeding a listing
     slice: V0
-    payload: {}
   activateRestaurant:
     command: { $ref: 'commands.yaml#/ActivateRestaurant' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V0
-    payload: {}
   updateRestaurant:
     command: { $ref: 'commands.yaml#/UpdateRestaurant' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   deactivateRestaurant:
     command: { $ref: 'commands.yaml#/DeactivateRestaurant' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   removeRestaurant:
     command: { $ref: 'commands.yaml#/RemoveRestaurant' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   changeOrderAcceptanceMode:
     command: { $ref: 'commands.yaml#/ChangeOrderAcceptanceMode' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
 
   # --- Restaurant listing & pre-registration (ADR-0019/0021) ---
   updateRestaurantGoogleBusinessProfile:
     command: { $ref: 'commands.yaml#/UpdateRestaurantGoogleBusinessProfile' }
     roles: [EXTERNAL, ADMIN]   # the Sirene/Google sync ACL (or admin)
     slice: V0
-    payload: {}
   markRestaurantClosed:
     command: { $ref: 'commands.yaml#/MarkRestaurantClosed' }
     roles: [EXTERNAL, ADMIN]
     slice: V0
-    payload: {}
   claimRestaurantListing:
     command: { $ref: 'commands.yaml#/ClaimRestaurantListing' }
     roles: [PUBLIC, RESTAURANT_ACCOUNT]   # an owner proves ownership via Google Business Profile
     slice: V0
-    payload: {}
   optOutRestaurantListing:
     command: { $ref: 'commands.yaml#/OptOutRestaurantListing' }
     roles: [PUBLIC, RESTAURANT_ACCOUNT]
     slice: V0
-    payload: {}
   changeRestaurantListingStatus:
     command: { $ref: 'commands.yaml#/ChangeRestaurantListingStatus' }
     roles: [ADMIN]
     slice: V0
-    payload: {}
   configureGbpOrderLink:
     command: { $ref: 'commands.yaml#/ConfigureGoogleBusinessProfileOrderLink' }
     roles: [RESTAURANT_ACCOUNT, RESTAURANT, ADMIN]
     slice: V1
-    payload: {}
   verifyGbpOrderLink:
     command: { $ref: 'commands.yaml#/VerifyGoogleBusinessProfileOrderLink' }
     roles: [RESTAURANT_ACCOUNT, RESTAURANT, ADMIN]
     slice: V1
-    payload: {}
 
   # --- Prospection (ADR-0020); contact/cold issued by the prospection-acl worker (EXTERNAL) ---
   recordProspectContact:
     command: { $ref: 'commands.yaml#/RecordProspectContact' }
     roles: [EXTERNAL, ADMIN]
     slice: V1
-    payload: {}
   markProspectCold:
     command: { $ref: 'commands.yaml#/MarkProspectCold' }
     roles: [EXTERNAL, ADMIN]
     slice: V1
-    payload: {}
   recordProspectReply:
     command: { $ref: 'commands.yaml#/RecordProspectReply' }
     roles: [ADMIN, EXTERNAL]
     slice: V1
-    payload: {}
 
   createCatalog:
     command: { $ref: 'commands.yaml#/CreateCatalog' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V0
-    payload: {}
   addProduct:
     command: { $ref: 'commands.yaml#/AddProduct' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V0
-    payload: {}
   updateProduct:
     command: { $ref: 'commands.yaml#/UpdateProduct' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   removeProduct:
     command: { $ref: 'commands.yaml#/RemoveProduct' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   addCatalogCategory:
     command: { $ref: 'commands.yaml#/AddCatalogCategory' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   updateCatalogCategory:
     command: { $ref: 'commands.yaml#/UpdateCatalogCategory' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   removeCatalogCategory:
     command: { $ref: 'commands.yaml#/RemoveCatalogCategory' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   addOptionList:
     command: { $ref: 'commands.yaml#/AddOptionList' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   updateOptionList:
     command: { $ref: 'commands.yaml#/UpdateOptionList' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   removeOptionList:
     command: { $ref: 'commands.yaml#/RemoveOptionList' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   updateOfferStock:
     command: { $ref: 'commands.yaml#/UpdateOfferStock' }
     roles: [ADMIN, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   importCatalog:
     command: { $ref: 'commands.yaml#/ImportCatalog' }
     roles: [ADMIN, RESTAURANT_ACCOUNT, EXTERNAL]
     slice: V1
-    payload: {}
 
   # Identity — Supabase Auth wrapped behind GraphQL (ADR-0015). The client never calls Supabase directly.
   requestPhoneVerification:
     command: { $ref: 'commands.yaml#/RequestPhoneVerification' }
     roles: [PUBLIC, CUSTOMER]   # anonymous visitor starts phone sign-in
     slice: V0
-    payload: {}
   verifyPhone:
     command: { $ref: 'commands.yaml#/VerifyPhone' }
     roles: [PUBLIC, CUSTOMER]   # verify OTP → register (new) or identify (returning)
     slice: V0
-    payload:
-      customerId: { $ref: 'scalars.yaml#/CustomerId' }
-      created: { type: boolean }
+    # Returning phone => the SAME customerId is re-resolved (idempotent identify); the client reads
+    # its identity via `me` once the operation SUCCEEDs (acceptance-first, ADR-20260720-015500).
   requestEmailVerification:
     command: { $ref: 'commands.yaml#/RequestEmailVerification' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   confirmEmailVerification:
     command: { $ref: 'commands.yaml#/ConfirmEmailVerification' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   requestPhoneChange:
     command: { $ref: 'commands.yaml#/RequestPhoneChange' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   confirmPhoneChange:
     command: { $ref: 'commands.yaml#/ConfirmPhoneChange' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   changeLanguage:
     command: { $ref: 'commands.yaml#/ChangeLanguage' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   markRestaurantAsFavorite:
     command: { $ref: 'commands.yaml#/MarkRestaurantAsFavorite' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   unmarkRestaurantAsFavorite:
     command: { $ref: 'commands.yaml#/UnmarkRestaurantAsFavorite' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   updateCustomerInfo:
     command: { $ref: 'commands.yaml#/UpdateCustomerInfo' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   setCustomerPreferences:
     command: { $ref: 'commands.yaml#/SetCustomerPreferences' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   setCustomerAddress:
     command: { $ref: 'commands.yaml#/SetCustomerAddress' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   removeCustomerAddress:
     command: { $ref: 'commands.yaml#/RemoveCustomerAddress' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   setCustomerPaymentMethod:
     command: { $ref: 'commands.yaml#/SetCustomerPaymentMethod' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   placeOrder:
     command: { $ref: 'commands.yaml#/PlaceOrder' }
     roles: [CUSTOMER]
     slice: V0
-    # orderId is client-generated (in the command); payload carries only Stripe-assigned values.
-    payload:
-      paymentIntentId: { $ref: 'scalars.yaml#/PaymentIntentId' }
-      clientSecret: { type: string }
+    # orderId is client-generated (in the command); the Stripe-assigned values are reads:
+    # queries/paymentStatus + subscriptions/paymentStatusChanged (acceptance-first, ADR-20260720-015500).
 
   acceptOrder:
     command: { $ref: 'commands.yaml#/AcceptOrder' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V0
-    payload: {}
   rejectOrder:
     command: { $ref: 'commands.yaml#/RejectOrder' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V0
-    payload: {}
   startPreparation:
     command: { $ref: 'commands.yaml#/StartPreparation' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   markOrderReady:
     command: { $ref: 'commands.yaml#/MarkOrderReady' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V0
-    payload: {}
   markOrderDelivered:
     command: { $ref: 'commands.yaml#/MarkOrderDelivered' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT, RIDER]
     slice: V0
-    payload: {}
   cancelOrderByCustomer:
     command: { $ref: 'commands.yaml#/CancelOrderByCustomer' }
     roles: [CUSTOMER]
     slice: V0
-    payload: {}
   cancelOrderByRestaurant:
     command: { $ref: 'commands.yaml#/CancelOrderByRestaurant' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT]
     slice: V1
-    payload: {}
   rateOrder:
     command: { $ref: 'commands.yaml#/RateOrder' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   rateRestaurant:
     command: { $ref: 'commands.yaml#/RateRestaurant' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   tipOrder:
     command: { $ref: 'commands.yaml#/TipOrder' }
     roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]   # customer tips rider/restaurant/Captain; restaurant tips rider/Captain
     slice: V1
-    payload: {}
   requestRefund:
     command: { $ref: 'commands.yaml#/RequestRefund' }
     roles: [CUSTOMER]
     slice: V1
-    payload: {}
   approveRefund:
     command: { $ref: 'commands.yaml#/ApproveRefund' }
     roles: [RESTAURANT, ADMIN]   # restaurant decides its own orders; admin arbitrates
     slice: V0
-    payload: {}
   denyRefund:
     command: { $ref: 'commands.yaml#/DenyRefund' }
     roles: [RESTAURANT, ADMIN]   # restaurant decides its own orders; admin arbitrates
     slice: V0
-    payload: {}
   acceptDelivery:
     command: { $ref: 'commands.yaml#/AcceptDelivery' }
     roles: [RIDER]
     slice: V0
-    payload: {}
   confirmPickup:
     command: { $ref: 'commands.yaml#/ConfirmPickup' }
     roles: [RIDER]
     slice: V0
-    payload: {}
   completeDelivery:
     command: { $ref: 'commands.yaml#/CompleteDelivery' }
     roles: [RIDER]
     slice: V0
-    payload: {}
   cancelDelivery:
     command: { $ref: 'commands.yaml#/CancelDelivery' }
     roles: [RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]
     slice: V0
-    payload: {}
 
 
 subscriptions:
 
   operationStatusChanged:
-    description: "Operation status change events (for the owning customer or restaurant)."
+    description: >
+      Live status of one journaled command, keyed by its messageId acceptance handle (the push
+      counterpart of queries/operationStatus, ADR-20260720-015500). Yields the current journal state
+      first (no subscribe/complete race), then every transition. PUBLIC but ownership-scoped like
+      the query (JWT subject / X-SESSION-ID via the WS connection_init payload / ADMIN).
     args:
-      correlationId: { $ref: 'scalars.yaml#/CorrelationId', required: true }
+      messageId: { $ref: 'scalars.yaml#/MessageId', required: true }
     returns: { $ref: '#/types/Operation' }
-    roles: [CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT]
+    roles: [PUBLIC]
+    slice: V0
+  paymentStatusChanged:
+    description: >
+      Checkout payment-state changes for one order (the push counterpart of queries/paymentStatus,
+      ADR-20260720-015500): re-resolves the PlaceOrderProcess run row on Payment-stream events, so
+      the checkout page receives the clientSecret and the terminal CAPTURED/FAILED without polling.
+    args:
+      orderId: { $ref: 'scalars.yaml#/OrderId', required: true }
+    returns: { $ref: '#/types/PaymentIntent' }
+    roles: [CUSTOMER]
     slice: V0
   orderStatusChanged:
     description: "Order status change events (for the owning customer or restaurant)."

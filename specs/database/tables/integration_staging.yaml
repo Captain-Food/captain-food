@@ -1,12 +1,16 @@
-version: 1
+version: 2
 description: >
-  Raw-integration STAGING tables (ADR-0045) — a third table category alongside the event store
-  (eventstore.yaml), the event-fed projections (projection_tables.yaml / projection_views.yaml) and the
-  seeded reference/config tables (referential.yaml). A staging table is the landing zone for RAW external
-  records ingested by a thin CI job; it is NOT projected from `domain_events` and NOT a GraphQL `reads`
-  target (no `reference: true`) — an on-app worker reads it and translates rows into ordinary domain
-  commands (SIRENE ACL → RegisterRestaurant / MarkRestaurantClosed). The codegen emits its CREATE TABLE +
-  indexes generically like any other `database/tables/*.yaml` table; `staging: true` documents the category.
+  Raw-integration STAGING tables (ADR-0045, generalized by ADR-20260720-015400) — a third table
+  category alongside the event store (eventstore.yaml), the event-fed projections
+  (projection_tables.yaml / projection_views.yaml) and the seeded reference/config tables
+  (referential.yaml). A staging table is ADAPTER-OWNED: the landing zone for RAW external records
+  (CI-ingested mirrors like SIRENE, or verified webhook payloads like Stripe/HubRise) kept for the
+  exclusive needs of adaptation — dedupe, verification provenance, replay/backfill. It is NOT
+  projected from `domain_events` and NOT a GraphQL `reads` target (no `reference: true`) — an
+  on-app worker/ACL translates rows into ordinary domain commands (SIRENE → RegisterRestaurant,
+  HubRise → ImportCatalog) or adapted business events staged in `journals.yaml#/inbound_events`
+  (Stripe). The codegen emits its CREATE TABLE + indexes generically like any other
+  `database/tables/*.yaml` table; `staging: true` documents the category.
 
 external_sirene_restaurants:
   staging: true
@@ -27,3 +31,34 @@ external_sirene_restaurants:
     last_seen_at:  { type: timestamptz, index: true }       # latest sync that saw it — drives detect-by-absence
     sync_run_id:   { type: uuid }                           # correlates all rows touched by one ingestion run
     processed_at:  { type: timestamptz, nullable: true }    # worker high-water mark: NULL / < last_seen_at ⇒ pending
+
+external_stripe_events:
+  staging: true
+  description: >
+    Raw VERIFIED Stripe webhook mirror (ADR-20260720-015400). The webhook endpoint UPSERTs one row
+    per Stripe event id AFTER raw-body signature verification (ADR-20260718-145856), then the ACL
+    translates it into an adapted business event staged in journals.yaml#/inbound_events.
+    Redelivery dedupes on the pk and ACKs immediately; processed_at is the translation high-water
+    mark, enabling replay/backfill without asking Stripe to resend.
+  columns:
+    stripe_event_id: { type: text, pk: true }                 # Stripe 'evt_…' — the idempotent external key
+    event_type:      { type: text, index: true }              # Stripe type, e.g. 'payment_intent.succeeded'
+    payload:         { type: jsonb }                          # raw verified Stripe event, verbatim
+    received_at:     { type: timestamptz, index: true }
+    processed_at:    { type: timestamptz, nullable: true, index: true }   # NULL ⇒ not yet translated into inbound_events
+
+external_hubrise_callbacks:
+  staging: true
+  description: >
+    Raw VERIFIED HubRise callback mirror (ADR-20260720-015400). pk is the provider event id when
+    present, else a UUIDv5 of the raw body. HubRise callbacks carry no state, so the enrichment leg
+    (OAuth pull → ACL → ImportCatalog / stock COMMANDS, journaled with channel WORKER) marks
+    processed_at — HubRise yields commands, not inbound_events rows (request/report split).
+  columns:
+    callback_id:   { type: text, pk: true }                   # provider event id, else UUIDv5(raw body)
+    resource_type: { type: text, index: true }                # HubRise resource: 'catalog' / 'inventory' / …
+    event_type:    { type: text }                             # HubRise event: 'update' / 'create' / …
+    location_id:   { type: text, nullable: true, index: true }  # HubRise location — maps to the restaurant/catalog
+    payload:       { type: jsonb }                            # raw verified callback body, verbatim
+    received_at:   { type: timestamptz, index: true }
+    processed_at:  { type: timestamptz, nullable: true, index: true }   # NULL ⇒ enrichment not yet run

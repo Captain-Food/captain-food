@@ -19,6 +19,7 @@
 //! partner.
 
 pub mod google;
+pub mod inbound_drain_worker;
 pub mod payments;
 pub mod sirene;
 pub mod supabase_auth;

@@ -54,7 +54,8 @@ An authenticated person who orders food via Captain.Food.
 |  | ViewMyCarts | [🔎 `carts`](#query-carts) |
 |  | BrowseCategories | [🔎 `categories`](#query-categories) |
 |  | PlaceOrder | [✏️ `placeOrder`](#mutation-placeorder) |
-|  | PollOperationStatus | [🔎 `operation`](#query-operation) |
+|  | PollOperationStatus | [🔎 `operationStatus`](#query-operationstatus) |
+|  | TrackPaymentStatus | [🔎 `paymentStatus`](#query-paymentstatus) |
 |  | TrackOrderStatus | [🔎 `order`](#query-order) |
 |  | TrackDelivery | [🔎 `delivery`](#query-delivery) |
 |  | CancelOrder | [✏️ `cancelOrderByCustomer`](#mutation-cancelorderbycustomer) |
@@ -236,133 +237,133 @@ B2B prospection pipeline (admin): scored prospects, optionally filtered by minim
 
 - **Command**: [📩 `RegisterRestaurantAccount`](#command-registerrestaurantaccount) → handled by [🎭 `RestaurantAccount`](#actor-restaurantaccount)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updaterestaurantaccount"></a>
 #### ✏️ Mutation: `updateRestaurantAccount`
 
 - **Command**: [📩 `UpdateRestaurantAccount`](#command-updaterestaurantaccount) → handled by [🎭 `RestaurantAccount`](#actor-restaurantaccount)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-deleterestaurantaccount"></a>
 #### ✏️ Mutation: `deleteRestaurantAccount`
 
 - **Command**: [📩 `DeleteRestaurantAccount`](#command-deleterestaurantaccount) → handled by [🎭 `RestaurantAccount`](#actor-restaurantaccount)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-registerrestaurant"></a>
 #### ✏️ Mutation: `registerRestaurant`
 
 - **Command**: [📩 `RegisterRestaurant`](#command-registerrestaurant) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT, EXTERNAL · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-activaterestaurant"></a>
 #### ✏️ Mutation: `activateRestaurant`
 
 - **Command**: [📩 `ActivateRestaurant`](#command-activaterestaurant) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updaterestaurant"></a>
 #### ✏️ Mutation: `updateRestaurant`
 
 - **Command**: [📩 `UpdateRestaurant`](#command-updaterestaurant) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-deactivaterestaurant"></a>
 #### ✏️ Mutation: `deactivateRestaurant`
 
 - **Command**: [📩 `DeactivateRestaurant`](#command-deactivaterestaurant) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-removerestaurant"></a>
 #### ✏️ Mutation: `removeRestaurant`
 
 - **Command**: [📩 `RemoveRestaurant`](#command-removerestaurant) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-changeorderacceptancemode"></a>
 #### ✏️ Mutation: `changeOrderAcceptanceMode`
 
 - **Command**: [📩 `ChangeOrderAcceptanceMode`](#command-changeorderacceptancemode) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updaterestaurantgooglebusinessprofile"></a>
 #### ✏️ Mutation: `updateRestaurantGoogleBusinessProfile`
 
 - **Command**: [📩 `UpdateRestaurantGoogleBusinessProfile`](#command-updaterestaurantgooglebusinessprofile) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: EXTERNAL, ADMIN · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-markrestaurantclosed"></a>
 #### ✏️ Mutation: `markRestaurantClosed`
 
 - **Command**: [📩 `MarkRestaurantClosed`](#command-markrestaurantclosed) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: EXTERNAL, ADMIN · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-claimrestaurantlisting"></a>
 #### ✏️ Mutation: `claimRestaurantListing`
 
 - **Command**: [📩 `ClaimRestaurantListing`](#command-claimrestaurantlisting) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: PUBLIC, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-optoutrestaurantlisting"></a>
 #### ✏️ Mutation: `optOutRestaurantListing`
 
 - **Command**: [📩 `OptOutRestaurantListing`](#command-optoutrestaurantlisting) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: PUBLIC, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-changerestaurantlistingstatus"></a>
 #### ✏️ Mutation: `changeRestaurantListingStatus`
 
 - **Command**: [📩 `ChangeRestaurantListingStatus`](#command-changerestaurantlistingstatus) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: ADMIN · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-configuregbporderlink"></a>
 #### ✏️ Mutation: `configureGbpOrderLink`
 
 - **Command**: [📩 `ConfigureGoogleBusinessProfileOrderLink`](#command-configuregooglebusinessprofileorderlink) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: RESTAURANT_ACCOUNT, RESTAURANT, ADMIN · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-verifygbporderlink"></a>
 #### ✏️ Mutation: `verifyGbpOrderLink`
 
 - **Command**: [📩 `VerifyGoogleBusinessProfileOrderLink`](#command-verifygooglebusinessprofileorderlink) → handled by [🎭 `Restaurant`](#actor-restaurant)
 - **Roles**: RESTAURANT_ACCOUNT, RESTAURANT, ADMIN · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-recordprospectcontact"></a>
 #### ✏️ Mutation: `recordProspectContact`
 
 - **Command**: [📩 `RecordProspectContact`](#command-recordprospectcontact) → handled by [🎭 `Prospect`](#actor-prospect)
 - **Roles**: EXTERNAL, ADMIN · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-markprospectcold"></a>
 #### ✏️ Mutation: `markProspectCold`
 
 - **Command**: [📩 `MarkProspectCold`](#command-markprospectcold) → handled by [🎭 `Prospect`](#actor-prospect)
 - **Roles**: EXTERNAL, ADMIN · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-recordprospectreply"></a>
 #### ✏️ Mutation: `recordProspectReply`
 
 - **Command**: [📩 `RecordProspectReply`](#command-recordprospectreply) → handled by [🎭 `Prospect`](#actor-prospect)
 - **Roles**: ADMIN, EXTERNAL · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 ### 🧩 Output types _(2)_
 
@@ -1824,84 +1825,84 @@ _Catalog tree, products, offers (SKUs), option lists, per-offer stock; HubRise i
 
 - **Command**: [📩 `CreateCatalog`](#command-createcatalog) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-addproduct"></a>
 #### ✏️ Mutation: `addProduct`
 
 - **Command**: [📩 `AddProduct`](#command-addproduct) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updateproduct"></a>
 #### ✏️ Mutation: `updateProduct`
 
 - **Command**: [📩 `UpdateProduct`](#command-updateproduct) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-removeproduct"></a>
 #### ✏️ Mutation: `removeProduct`
 
 - **Command**: [📩 `RemoveProduct`](#command-removeproduct) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-addcatalogcategory"></a>
 #### ✏️ Mutation: `addCatalogCategory`
 
 - **Command**: [📩 `AddCatalogCategory`](#command-addcatalogcategory) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updatecatalogcategory"></a>
 #### ✏️ Mutation: `updateCatalogCategory`
 
 - **Command**: [📩 `UpdateCatalogCategory`](#command-updatecatalogcategory) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-removecatalogcategory"></a>
 #### ✏️ Mutation: `removeCatalogCategory`
 
 - **Command**: [📩 `RemoveCatalogCategory`](#command-removecatalogcategory) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-addoptionlist"></a>
 #### ✏️ Mutation: `addOptionList`
 
 - **Command**: [📩 `AddOptionList`](#command-addoptionlist) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updateoptionlist"></a>
 #### ✏️ Mutation: `updateOptionList`
 
 - **Command**: [📩 `UpdateOptionList`](#command-updateoptionlist) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-removeoptionlist"></a>
 #### ✏️ Mutation: `removeOptionList`
 
 - **Command**: [📩 `RemoveOptionList`](#command-removeoptionlist) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updateofferstock"></a>
 #### ✏️ Mutation: `updateOfferStock`
 
 - **Command**: [📩 `UpdateOfferStock`](#command-updateofferstock) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-importcatalog"></a>
 #### ✏️ Mutation: `importCatalog`
 
 - **Command**: [📩 `ImportCatalog`](#command-importcatalog) → handled by [🎭 `Catalog`](#actor-catalog)
 - **Roles**: ADMIN, RESTAURANT_ACCOUNT, EXTERNAL · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 ### 🧩 Output types _(2)_
 
@@ -2824,119 +2825,119 @@ Order tracking by id; owning customer or the restaurant/admin. Ownership enforce
 
 - **Command**: [📩 `AddCartLine`](#command-addcartline) → handled by [🎭 `Cart`](#actor-cart)
 - **Roles**: PUBLIC · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-removecartline"></a>
 #### ✏️ Mutation: `removeCartLine`
 
 - **Command**: [📩 `RemoveCartLine`](#command-removecartline) → handled by [🎭 `Cart`](#actor-cart)
 - **Roles**: PUBLIC · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-changecartlinequantity"></a>
 #### ✏️ Mutation: `changeCartLineQuantity`
 
 - **Command**: [📩 `ChangeCartLineQuantity`](#command-changecartlinequantity) → handled by [🎭 `Cart`](#actor-cart)
 - **Roles**: PUBLIC · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-placeorder"></a>
 #### ✏️ Mutation: `placeOrder`
 
 - **Command**: [📩 `PlaceOrder`](#command-placeorder) → handled by [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
 - **Roles**: CUSTOMER · **slice** V0
-- **Payload**: correlationId, `paymentIntentId`: [🔤 `PaymentIntentId`](#scalar-paymentintentid), `clientSecret`: `string`
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-acceptorder"></a>
 #### ✏️ Mutation: `acceptOrder`
 
 - **Command**: [📩 `AcceptOrder`](#command-acceptorder) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-rejectorder"></a>
 #### ✏️ Mutation: `rejectOrder`
 
 - **Command**: [📩 `RejectOrder`](#command-rejectorder) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-startpreparation"></a>
 #### ✏️ Mutation: `startPreparation`
 
 - **Command**: [📩 `StartPreparation`](#command-startpreparation) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-markorderready"></a>
 #### ✏️ Mutation: `markOrderReady`
 
 - **Command**: [📩 `MarkOrderReady`](#command-markorderready) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-markorderdelivered"></a>
 #### ✏️ Mutation: `markOrderDelivered`
 
 - **Command**: [📩 `MarkOrderDelivered`](#command-markorderdelivered) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT, RIDER · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-cancelorderbycustomer"></a>
 #### ✏️ Mutation: `cancelOrderByCustomer`
 
 - **Command**: [📩 `CancelOrderByCustomer`](#command-cancelorderbycustomer) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: CUSTOMER · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-cancelorderbyrestaurant"></a>
 #### ✏️ Mutation: `cancelOrderByRestaurant`
 
 - **Command**: [📩 `CancelOrderByRestaurant`](#command-cancelorderbyrestaurant) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-rateorder"></a>
 #### ✏️ Mutation: `rateOrder`
 
 - **Command**: [📩 `RateOrder`](#command-rateorder) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-raterestaurant"></a>
 #### ✏️ Mutation: `rateRestaurant`
 
 - **Command**: [📩 `RateRestaurant`](#command-raterestaurant) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-tiporder"></a>
 #### ✏️ Mutation: `tipOrder`
 
 - **Command**: [📩 `TipOrder`](#command-tiporder) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-requestrefund"></a>
 #### ✏️ Mutation: `requestRefund`
 
 - **Command**: [📩 `RequestRefund`](#command-requestrefund) → handled by [🎭 `Order`](#actor-order)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-approverefund"></a>
 #### ✏️ Mutation: `approveRefund`
 
 - **Command**: [📩 `ApproveRefund`](#command-approverefund) → handled by [🎭 `RefundProcess`](#actor-refundprocess)
 - **Roles**: RESTAURANT, ADMIN · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-denyrefund"></a>
 #### ✏️ Mutation: `denyRefund`
 
 - **Command**: [📩 `DenyRefund`](#command-denyrefund) → handled by [🎭 `RefundProcess`](#actor-refundprocess)
 - **Roles**: RESTAURANT, ADMIN · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="subscription-orderstatuschanged"></a>
 #### 🔔 Subscription: [`orderStatusChanged`](#subscription-orderstatuschanged)
@@ -4895,6 +4896,7 @@ _criticality: **high**_
 | --- | --- | --- | --- |
 | `correlation_id` | `command.correlation_id` | ✅ | — |
 | `trace_id` | `otel.trace_id` | ✅ | — |
+| `message_id` | `command.message_id` | ✅ | — |
 | `order_id` | `domain.aggregate_id` | ✅ | [🔤 `OrderId`](#scalar-orderid) |
 | `command_type` | `command.type` | ✅ | — |
 
@@ -4903,6 +4905,7 @@ _criticality: **high**_
 | Span | Kind | Req. | Multiplicity | Attributes |
 | --- | --- | --- | --- | --- |
 | `command.receive` | `SERVER` | ✅ | — | `business.command_type`*, `business.actor`* |
+| `command.journal` | `INTERNAL` | ✅ | — | `business.message_id`*, `business.journal_status`* |
 | `command.validate` | `INTERNAL` | ✅ | — | `business.validation_status`* |
 | `cart.read` | `INTERNAL` | ✅ | — | `business.aggregate_id`* |
 | `pricing.compute` | `INTERNAL` | ✅ | — | `business.service_fee`*, `business.split_ok`* |
@@ -4912,7 +4915,7 @@ _criticality: **high**_
 | `event.consume.projection` | `CONSUMER` | ✅ | `>= 1` | `business.projection_name`* |
 
 - **Metrics**: `place_order_duration_ms` _(histogram)_ · **Business metrics**: `orders_placed_total` _(counter)_, `checkout_payment_failures_total` _(counter)_
-- **Status rules**: success ⇐ spans [`command.receive`, `pricing.compute`, `payment.intent.create`, `event.store.append`, `event.publish`, `event.consume.projection`]
+- **Status rules**: success ⇐ spans [`command.receive`, `command.journal`, `pricing.compute`, `payment.intent.create`, `event.store.append`, `event.publish`, `event.consume.projection`]
 - **SLOs**: p95 ≤ 800ms · p99 ≤ 1500ms · error rate ≤ 1%
 
 <a id="obs-refund"></a>
@@ -4948,7 +4951,7 @@ _criticality: **high**_
 
 _Customer-facing consumer domain: discovery/browse, identity (phone-keyed), favorites, profile, address book, cart & ordering use-cases; cart binding._
 
-### 🧰 API operations _(23)_
+### 🧰 API operations _(27)_
 
 <a id="query-phonecountries"></a>
 #### 🔎 Query: `phoneCountries`
@@ -4958,6 +4961,26 @@ Selectable phone countries for the dialing-code picker (static reference data; t
 - **Input**: _(none)_
 - **Returns**: [🧩 `PhoneCountry`](#type-phonecountry) (list) · **reads** [🗄️ `PhoneCountry`](#view-phonecountry)
 - **Roles**: PUBLIC · **slice** V0
+
+<a id="query-operationstatus"></a>
+#### 🔎 Query: `operationStatus`
+
+Poll a journaled command's status by its messageId acceptance handle (the pull counterpart of the operationStatusChanged subscription, ADR-20260720-015500). PUBLIC but OWNERSHIP-SCOPED in the resolver: the row is returned only to the journaling actor (JWT subject match), the journaling session (X-SESSION-ID match — anonymous users), or ADMIN; anything else resolves null (no existence oracle). Transient — served from the command_journal, no View_*.
+
+
+- **Input**: 🧩 `OperationStatusQueryInput!` — `messageId`: [🔤 `MessageId`](#scalar-messageid)
+- **Returns**: [🧩 `Operation`](#type-operation) · **reads** —
+- **Roles**: PUBLIC · **slice** V0
+
+<a id="query-paymentstatus"></a>
+#### 🔎 Query: `paymentStatus`
+
+The checkout payment state for an order (ADR-20260720-015500): paymentIntentId, clientSecret while the run is in flight, and the folded PaymentStatus — the read-side home of the values placeOrder used to return. Served from the PlaceOrderProcess run row (the declared exception to PM-table privacy); ownership-scoped to the checkout's customer (or session) and ADMIN.
+
+
+- **Input**: 🧩 `PaymentStatusQueryInput!` — `orderId`: [🔤 `OrderId`](#scalar-orderid)
+- **Returns**: [🧩 `PaymentIntent`](#type-paymentintent) · **reads** —
+- **Roles**: CUSTOMER · **slice** V0
 
 <a id="query-me"></a>
 #### 🔎 Query: `me`
@@ -5038,98 +5061,118 @@ A single cart by id (session-scoped; readable by the guest/customer who owns it)
 
 - **Command**: [📩 `RequestPhoneVerification`](#command-requestphoneverification) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: PUBLIC, CUSTOMER · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-verifyphone"></a>
 #### ✏️ Mutation: `verifyPhone`
 
 - **Command**: [📩 `VerifyPhone`](#command-verifyphone) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: PUBLIC, CUSTOMER · **slice** V0
-- **Payload**: correlationId, `customerId`: [🔤 `CustomerId`](#scalar-customerid), `created`: `boolean`
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-requestemailverification"></a>
 #### ✏️ Mutation: `requestEmailVerification`
 
 - **Command**: [📩 `RequestEmailVerification`](#command-requestemailverification) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-confirmemailverification"></a>
 #### ✏️ Mutation: `confirmEmailVerification`
 
 - **Command**: [📩 `ConfirmEmailVerification`](#command-confirmemailverification) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-requestphonechange"></a>
 #### ✏️ Mutation: `requestPhoneChange`
 
 - **Command**: [📩 `RequestPhoneChange`](#command-requestphonechange) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-confirmphonechange"></a>
 #### ✏️ Mutation: `confirmPhoneChange`
 
 - **Command**: [📩 `ConfirmPhoneChange`](#command-confirmphonechange) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-changelanguage"></a>
 #### ✏️ Mutation: `changeLanguage`
 
 - **Command**: [📩 `ChangeLanguage`](#command-changelanguage) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-markrestaurantasfavorite"></a>
 #### ✏️ Mutation: `markRestaurantAsFavorite`
 
 - **Command**: [📩 `MarkRestaurantAsFavorite`](#command-markrestaurantasfavorite) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-unmarkrestaurantasfavorite"></a>
 #### ✏️ Mutation: `unmarkRestaurantAsFavorite`
 
 - **Command**: [📩 `UnmarkRestaurantAsFavorite`](#command-unmarkrestaurantasfavorite) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-updatecustomerinfo"></a>
 #### ✏️ Mutation: `updateCustomerInfo`
 
 - **Command**: [📩 `UpdateCustomerInfo`](#command-updatecustomerinfo) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-setcustomerpreferences"></a>
 #### ✏️ Mutation: `setCustomerPreferences`
 
 - **Command**: [📩 `SetCustomerPreferences`](#command-setcustomerpreferences) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-setcustomeraddress"></a>
 #### ✏️ Mutation: `setCustomerAddress`
 
 - **Command**: [📩 `SetCustomerAddress`](#command-setcustomeraddress) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-removecustomeraddress"></a>
 #### ✏️ Mutation: `removeCustomerAddress`
 
 - **Command**: [📩 `RemoveCustomerAddress`](#command-removecustomeraddress) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-setcustomerpaymentmethod"></a>
 #### ✏️ Mutation: `setCustomerPaymentMethod`
 
 - **Command**: [📩 `SetCustomerPaymentMethod`](#command-setcustomerpaymentmethod) → handled by [🎭 `Customer`](#actor-customer)
 - **Roles**: CUSTOMER · **slice** V1
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
+
+<a id="subscription-operationstatuschanged"></a>
+#### 🔔 Subscription: [`operationStatusChanged`](#subscription-operationstatuschanged)
+
+Live status of one journaled command, keyed by its messageId acceptance handle (the push counterpart of queries/operationStatus, ADR-20260720-015500). Yields the current journal state first (no subscribe/complete race), then every transition. PUBLIC but ownership-scoped like the query (JWT subject / X-SESSION-ID via the WS connection_init payload / ADMIN).
+
+
+- **Input**: 🧩 `OperationStatusChangedSubscriptionInput!` — `messageId`: [🔤 `MessageId`](#scalar-messageid)
+- **Streams**: [🧩 `Operation`](#type-operation)
+- **Roles**: PUBLIC · **slice** V0
+
+<a id="subscription-paymentstatuschanged"></a>
+#### 🔔 Subscription: [`paymentStatusChanged`](#subscription-paymentstatuschanged)
+
+Checkout payment-state changes for one order (the push counterpart of queries/paymentStatus, ADR-20260720-015500): re-resolves the PlaceOrderProcess run row on Payment-stream events, so the checkout page receives the clientSecret and the terminal CAPTURED/FAILED without polling.
+
+
+- **Input**: 🧩 `PaymentStatusChangedSubscriptionInput!` — `orderId`: [🔤 `OrderId`](#scalar-orderid)
+- **Streams**: [🧩 `PaymentIntent`](#type-paymentintent)
+- **Roles**: CUSTOMER · **slice** V0
 
 ### 🧩 Output types _(1)_
 
@@ -6008,28 +6051,28 @@ The independent rider's assigned/available delivery jobs (rider app).
 
 - **Command**: [📩 `AcceptDelivery`](#command-acceptdelivery) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
 - **Roles**: RIDER · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-confirmpickup"></a>
 #### ✏️ Mutation: `confirmPickup`
 
 - **Command**: [📩 `ConfirmPickup`](#command-confirmpickup) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
 - **Roles**: RIDER · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-completedelivery"></a>
 #### ✏️ Mutation: `completeDelivery`
 
 - **Command**: [📩 `CompleteDelivery`](#command-completedelivery) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
 - **Roles**: RIDER · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 <a id="mutation-canceldelivery"></a>
 #### ✏️ Mutation: `cancelDelivery`
 
 - **Command**: [📩 `CancelDelivery`](#command-canceldelivery) → handled by [🎭 `DeliveryJob`](#actor-deliveryjob)
 - **Roles**: RESTAURANT, RESTAURANT_ACCOUNT, ADMIN · **slice** V0
-- **Payload**: correlationId
+- **Returns**: [🧩 `MutationAcceptance`](#type-mutationacceptance) (acceptance-first — outcome via [🔎 `operationStatus`](#query-operationstatus))
 
 ### 🧩 Output types _(1)_
 
@@ -7097,16 +7140,7 @@ _Closes the order when an independent rider completes the delivery_
 
 _Shared vocabulary and operations that span several bounded contexts (or belong to none)._
 
-### 🧰 API operations _(5)_
-
-<a id="query-operation"></a>
-#### 🔎 Query: `operation`
-
-Poll a command/operation's status by its correlationId (the pull counterpart of the operationStatusChanged subscription). Transient — resolver-served, no View_*.
-
-- **Input**: 🧩 `OperationQueryInput!` — `correlationId`: [🔤 `CorrelationId`](#scalar-correlationid)
-- **Returns**: [🧩 `Operation`](#type-operation) · **reads** —
-- **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN · **slice** V0
+### 🧰 API operations _(3)_
 
 <a id="query-pricingpolicy"></a>
 #### 🔎 Query: `pricingPolicy`
@@ -7135,16 +7169,7 @@ The active Uber Eats split/fee assumptions for the estimated comparison (admin; 
 - **Returns**: [🧩 `UberSplitPolicy`](#type-ubersplitpolicy) (list) · **reads** [🗄️ `UberSplitPolicy`](#view-ubersplitpolicy)
 - **Roles**: ADMIN · **slice** V1
 
-<a id="subscription-operationstatuschanged"></a>
-#### 🔔 Subscription: [`operationStatusChanged`](#subscription-operationstatuschanged)
-
-Operation status change events (for the owning customer or restaurant).
-
-- **Input**: 🧩 `OperationStatusChangedSubscriptionInput!` — `correlationId`: [🔤 `CorrelationId`](#scalar-correlationid)
-- **Streams**: [🧩 `Operation`](#type-operation)
-- **Roles**: CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT · **slice** V0
-
-### 🧩 Output types _(10)_
+### 🧩 Output types _(11)_
 
 <a id="type-product"></a>
 #### 🧩 Type: `Product`
@@ -7231,7 +7256,7 @@ A selectable phone country for the dialing-code picker (static reference data).
 <a id="type-paymentintent"></a>
 #### 🧩 Type: `PaymentIntent`
 
-Stripe PaymentIntent handle for the checkout step. NON-PROJECTED (transient): it is returned via the PlaceOrder mutation payload, never read through a View_* — hence no `reads`.
+Checkout payment state for one order (ADR-20260720-015500): the read-side home of the values placeOrder used to return, served from the PlaceOrderProcess run row by `paymentStatus` / `paymentStatusChanged`. `clientSecret` is present only while the run is in flight (NULLed when it resolves — a revocable Stripe credential, never event-sourced). NON-PROJECTED (transient): resolver-served from the saga state row, never a View_* — hence no `reads`.
 
 
 - **Read model**: _(resolved within a parent projection)_
@@ -7239,21 +7264,41 @@ Stripe PaymentIntent handle for the checkout step. NON-PROJECTED (transient): it
 | Field | Type | Required |
 | --- | --- | --- |
 | <a id="type-paymentintent--paymentintentid"></a>`paymentIntentId` | [🔤 `PaymentIntentId`](#scalar-paymentintentid) | ✅ |
-| <a id="type-paymentintent--clientsecret"></a>`clientSecret` | `string` | ✅ |
-| <a id="type-paymentintent--status"></a>`status` | `string` | ✅ |
+| <a id="type-paymentintent--clientsecret"></a>`clientSecret` | `string` | ⬜ |
+| <a id="type-paymentintent--status"></a>`status` | [🔤 `PaymentStatus`](#scalar-paymentstatus) | ✅ |
 
-<a id="type-operation"></a>
-#### 🧩 Type: `Operation`
+<a id="type-mutationacceptance"></a>
+#### 🧩 Type: `MutationAcceptance`
 
-Live status of a command/operation, streamed by the `operationStatusChanged` subscription and correlated by `correlationId` (every mutation payload carries one). NON-PROJECTED (transient) — no backing View_*, hence no `reads`.
+The uniform acceptance EVERY mutation returns (acceptance-first writes, ADR-20260720-015500): the EFFECTIVE technical envelope echoed back (server-computed where the client supplied nothing) plus the journaled operation status. Business outcomes are never here — read them via queries/subscriptions (`operationStatus`, `paymentStatus`, the read models). NON-PROJECTED (transient) — built from the command_journal acceptance, no `reads`.
 
 
 - **Read model**: _(resolved within a parent projection)_
 
 | Field | Type | Required |
 | --- | --- | --- |
+| <a id="type-mutationacceptance--messageid"></a>`messageId` | [🔤 `MessageId`](#scalar-messageid) | ✅ |
+| <a id="type-mutationacceptance--correlationid"></a>`correlationId` | [🔤 `CorrelationId`](#scalar-correlationid) | ✅ |
+| <a id="type-mutationacceptance--causeid"></a>`causeId` | [🔤 `CauseId`](#scalar-causeid) | ⬜ |
+| <a id="type-mutationacceptance--sessionid"></a>`sessionId` | [🔤 `SessionId`](#scalar-sessionid) | ⬜ |
+| <a id="type-mutationacceptance--traceid"></a>`traceId` | [🔤 `TraceId`](#scalar-traceid) | ⬜ |
+| <a id="type-mutationacceptance--operationstatus"></a>`operationStatus` | [🔤 `OperationStatus`](#scalar-operationstatus) | ✅ |
+| <a id="type-mutationacceptance--duplicate"></a>`duplicate` | `boolean` | ✅ |
+
+<a id="type-operation"></a>
+#### 🧩 Type: `Operation`
+
+Live status of a journaled command (ADR-20260720-015300), keyed by its `messageId` acceptance handle: polled by `operationStatus`, streamed by `operationStatusChanged`. `errorCode` is the stable errors.yaml code when the operation REJECTED/FAILED after acceptance (the async home of the P-10 rejection contract — sync validation failures still use GraphQL errors). Ownership- scoped in the resolver: the journaling actor (JWT), the journaling session (X-SESSION-ID), or ADMIN. NON-PROJECTED (transient) — served from the command_journal, no backing View_*.
+
+
+- **Read model**: _(resolved within a parent projection)_
+
+| Field | Type | Required |
+| --- | --- | --- |
+| <a id="type-operation--messageid"></a>`messageId` | [🔤 `MessageId`](#scalar-messageid) | ✅ |
 | <a id="type-operation--correlationid"></a>`correlationId` | [🔤 `CorrelationId`](#scalar-correlationid) | ✅ |
 | <a id="type-operation--status"></a>`status` | [🔤 `OperationStatus`](#scalar-operationstatus) | ✅ |
+| <a id="type-operation--errorcode"></a>`errorCode` | `string` | ⬜ |
 | <a id="type-operation--message"></a>`message` | `string` | ⬜ |
 | <a id="type-operation--occurredat"></a>`occurredAt` | `string` _date-time_ | ✅ |
 
@@ -7338,7 +7383,7 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="entity-address--city"></a>`city` | [🔤 `CityName`](#scalar-cityname) | ✅ |  |
 | <a id="entity-address--country"></a>`country` | [🔤 `CountryCode`](#scalar-countrycode) | ✅ |  |
 
-### 🔤 Scalars _(32)_
+### 🔤 Scalars _(37)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
@@ -7349,6 +7394,8 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-orderid"></a>🔤 `OrderId` | string _uuid_ |  |
 | <a id="scalar-customerid"></a>🔤 `CustomerId` | string _uuid_ |  |
 | <a id="scalar-causeid"></a>🔤 `CauseId` | string _uuid_ | Causation id: the id of the message/event that directly caused this one (matches domain_events.cause_id). Threads a cause→effect chain through the log; null for a root command.  |
+| <a id="scalar-messageid"></a>🔤 `MessageId` | string _uuid_ | Unique id of one command submission — the idempotency key of the write path (command_journal pk, ADR-20260720-015300). Client-suppliable via MetadataInput; server-generated (UUIDv7) when absent. A replayed messageId with an identical payload acknowledges against the original; the same id with a different payload is rejected (Conflict). Events emitted by the command carry it as domain_events.cause_id.  |
+| <a id="scalar-traceid"></a>🔤 `TraceId` | string `^[0-9a-f]{32}$` | W3C trace-id (from the inbound `traceparent` header, or server-started). Response-only technical tracing identifier — never client-suppliable, never a substitute for correlationId (P-02).  |
 | <a id="scalar-externalreference"></a>🔤 `ExternalReference` | string | External reference code (HubRise `ref`), unique within its scope. Used for idempotent import/sync and as a stable reference inside orders. Example: 'MARGHERITA', 'CAT-PIZZAS'.  |
 | <a id="scalar-slug"></a>🔤 `Slug` | string `^[a-z0-9]+(?:-[a-z0-9]+)*$` | URL-safe identifier for restaurants. Lowercase, dash-separated. Example: 'chez-marco', 'tokyo-sushi'.  |
 | <a id="scalar-restaurantdisplayname"></a>🔤 `RestaurantDisplayName` | string | Public label shown to customers. Can be short and brand-oriented. Example: 'Chez Marco', 'Tokyo Sushi'.  |
@@ -7369,6 +7416,9 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-servicetype"></a>🔤 `ServiceType` | enum (DELIVERY \| COLLECTION) | Aligned with HubRise service types. COLLECTION == customer pickup. (EAT_IN is not offered by Captain.Food but is kept in TaxRate for catalog fidelity.)  |
 | <a id="scalar-deliverystatus"></a>🔤 `DeliveryStatus` | enum (PENDING \| ASSIGNED \| PICKED_UP \| OUT_FOR_DELIVERY \| DELIVERED \| FAILED \| CANCELLED) | Status of one delivery, reported by the partner (inbound) or driven by an independent rider's commands. |
 | <a id="scalar-operationstatus"></a>🔤 `OperationStatus` | enum (PENDING \| SUCCEEDED \| REJECTED \| FAILED) | Live status of a command/operation streamed by the operationStatusChanged subscription: PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."  |
+| <a id="scalar-commandjournalstatus"></a>🔤 `CommandJournalStatus` | enum (RECEIVED \| SUCCEEDED \| REJECTED \| FAILED) | Lifecycle of a journaled command: RECEIVED (durably accepted, handler spawned), then SUCCEEDED, REJECTED (business invariant) or FAILED (technical). Maps onto the API OperationStatus (RECEIVED → PENDING). A duplicate submission is an acceptance-response attribute, not a status — the journal row keeps the original's real state.  |
+| <a id="scalar-commandchannel"></a>🔤 `CommandChannel` | enum (GRAPHQL \| WORKER \| INTERNAL) | Surface a journaled command arrived through: the GraphQL BFF dispatch, an on-app drain/enrichment worker (e.g. the HubRise enricher), or an internal trigger endpoint.  |
+| <a id="scalar-inboundeventstatus"></a>🔤 `InboundEventStatus` | enum (RECEIVED \| DELIVERED \| FAILED) | Lifecycle of an adapted inbound business event (inbound_events row): RECEIVED (staged by the adapter ACL), DELIVERED (appended through the normal write path — includes the aggregate's already-recorded no-op), FAILED (delivery error, left for retry/inspection).  |
 | <a id="scalar-paymentprocessstatus"></a>🔤 `PaymentProcessStatus` | enum (AWAITING_PAYMENT_RESULT \| ORDER_PLACED \| FAILED) | State of one PlaceOrderProcess checkout run (payment_process_manager row, keyed by cart). |
 | <a id="scalar-refundprocessstatus"></a>🔤 `RefundProcessStatus` | enum (PENDING_APPROVAL \| APPROVED_AWAITING_SETTLEMENT \| DENIED \| REFUNDED) | State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are approved by the restaurant (own orders) or an admin. |
 | <a id="scalar-deliverydispatchprocessstatus"></a>🔤 `DeliveryDispatchProcessStatus` | enum (OFFERED \| ACCEPTED \| FAILED \| COMPLETED) | State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order). FAILED keeps REOFFER_REQUIRED's ordinal slot (both flag manual handling; ADR-20260720-004556). |
@@ -7389,6 +7439,40 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="error-noeditablefieldprovided"></a>⛔ `NoEditableFieldProvided` | Update command carried no editable field. | 🇬🇧 Provide at least one field to update. | 🇫🇷 Indiquez au moins un champ à modifier. | [📩 `UpdateRestaurantAccount`](#command-updaterestaurantaccount), [📩 `UpdateRestaurant`](#command-updaterestaurant), [📩 `UpdateCustomerInfo`](#command-updatecustomerinfo), [📩 `UpdateRiderInfo`](#command-updateriderinfo) |
 | <a id="error-offernotfound"></a>⛔ `OfferNotFound` | No offer with this id in the catalog. | 🇬🇧 Product offer not found. | 🇫🇷 Offere de produit introuvable. | [📩 `UpdateOfferStock`](#command-updateofferstock), [📩 `AddCartLine`](#command-addcartline) |
 | <a id="error-paymenteventorphaned"></a>⛔ `PaymentEventOrphaned` | A Stripe payment outcome (capture or failure) references a PaymentIntent that matches no known checkout run. The inbound fact stays recorded on the Payment, but the process manager aborts and surfaces this error for ops attention (money may have been taken with no order to materialize) — an anomaly is never silently skipped.  | 🇬🇧 Payment event received for an unknown checkout. | 🇫🇷 Événement de paiement reçu pour un checkout inconnu. | — |
+
+### 📡 Observability _(1)_
+
+<a id="obs-stripe-webhook-ingestion"></a>
+#### 📡 Contract: `stripe-webhook-ingestion`
+
+_criticality: **high**_
+
+- **Workflow**: 
+- **Emits**: — · **Inbound**: [⚡ `PaymentCaptured`](#event-paymentcaptured), [⚡ `PaymentFailed`](#event-paymentfailed), [⚡ `PaymentRefunded`](#event-paymentrefunded)
+
+**Run identity**
+
+| Id | Source | Req. | Business key |
+| --- | --- | --- | --- |
+| `correlation_id` | `inbound.correlation_id` | ✅ | — |
+| `trace_id` | `otel.trace_id` | ✅ | — |
+| `inbound_event_id` | `inbound.inbound_event_id` | ✅ | — |
+| `external_event_id` | `stripe.event_id` | ✅ | — |
+
+**Spans** (`*` = required attribute)
+
+| Span | Kind | Req. | Multiplicity | Attributes |
+| --- | --- | --- | --- | --- |
+| `webhook.verify` | `SERVER` | ✅ | — | `business.source`*, `business.signature_status`* |
+| `external.persist` | `INTERNAL` | ✅ | — | `business.external_event_id`*, `business.dedupe`* |
+| `acl.translate` | `INTERNAL` | ✅ | — | `business.event_type`* |
+| `inbound.persist` | `INTERNAL` | ✅ | — | `business.inbound_event_id`* |
+| `inbound.drain.deliver` | `CONSUMER` | ✅ | — | `business.inbound_event_id`*, `business.delivery_outcome`* |
+| `event.store.append` | `INTERNAL` | ✅ | — | `business.event_type`*, `business.stream_id`* |
+
+- **Metrics**: `stripe_webhook_ingest_duration_ms` _(histogram)_, `inbound_drain_lag_ms` _(histogram)_ · **Business metrics**: `inbound_events_staged_total` _(counter)_, `inbound_events_delivered_total` _(counter)_, `webhook_duplicates_total` _(counter)_
+- **Status rules**: success ⇐ spans [`webhook.verify`, `external.persist`, `acl.translate`, `inbound.persist`, `inbound.drain.deliver`, `event.store.append`]
+- **SLOs**: p95 ≤ 1000ms · p99 ≤ 3000ms · error rate ≤ 1%
 
 <a id="sec-screens"></a>
 ## 📱 Customer screens (SDUI)

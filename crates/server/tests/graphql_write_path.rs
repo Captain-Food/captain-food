@@ -1,12 +1,15 @@
-//! End-to-end test for the GraphQL WRITE path: a `registerRestaurant` mutation executed against the
-//! real schema (generated MutationRoot) → command handler → `PgEventStore` → a `domain_events` row,
-//! with the payload returning the envelope's `correlationId`. Also proves an invariant rejection
-//! surfaces the structured errors.yaml contract through GraphQL — `extensions.code` = the stable
-//! PascalCase code, the message = the interpolated catalogued `en` template, the typed context under
-//! the extensions (P-10). Needs a real Postgres: set `DATABASE_URL` (e.g. a
-//! throwaway `docker run -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgres:16-alpine`, then
-//! `DATABASE_URL=postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable`). Without it
-//! the test SKIPS (prints and returns) so `cargo test` stays green offline.
+//! End-to-end test for the ACCEPTANCE-FIRST GraphQL write path (ADR-20260720-015500): a
+//! `registerRestaurant` mutation executed against the real schema (generated MutationRoot) journals
+//! the command, returns the uniform `MutationAcceptance` (PENDING), and the spawned handler appends
+//! the `domain_events` row — with `correlation_id` = the acceptance's correlationId and `cause_id` =
+//! its messageId (the causality chain, ADR-20260720-015300). Outcomes are read by polling
+//! `operationStatus` (ownership-scoped): a business rejection surfaces as `Operation.errorCode` (the
+//! async P-10 home), NOT as a GraphQL error. Also proves the idempotency contract (same messageId +
+//! same payload → `duplicate: true` with the original's status; a different payload → the
+//! synchronous Conflict) and the session ownership scope. Needs a real Postgres: set `DATABASE_URL`
+//! (e.g. a throwaway `docker run -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgres:16-alpine`,
+//! then `DATABASE_URL=postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable`).
+//! Without it the test SKIPS (prints and returns) so `cargo test` stays green offline.
 
 use std::sync::Arc;
 
@@ -21,20 +24,21 @@ use application::queries::{
 };
 use infrastructure::{
     FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, FailClosedPaymentGateway,
-    PgCartRepository,
-    PgCatalogRepository, PgCustomerRepository, PgDeliveryRepository, PgEventStore,
-    PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRefundQueueRepository,
-    PgRestaurantRepository,
+    PgCartRepository, PgCatalogRepository, PgCommandJournal, PgCustomerRepository,
+    PgDeliveryRepository, PgEventStore, PgOrderRepository, PgPricingPolicyRepository,
+    PgProspectionRepository, PgRefundQueueRepository, PgRestaurantRepository,
     PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, UnverifiedGbpOrderLinkProbe,
 };
+use server::graphql_acl::RequestRole;
 use sqlx::PgPool;
 
 /// Fresh copies of the tables this slice touches (mirrors restaurant_write_path.rs — the read repos
-/// injected into the schema query the `restaurant` projection table, so it must exist).
+/// injected into the schema query the `restaurant` projection table, so it must exist; the
+/// acceptance-first dispatch writes `command_journal`).
 async fn reset_schema(pool: &PgPool) {
     sqlx::raw_sql(
         r#"
-        DROP TABLE IF EXISTS domain_events, restaurant, prospectionpipeline, projection_checkpoint CASCADE;
+        DROP TABLE IF EXISTS domain_events, restaurant, prospectionpipeline, projection_checkpoint, command_journal CASCADE;
         CREATE TABLE domain_events (
           position BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           id UUID NOT NULL UNIQUE,
@@ -50,6 +54,23 @@ async fn reset_schema(pool: &PgPool) {
           occurred_at TIMESTAMPTZ NOT NULL,
           expired_at TIMESTAMPTZ NULL,
           UNIQUE (stream_name, version)
+        );
+        CREATE TABLE command_journal (
+          message_id UUID PRIMARY KEY,
+          correlation_id UUID NOT NULL,
+          cause_id UUID NULL,
+          session_id UUID NULL,
+          trace_id TEXT NULL,
+          user_id UUID NULL,
+          user_type INTEGER NOT NULL,
+          channel INTEGER NOT NULL,
+          command_type TEXT NOT NULL,
+          payload JSONB NOT NULL,
+          payload_hash TEXT NOT NULL,
+          status INTEGER NOT NULL,
+          error JSONB NULL,
+          received_at TIMESTAMPTZ NOT NULL,
+          completed_at TIMESTAMPTZ NULL
         );
         CREATE TABLE restaurant (
           restaurant_id UUID PRIMARY KEY,
@@ -88,7 +109,7 @@ async fn reset_schema(pool: &PgPool) {
 }
 
 /// The composition-root wiring, materialized for the test (what `server::router()` builds from
-/// `DATABASE_URL`): read repos + write ports over the same pool.
+/// `DATABASE_URL`): read repos + write ports (incl. the command journal + status bus) over the pool.
 fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
     let restaurants: Arc<dyn RestaurantReadRepository> =
         Arc::new(PgRestaurantRepository::new(pool.clone()));
@@ -115,6 +136,8 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
         Arc::new(infrastructure::persistence::PgPaymentProcessState::new(pool.clone()));
     let refund_state: Arc<dyn application::pm_state::RefundProcessStateStore> =
         Arc::new(infrastructure::persistence::PgRefundProcessState::new(pool.clone()));
+    let journal: Arc<dyn application::journal::CommandJournal> =
+        Arc::new(PgCommandJournal::new(pool.clone()));
     server::graphql_schema::build_schema(
         Some(server::graphql_schema::ReadDeps {
             restaurants,
@@ -137,24 +160,53 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
             payments,
             pm_state,
             refund_state,
+            journal,
+            status_bus: infrastructure::OperationStatusBus::default(),
         }),
-        // No event bus: this test exercises the POST write path, not subscriptions.
+        // No event bus: this test exercises the POST write path, not the domain-fact subscriptions.
         None,
     )
 }
 
+/// Poll `operationStatus(messageId)` (as `role`, optionally with a session) until non-PENDING;
+/// panics after ~5s — the spawned handler must complete.
+async fn poll_operation(
+    schema: &server::graphql_schema::CaptainSchema,
+    message_id: &str,
+    role: RequestRole,
+    session: Option<uuid::Uuid>,
+) -> serde_json::Value {
+    for _ in 0..100 {
+        let query = format!(
+            r#"query {{ operationStatus(input: {{ messageId: "{message_id}" }}) {{ messageId correlationId status errorCode message }} }}"#
+        );
+        let mut req = async_graphql::Request::new(query).data(role);
+        req = req.data(server::graphql_session::SessionHeader(session));
+        let resp = schema.execute(req).await;
+        assert!(resp.errors.is_empty(), "operationStatus errored: {:?}", resp.errors);
+        let data = resp.data.into_json().expect("json data");
+        let op = data["operationStatus"].clone();
+        if op.is_object() && op["status"] != "PENDING" {
+            return op;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("operation {message_id} did not reach a terminal status in time");
+}
+
 #[tokio::test]
-async fn register_restaurant_mutation_appends_a_domain_event() {
+async fn acceptance_first_write_path_journals_dispatches_and_serves_status() {
     let Ok(url) = std::env::var("DATABASE_URL") else {
-        eprintln!("SKIP register_restaurant_mutation_appends_a_domain_event: DATABASE_URL not set");
+        eprintln!("SKIP acceptance_first_write_path: DATABASE_URL not set");
         return;
     };
     let pool = PgPool::connect(&url).await.expect("connect Postgres");
     reset_schema(&pool).await;
     let schema = schema_over(&pool);
 
-    // 1) The mutation → command handler → event store: one RestaurantRegistered row, and the payload
-    //    returns the correlation id stamped on the envelope.
+    // 1) The mutation returns the uniform acceptance (PENDING, not duplicate); the spawned handler
+    //    appends the RestaurantRegistered row with correlation_id = acceptance.correlationId and
+    //    cause_id = acceptance.messageId (ADR-20260720-015300 causality).
     let restaurant_id = uuid::Uuid::new_v4();
     let mutation = format!(
         r#"mutation {{
@@ -163,87 +215,172 @@ async fn register_restaurant_mutation_appends_a_domain_event() {
                 slug: "chez-marco",
                 displayName: "Chez Marco",
                 address: {{ line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }}
-            }}) {{ correlationId }}
+            }}) {{ messageId correlationId sessionId operationStatus duplicate }}
         }}"#
     );
     // registerRestaurant is [ADMIN, RESTAURANT_ACCOUNT] — execute under the ADMIN role path (the ACL
     // guard fails closed to PUBLIC when no role is in the request context, ADR-0006).
     let resp = schema
-        .execute(async_graphql::Request::new(mutation).data(server::graphql_acl::RequestRole::Admin))
+        .execute(async_graphql::Request::new(mutation.clone()).data(RequestRole::Admin))
         .await;
     assert!(resp.errors.is_empty(), "mutation errored: {:?}", resp.errors);
     let data = resp.data.into_json().expect("json data");
-    let correlation_id: uuid::Uuid = data["registerRestaurant"]["correlationId"]
-        .as_str()
-        .expect("correlationId in payload")
-        .parse()
-        .expect("correlationId is a uuid");
+    let acceptance = &data["registerRestaurant"];
+    assert_eq!(acceptance["operationStatus"], "PENDING");
+    assert_eq!(acceptance["duplicate"], false);
+    let message_id = acceptance["messageId"].as_str().expect("messageId").to_string();
+    let correlation_id: uuid::Uuid =
+        acceptance["correlationId"].as_str().expect("correlationId").parse().expect("uuid");
+    // No metadata supplied → the server defaulted correlationId = messageId (echoed envelope).
+    assert_eq!(acceptance["correlationId"], acceptance["messageId"]);
 
-    let (stream, event_type, event_correlation, payload): (String, String, uuid::Uuid, serde_json::Value) =
-        sqlx::query_as(
-            "SELECT stream_name, event_type, correlation_id, payload FROM domain_events",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("one event row");
+    let op = poll_operation(&schema, &message_id, RequestRole::Admin, None).await;
+    assert_eq!(op["status"], "SUCCEEDED", "operation: {op:?}");
+    assert!(op["errorCode"].is_null());
+
+    let (stream, event_type, event_correlation, event_cause, payload): (
+        String,
+        String,
+        uuid::Uuid,
+        Option<uuid::Uuid>,
+        serde_json::Value,
+    ) = sqlx::query_as(
+        "SELECT stream_name, event_type, correlation_id, cause_id, payload FROM domain_events",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("one event row");
     assert_eq!(stream, format!("Restaurant-{restaurant_id}"));
     assert_eq!(event_type, "RestaurantRegistered");
-    assert_eq!(event_correlation, correlation_id, "payload correlationId = envelope correlation_id");
+    assert_eq!(event_correlation, correlation_id, "envelope correlation = acceptance correlationId");
+    assert_eq!(
+        event_cause.map(|c| c.to_string()).as_deref(),
+        Some(message_id.as_str()),
+        "domain_events.cause_id = the command's messageId"
+    );
     assert_eq!(payload["slug"], serde_json::json!("chez-marco"));
     assert_eq!(payload["listingStatus"], serde_json::json!("NON_PARTNER")); // spec default
 
-    // 2) An invariant rejection surfaces the errors.yaml code through GraphQL, and appends nothing.
+    // 2) Idempotent replay: the SAME messageId with the SAME input acknowledges against the original
+    //    (duplicate: true, the original's terminal status) and appends nothing new.
+    let replayed = format!(
+        r#"mutation {{
+            registerRestaurant(input: {{
+                restaurantId: "{restaurant_id}",
+                slug: "chez-marco",
+                displayName: "Chez Marco",
+                address: {{ line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }}
+            }}, metadata: {{ messageId: "{message_id}" }}) {{ messageId operationStatus duplicate }}
+        }}"#
+    );
+    let resp = schema
+        .execute(async_graphql::Request::new(replayed).data(RequestRole::Admin))
+        .await;
+    assert!(resp.errors.is_empty(), "replay errored: {:?}", resp.errors);
+    let data = resp.data.into_json().expect("json data");
+    assert_eq!(data["registerRestaurant"]["duplicate"], true);
+    assert_eq!(data["registerRestaurant"]["operationStatus"], "SUCCEEDED");
+    assert_eq!(data["registerRestaurant"]["messageId"].as_str(), Some(message_id.as_str()));
+
+    // 3) The SAME messageId with a DIFFERENT payload is a client bug: synchronous Conflict.
+    let conflicting = format!(
+        r#"mutation {{
+            registerRestaurant(input: {{
+                restaurantId: "{restaurant_id}",
+                slug: "other-slug",
+                displayName: "Someone Else",
+                address: {{ line1: "1 Rue Nationale", postalCode: "37000", city: "Tours", country: "FR" }}
+            }}, metadata: {{ messageId: "{message_id}" }}) {{ messageId }}
+        }}"#
+    );
+    let resp = schema
+        .execute(async_graphql::Request::new(conflicting).data(RequestRole::Admin))
+        .await;
+    assert_eq!(resp.errors.len(), 1, "expected the Conflict: {:?}", resp.errors);
+    let ext = resp.errors[0].extensions.as_ref().expect("extensions");
+    assert_eq!(ext.get("code"), Some(&async_graphql::Value::from("Conflict")));
+    let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domain_events")
+        .fetch_one(&pool)
+        .await
+        .expect("count events");
+    assert_eq!(events, 1, "replay + conflict appended nothing");
+
+    // 4) A business rejection is ASYNC (ADR-20260720-015500): the mutation still accepts (PENDING),
+    //    and the rejection surfaces as Operation.errorCode + the interpolated catalogued message.
     let missing = uuid::Uuid::new_v4();
     let resp = schema
         .execute(
             async_graphql::Request::new(format!(
-                r#"mutation {{ activateRestaurant(input: {{ restaurantId: "{missing}" }}) {{ correlationId }} }}"#
+                r#"mutation {{ activateRestaurant(input: {{ restaurantId: "{missing}" }}) {{ messageId operationStatus }} }}"#
             ))
-            .data(server::graphql_acl::RequestRole::Admin),
+            .data(RequestRole::Admin),
         )
         .await;
-    assert_eq!(resp.errors.len(), 1, "expected a rejection: {:?}", resp.errors);
-    let ext = resp.errors[0].extensions.as_ref().expect("rejection carries extensions (P-10)");
-    assert_eq!(
-        ext.get("code"),
-        Some(&async_graphql::Value::from("RestaurantNotFound")),
-        "extensions.code carries the errors.yaml code: {:?}",
-        resp.errors[0]
-    );
-    assert_eq!(
-        ext.get("restaurantId"),
-        Some(&async_graphql::Value::from(missing.to_string())),
-        "the typed context surfaces under the extensions: {:?}",
-        resp.errors[0]
-    );
-    assert_eq!(
-        resp.errors[0].message, "Restaurant not found.",
-        "the message is the interpolated catalogued en template"
-    );
+    assert!(resp.errors.is_empty(), "acceptance must not error: {:?}", resp.errors);
+    let data = resp.data.into_json().expect("json data");
+    assert_eq!(data["activateRestaurant"]["operationStatus"], "PENDING");
+    let rejected_id = data["activateRestaurant"]["messageId"].as_str().expect("messageId").to_string();
+    let op = poll_operation(&schema, &rejected_id, RequestRole::Admin, None).await;
+    assert_eq!(op["status"], "REJECTED", "operation: {op:?}");
+    assert_eq!(op["errorCode"], "RestaurantNotFound");
+    assert_eq!(op["message"], "Restaurant not found.", "the interpolated catalogued en template");
     let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domain_events")
         .fetch_one(&pool)
         .await
         .expect("count events");
     assert_eq!(events, 1, "rejection appended nothing");
 
-    // 3) The Customer vertical resolves its ctx deps (AuthProviderGateway + CustomerReadRepository):
-    //    the fail-closed auth stand-in rejects the OTP with the canonical errors.yaml code — proving
-    //    the resolver got past dependency resolution (no "data does not exist" context error).
-    let customer_id = uuid::Uuid::new_v4();
+    // 5) Ownership scope: an anonymous session journals under its X-SESSION-ID; the operation is
+    //    visible to THAT session (and ADMIN), and resolves null for another session (no oracle).
+    let session_a = uuid::Uuid::new_v4();
+    let session_b = uuid::Uuid::new_v4();
+    let cart_id = uuid::Uuid::new_v4();
+    let anon = format!(
+        r#"mutation {{ addCartLine(input: {{ cartId: "{cart_id}", restaurantId: "{restaurant_id}", sessionId: "{session_a}", line: {{ cartLineId: "{}", offerId: "{}", quantity: 1 }} }}) {{ messageId sessionId }} }}"#,
+        uuid::Uuid::new_v4(),
+        uuid::Uuid::new_v4(),
+    );
     let resp = schema
         .execute(
-            async_graphql::Request::new(format!(
-                r#"mutation {{ verifyPhone(input: {{ customerId: "{customer_id}", dialingCode: "+33", nationalNumber: "0612345678", code: "123456" }}) {{ correlationId customerId created }} }}"#
-            ))
-            .data(server::graphql_acl::RequestRole::Public),
+            async_graphql::Request::new(anon)
+                .data(RequestRole::Public)
+                .data(server::graphql_session::SessionHeader(Some(session_a))),
         )
         .await;
-    assert_eq!(resp.errors.len(), 1, "expected the fail-closed rejection: {:?}", resp.errors);
-    let ext = resp.errors[0].extensions.as_ref().expect("rejection carries extensions (P-10)");
-    assert_eq!(
-        ext.get("code"),
-        Some(&async_graphql::Value::from("InvalidVerificationCode")),
-        "extensions.code carries the errors.yaml code (deps resolved from ctx): {:?}",
-        resp.errors[0]
+    assert!(resp.errors.is_empty(), "anonymous mutation errored: {:?}", resp.errors);
+    let data = resp.data.into_json().expect("json data");
+    let anon_message = data["addCartLine"]["messageId"].as_str().expect("messageId").to_string();
+    assert_eq!(data["addCartLine"]["sessionId"], session_a.to_string(), "session echoed");
+
+    // Owner session sees it (terminal: the offer doesn't exist → REJECTED, which is fine — the
+    // point is visibility); a stranger session gets null; ADMIN sees it too.
+    let op = poll_operation(&schema, &anon_message, RequestRole::Public, Some(session_a)).await;
+    assert!(op["errorCode"].is_string(), "cart line against a fake offer rejects: {op:?}");
+    let stranger = schema
+        .execute(
+            async_graphql::Request::new(format!(
+                r#"query {{ operationStatus(input: {{ messageId: "{anon_message}" }}) {{ status }} }}"#
+            ))
+            .data(RequestRole::Public)
+            .data(server::graphql_session::SessionHeader(Some(session_b))),
+        )
+        .await;
+    assert!(stranger.errors.is_empty());
+    assert!(
+        stranger.data.into_json().expect("json")["operationStatus"].is_null(),
+        "another session must not see the operation"
+    );
+    let admin = schema
+        .execute(
+            async_graphql::Request::new(format!(
+                r#"query {{ operationStatus(input: {{ messageId: "{anon_message}" }}) {{ status }} }}"#
+            ))
+            .data(RequestRole::Admin),
+        )
+        .await;
+    assert!(admin.errors.is_empty());
+    assert!(
+        admin.data.into_json().expect("json")["operationStatus"].is_object(),
+        "ADMIN sees every operation"
     );
 }

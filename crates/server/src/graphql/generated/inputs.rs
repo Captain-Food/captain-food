@@ -919,9 +919,16 @@ pub struct CancelDeliveryInput {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
 #[serde(rename_all = "camelCase")]
-pub struct OperationQueryInput {
-    #[graphql(name = "correlationId")]
-    pub correlation_id: CorrelationId,
+pub struct OperationStatusQueryInput {
+    #[graphql(name = "messageId")]
+    pub message_id: MessageId,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentStatusQueryInput {
+    #[graphql(name = "orderId")]
+    pub order_id: OrderId,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
@@ -1058,8 +1065,15 @@ pub struct ProspectionPipelineQueryInput {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationStatusChangedSubscriptionInput {
-    #[graphql(name = "correlationId")]
-    pub correlation_id: CorrelationId,
+    #[graphql(name = "messageId")]
+    pub message_id: MessageId,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentStatusChangedSubscriptionInput {
+    #[graphql(name = "orderId")]
+    pub order_id: OrderId,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
@@ -1314,4 +1328,15 @@ pub struct TipInput {
     pub recipient: TipRecipient,
     #[graphql(name = "amount")]
     pub amount: MoneyInput,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, async_graphql::InputObject)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataInput {
+    #[graphql(name = "messageId")]
+    pub message_id: Option<MessageId>,
+    #[graphql(name = "correlationId")]
+    pub correlation_id: Option<CorrelationId>,
+    #[graphql(name = "causeId")]
+    pub cause_id: Option<CauseId>,
 }

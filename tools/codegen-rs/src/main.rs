@@ -510,11 +510,40 @@ fn validate(model: &Model) -> Report {
                 declared_by_command.insert(m.command.clone(), m.name.clone());
             }
         }
-        for f in &m.payload {
-            check_inline(&mut issues, f, &format!("{}.payload.{}", where_, f.name));
+        // Acceptance-first (ADR-20260720-015500): a mutation declares NO per-operation payload —
+        // business outcomes are reads. The uniform MutationAcceptance is the only mutation payload.
+        if !m.payload.is_empty() {
+            issues.push(err(
+                "mutation-payload-forbidden",
+                where_.clone(),
+                format!(
+                    "mutation '{}' declares a payload — acceptance-first mutations return only \
+                     MutationAcceptance; expose business results as a query/subscription (ADR-20260720-015500).",
+                    m.name
+                ),
+            ));
         }
     }
     cov.mutation_links = declared_by_command.len();
+    // 4a'. the acceptance-first surface both emitters depend on must exist in the spec.
+    if !api.types.iter().any(|t| t.name == "MutationAcceptance") {
+        issues.push(err(
+            "acceptance-type-missing",
+            "api.yaml/types".into(),
+            "acceptance-first mutations require the shared #/types/MutationAcceptance (ADR-20260720-015500).".into(),
+        ));
+    }
+    if !api.inputs.iter().any(|(n, _)| n == "MetadataInput") {
+        issues.push(err(
+            "metadata-input-missing",
+            "api.yaml/inputs".into(),
+            "acceptance-first mutations require #/inputs/MetadataInput (ADR-20260720-015500).".into(),
+        ));
+    } else if let Some((_, fields)) = api.inputs.iter().find(|(n, _)| n == "MetadataInput") {
+        for f in fields {
+            check_inline(&mut issues, f, &format!("api.yaml/inputs.MetadataInput.{}", f.name));
+        }
+    }
     // 4b. every handled command must be dispatched by exactly one mutation.
     for cmd in &handled_commands {
         if !declared_by_command.contains_key(cmd) {
@@ -4086,6 +4115,9 @@ struct Api {
     queries: Vec<ApiQuery>,
     mutations: Vec<ApiMutation>,
     subscriptions: Vec<ApiQuery>,
+    /// api.yaml `inputs:` — generator-injected input types that are not command payloads
+    /// (MetadataInput, ADR-20260720-015500). (name, fields) pairs, emission order = declaration.
+    inputs: Vec<(String, Vec<ApiField>)>,
 }
 
 const DIRECTIVES: &str = "directive @auth(requires: [UserType!]!) on FIELD_DEFINITION\ndirective @public on FIELD_DEFINITION\ndirective @command(name: String!) on FIELD_DEFINITION\ndirective @reads(views: [String!]!) on FIELD_DEFINITION";
@@ -4215,7 +4247,15 @@ fn parse_api(model: &Model) -> Api {
             }
         }
     }
-    Api { types, queries, mutations, subscriptions }
+    let mut inputs = Vec::new();
+    if let Some(m) = sect("inputs") {
+        for (k, def) in m {
+            if let Some(n) = k.as_str() {
+                inputs.push((n.to_string(), field_map(def.get("properties"))));
+            }
+        }
+    }
+    Api { types, queries, mutations, subscriptions, inputs }
 }
 
 fn inline_primitive(t: &str, format: Option<&str>) -> String {
@@ -4520,25 +4560,23 @@ fn input_types_block(model: &Model, api: &Api) -> String {
         }
     }
 
+    // Generator-injected inputs (api.yaml `inputs:` — MetadataInput): declared fields, all optional
+    // unless marked required (the technical envelope is always client-optional).
+    let mut declared_inputs = Vec::new();
+    for (name, fields) in &api.inputs {
+        let lines: Vec<String> = fields
+            .iter()
+            .map(|f| format!("  {}: {}", f.name, api_field_type(model, f, true)))
+            .collect();
+        declared_inputs.push(format!("input {} {{\n{}\n}}", name, lines.join("\n")));
+    }
+
     let mut all = command_inputs;
     all.extend(query_inputs);
     all.extend(subscription_inputs);
     all.extend(object_inputs);
+    all.extend(declared_inputs);
     all.join("\n\n")
-}
-
-fn payloads_block(model: &Model, api: &Api) -> String {
-    api.mutations
-        .iter()
-        .map(|m| {
-            let mut fields = vec!["  correlationId: CorrelationId!".to_string()];
-            for f in &m.payload {
-                fields.push(format!("  {}: {}", f.name, api_field_type(model, f, false)));
-            }
-            format!("type {}Payload {{\n{}\n}}", pascal(&m.name), fields.join("\n"))
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 fn auth_directive(roles: &[String]) -> String {
@@ -4573,13 +4611,15 @@ fn query_block(api: &Api) -> String {
 }
 
 fn mutation_block(api: &Api) -> String {
+    // Acceptance-first (ADR-20260720-015500): every mutation takes the optional technical envelope
+    // and returns the ONE shared MutationAcceptance — business outcomes are reads.
     let fields: Vec<String> = api
         .mutations
         .iter()
         .map(|m| {
             format!(
-                "  {}(input: {}Input!): {}Payload! {} @command(name: \"{}\")",
-                m.name, m.command, pascal(&m.name), auth_directive(&m.roles), m.command
+                "  {}(input: {}Input!, metadata: MetadataInput): MutationAcceptance! {} @command(name: \"{}\")",
+                m.name, m.command, auth_directive(&m.roles), m.command
             )
         })
         .collect();
@@ -4615,7 +4655,9 @@ fn emit_schema(model: &Model) -> String {
     let mut s = String::new();
     s.push_str("# GENERATED by tools/codegen from specs/api.yaml (+ scalars/entities/commands/views) — do not edit by hand.\n");
     s.push_str("# Strong typing: one scalars.yaml type = one GraphQL scalar/enum. Navigation fields on output types\n");
-    s.push_str("# are derived from views.yaml foreign keys. Mutations return <Name>Payload (always carrying correlationId).\n\n");
+    s.push_str("# are derived from views.yaml foreign keys. Mutations are ACCEPTANCE-FIRST (ADR-20260720-015500):\n");
+    s.push_str("# every mutation takes an optional `metadata: MetadataInput` and returns the shared MutationAcceptance\n");
+    s.push_str("# (effective envelope + operationStatus); business outcomes are reads (operationStatus/paymentStatus).\n\n");
     s.push_str(&header("Custom scalars"));
     s.push('\n');
     s.push_str(&scalars_block(model));
@@ -4635,10 +4677,6 @@ fn emit_schema(model: &Model) -> String {
     s.push_str(&header("Input types (mutation command payloads + query args)"));
     s.push('\n');
     s.push_str(&input_types_block(model, &api));
-    s.push_str("\n\n");
-    s.push_str(&header("Mutation payloads"));
-    s.push('\n');
-    s.push_str(&payloads_block(model, &api));
     s.push_str("\n\n");
     s.push_str(&header("Queries — read side"));
     s.push('\n');
@@ -4917,13 +4955,12 @@ fn emit_documentation(model: &Model) -> String {
         ].join("\n") });
     }
     for m in &api.mutations {
-        let payload = m.payload.iter().map(|f| format!("`{}`: {}", f.name, api_type_md(f))).collect::<Vec<_>>().join(", ");
         let handler = cmd_handler.get(&m.command);
         api_docs.push(Doc { ctx: cx.of_command(&m.command), md: vec![
             item_head("mutation", "Mutation", &m.name),
             format!("\n- **Command**: {}{}", dlink("command", &m.command), handler.map(|h| format!(" → handled by {}", dlink("actor", &h.0))).unwrap_or_default()),
             format!("- **Roles**: {} · **slice** {}", m.roles.join(", "), m.slice),
-            format!("- **Payload**: correlationId{}", if payload.is_empty() { String::new() } else { format!(", {}", payload) }),
+            format!("- **Returns**: {} (acceptance-first — outcome via {})", dlink("type", "MutationAcceptance"), dlink("query", "operationStatus")),
         ].join("\n") });
     }
     for s in &api.subscriptions {
@@ -5608,8 +5645,7 @@ fn emit_documentation_html(model: &Model) -> String {
     }
     for m in &api.mutations {
         let h = cmd_handler.get(&m.command);
-        let payload = m.payload.iter().map(|f| format!("<span class=\"k-prop\">{}</span>: {}", h_esc(&f.name), h_api_type(f))).collect::<Vec<_>>().join(", ");
-        let body = format!("<div class=\"rel\"><span class=\"lbl\">command:</span> {}{}</div><div class=\"rel\"><span class=\"lbl\">roles:</span> {} · <span class=\"badge\">{}</span></div><div class=\"rel\"><span class=\"lbl\">payload:</span> <span class=\"muted\">correlationId</span>{}</div>", h_link("command", &m.command), h.map(|h| format!(" → {}", h_link("actor", &h.0))).unwrap_or_default(), h_esc(&m.roles.join(", ")), m.slice, if payload.is_empty() { String::new() } else { format!(", {}", payload) });
+        let body = format!("<div class=\"rel\"><span class=\"lbl\">command:</span> {}{}</div><div class=\"rel\"><span class=\"lbl\">roles:</span> {} · <span class=\"badge\">{}</span></div><div class=\"rel\"><span class=\"lbl\">returns:</span> {} <span class=\"muted\">(acceptance-first — outcome via {})</span></div>", h_link("command", &m.command), h.map(|h| format!(" → {}", h_link("actor", &h.0))).unwrap_or_default(), h_esc(&m.roles.join(", ")), m.slice, h_link("type", "MutationAcceptance"), h_link("query", "operationStatus"));
         api_docs.push(HDoc { ctx: cx.of_command(&m.command), html: h_item("mutation", "Mutation", &m.name, &body, None) });
     }
     for s in &api.subscriptions {
@@ -7514,6 +7550,16 @@ fn emit_server_inputs(model: &Model) -> String {
             out.push_str("}\n");
         }
     }
+
+    // Generator-injected inputs (api.yaml `inputs:` — MetadataInput, ADR-20260720-015500).
+    for (name, fields) in &api.inputs {
+        push_gql_struct_open(&mut out, name, "InputObject", None);
+        for f in fields {
+            let base = rust_api_field_base(model, f, true);
+            push_gql_field(&mut out, &f.name, &base, f.required, f.description.as_deref());
+        }
+        out.push_str("}\n");
+    }
     out
 }
 
@@ -7646,6 +7692,17 @@ fn emit_server_query(model: &Model) -> String {
 /// the fn body (8-space indent); `None` → the `not implemented` stub. Extend as read repos land.
 fn wired_query_body(name: &str) -> Option<&'static str> {
     match name {
+        // The journaled-command status poll (ADR-20260720-015500): PUBLIC, ownership-scoped —
+        // a non-owned/unknown messageId resolves null (no existence oracle).
+        "operationStatus" => Some(
+            "        let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?;\n        let Some(row) = journal\n            .by_message(input.message_id.0)\n            .await\n            .map_err(|e| async_graphql::Error::new(e.to_string()))?\n        else {\n            return Ok(None);\n        };\n        if !super::mutation::operation_owned(ctx, &row) {\n            return Ok(None);\n        }\n        Ok(Some(super::mutation::operation_from_journal(&row)))",
+        ),
+        // The checkout payment state (ADR-20260720-015500): served from the PlaceOrderProcess run
+        // row (the declared PM-privacy exception); initiator-scoped — ADMIN, the checkout's
+        // customer (JWT subject → Customer row), or the checkout's session.
+        "paymentStatus" => Some(
+            "        let pm = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?;\n        let Some(row) = pm\n            .by_order(input.order_id.into())\n            .await\n            .map_err(|e| async_graphql::Error::new(e.to_string()))?\n        else {\n            return Ok(None);\n        };\n        let admin = matches!(\n            ctx.data_opt::<crate::graphql::acl::RequestRole>(),\n            Some(crate::graphql::acl::RequestRole::Admin)\n        );\n        let session = ctx.data_opt::<crate::graphql::session::SessionHeader>().and_then(|s| s.0);\n        let session_owned = session.is_some() && session == row.session_id.as_ref().map(|s| s.0);\n        let mut customer_owned = false;\n        if let (Some(auth_ref), Some(row_customer)) = (\n            ctx.data_opt::<crate::auth::Principal>().and_then(|p| p.user_id.clone()),\n            row.customer_id.as_ref(),\n        ) {\n            let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?;\n            customer_owned = customers\n                .by_auth_ref(domain::generated::scalars::ExternalReference(auth_ref))\n                .await\n                .map_err(|e| async_graphql::Error::new(e.to_string()))?\n                .is_some_and(|c| c.customer_id == *row_customer);\n        }\n        if !(admin || customer_owned || session_owned) {\n            return Ok(None);\n        }\n        Ok(Some(PaymentIntent {\n            payment_intent_id: row.payment_intent_id.into(),\n            client_secret: row.client_secret,\n            status: row.payment_status.into(),\n        }))",
+        ),
         // The two Customer-vertical queries resolve through the Customer identity read model: `me`
         // maps the verified session Principal's authRef (ADR-0047/0015) to its Customer row;
         // `favoriteRestaurants` joins the row's projected favorite ids to the Restaurant read model.
@@ -7717,96 +7774,86 @@ fn wired_query_body(name: &str) -> Option<&'static str> {
 }
 
 /// Emit `crates/server/src/graphql/generated/mutation.rs` — the `MutationRoot`, mirroring
-/// `mutation_block` + `payloads_block`: one `<Name>Payload` SimpleObject per api.yaml mutation (every
-/// payload carries `correlationId: CorrelationId!`) and one async resolver per mutation, taking the
-/// generated `<Command>Input`. Resolvers whose command handler is wired delegate to it (write side:
-/// EventStore + read/verification ports from ctx.data); the rest stub `not implemented` until their
-/// aggregates land.
+/// `mutation_block`: one async resolver per api.yaml mutation, ACCEPTANCE-FIRST
+/// (ADR-20260720-015500): the resolver journals the command (durable RECEIVED row, idempotent by
+/// messageId + payload hash), spawns the handler over Arc-cloned ports, and returns the uniform
+/// `MutationAcceptance` immediately; the spawned task completes the journal row and publishes the
+/// transition on the `OperationStatusBus` for `operationStatus`/`operationStatusChanged`.
 fn emit_server_mutation(model: &Model) -> String {
     let api = parse_api(model);
     let mut out = String::from(
-        "// GENERATED by the Captain.Food codegen from specs/api.yaml — do not edit by hand.\n// The GraphQL MutationRoot: one resolver per api.yaml mutation, matching the generated SDL shape\n// (input: <Command>Input! → <Name>Payload!, always carrying correlationId). Mutations whose command\n// handler is wired delegate to it (via ctx.data — EventStore + the ports the handler needs); the rest\n// stub `not implemented` until their aggregates land. Each non-public field carries its api.yaml\n// `roles` as a `guard` (execution) + `visible` (introspection) pair from the generated acl module\n// (ADR-0006 role-as-path).\n#![allow(unused_variables)]\n#![allow(dead_code)]\n\nuse super::acl::*;\nuse super::inputs::*;\nuse super::scalars::*;\n",
+        "// GENERATED by the Captain.Food codegen from specs/api.yaml — do not edit by hand.\n// The GraphQL MutationRoot, ACCEPTANCE-FIRST (ADR-20260720-015500): one resolver per api.yaml\n// mutation, `(input: <Command>Input!, metadata: MetadataInput) -> MutationAcceptance!`. The resolver\n// journals the command into `command_journal` (durable RECEIVED, idempotent by messageId — same\n// payload hash replays the original acceptance, a different one is a Conflict), spawns the command\n// handler on Arc-cloned ports, and answers with the effective envelope + PENDING. The spawned task\n// completes the journal row (SUCCEEDED | REJECTED | FAILED) and publishes the transition on the\n// OperationStatusBus; post-acceptance rejections surface as Operation.errorCode, never as GraphQL\n// errors (the sync path — input/metadata validation, duplicate-payload Conflict — still uses them).\n// Each non-public field carries its api.yaml `roles` as a `guard` + `visible` pair (ADR-0006).\n#![allow(unused_variables)]\n#![allow(dead_code)]\n\nuse super::acl::*;\nuse super::inputs::*;\nuse super::scalars::*;\nuse super::types::*;\n",
     );
-    // Mutation payload output types (payloads_block's runtime mirror).
-    for m in &api.mutations {
-        push_gql_struct_open(&mut out, &format!("{}Payload", pascal(&m.name)), "SimpleObject", None);
-        push_gql_field(
-            &mut out,
-            "correlationId",
-            "CorrelationId",
-            true,
-            Some("Correlates this command with the events/state it produces (matches domain_events.correlation_id)."),
-        );
-        for f in &m.payload {
-            let base = rust_api_field_base(model, f, false);
-            push_gql_field(&mut out, &f.name, &base, !f.nullable, f.description.as_deref());
-        }
-        out.push_str("}\n");
-    }
     out.push_str("\npub struct MutationRoot;\n\n#[async_graphql::Object(name = \"Mutation\")]\nimpl MutationRoot {\n");
     for m in &api.mutations {
         let fnname = rust_ident(&snake_field(&m.name));
-        let payload = format!("{}Payload", pascal(&m.name));
         let acl = acl_field_attr(model, &m.roles);
         push_doc(&mut out, "    ", m.description.as_deref());
-        match wired_mutation_body(&m.name, &payload) {
-            // Wired: run the command handler over the injected write-side ports (ctx.data).
-            Some(body) => out.push_str(&format!(
-                "    #[graphql(name = \"{}\"{})]\n    async fn {}(&self, ctx: &async_graphql::Context<'_>, input: {}Input) -> async_graphql::Result<{}> {{\n{}\n    }}\n",
-                m.name, acl, fnname, m.command, payload, body
+        match wired_mutation_dispatch(&m.name) {
+            // Wired: journal → spawn the command handler over Arc-cloned ports → acceptance.
+            Some((resolve_ports, handler_call)) => out.push_str(&format!(
+                "    #[graphql(name = \"{name}\"{acl})]\n    async fn {fnname}(&self, ctx: &async_graphql::Context<'_>, input: {command}Input, metadata: Option<MetadataInput>) -> async_graphql::Result<MutationAcceptance> {{\n        let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();\n        let status_bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();\n{resolve_ports}        let payload_json = command_payload(&input)?;\n        let cmd: domain::generated::commands::{command} = serde_json::from_value(payload_json.clone())\n            .map_err(|e| async_graphql::Error::new(e.to_string()))?;\n        let env = request_envelope(ctx, &metadata);\n        let entry = application::journal::CommandJournalEntry {{\n            message_id: env.message_id,\n            correlation_id: env.correlation_id,\n            cause_id: env.cause_id,\n            session_id: env.session_id,\n            trace_id: env.trace_id.clone(),\n            user_id: env.user_id,\n            user_type: env.user_type,\n            channel: domain::generated::scalars::CommandChannel::GRAPHQL,\n            command_type: \"{command}\".into(),\n            payload_hash: application::journal::payload_hash(&payload_json),\n            payload: payload_json,\n        }};\n        match journal.insert(&entry).await.map_err(domain_error)? {{\n            application::journal::JournalInsertOutcome::Duplicate {{ status, payload_hash }} => {{\n                if payload_hash != entry.payload_hash {{\n                    return Err(conflict_error(env.message_id));\n                }}\n                return Ok(acceptance(&env, journal_status_api(status), true));\n            }}\n            application::journal::JournalInsertOutcome::Inserted => {{}}\n        }}\n        // Envelope → Actor (ADR-0041): events appended by this command carry cause_id = messageId.\n        let actor = application::ports::Actor {{\n            user_id: env.user_id.unwrap_or_else(uuid::Uuid::nil),\n            user_type: env.user_type,\n            correlation_id: env.correlation_id,\n            cause_id: Some(env.message_id),\n        }};\n        let (message_id, correlation_id) = (env.message_id, env.correlation_id);\n        tokio::spawn(async move {{\n            let outcome = {handler_call};\n            complete_operation(journal, status_bus, message_id, correlation_id, outcome).await;\n        }});\n        Ok(acceptance(&env, OperationStatus::PENDING, false))\n    }}\n",
+                name = m.name, acl = acl, fnname = fnname, command = m.command,
+                resolve_ports = resolve_ports, handler_call = handler_call
             )),
             None => out.push_str(&format!(
-                "    #[graphql(name = \"{}\"{})]\n    async fn {}(&self, input: {}Input) -> async_graphql::Result<{}> {{\n        Err(async_graphql::Error::new(\"not implemented\"))\n    }}\n",
-                m.name, acl, fnname, m.command, payload
+                "    #[graphql(name = \"{}\"{})]\n    async fn {}(&self, input: {}Input, metadata: Option<MetadataInput>) -> async_graphql::Result<MutationAcceptance> {{\n        Err(async_graphql::Error::new(\"not implemented\"))\n    }}\n",
+                m.name, acl, fnname, m.command
             )),
         }
     }
     out.push_str("}\n");
     // Shared write-side plumbing for the wired resolvers.
     out.push_str(
-        "\n/// GraphQL input → domain command over the shared serde wire shape: both sides are generated from\n/// the same commands.yaml (camelCase), so the mapping is mechanical. `null`s are stripped first — an\n/// unset GraphQL optional serializes as an explicit null, while the domain payloads model absence as a\n/// MISSING key (`Option` fields / `#[serde(default)]` arrays).\nfn to_command<C: serde::de::DeserializeOwned>(input: &impl serde::Serialize) -> async_graphql::Result<C> {\n    let mut value = serde_json::to_value(input).map_err(|e| async_graphql::Error::new(e.to_string()))?;\n    strip_nulls(&mut value);\n    serde_json::from_value(value).map_err(|e| async_graphql::Error::new(e.to_string()))\n}\n\nfn strip_nulls(value: &mut serde_json::Value) {\n    match value {\n        serde_json::Value::Object(map) => {\n            map.retain(|_, v| !v.is_null());\n            for v in map.values_mut() {\n                strip_nulls(v);\n            }\n        }\n        serde_json::Value::Array(items) => {\n            for v in items.iter_mut() {\n                strip_nulls(v);\n            }\n        }\n        _ => {}\n    }\n}\n\n/// The acting user stamped on the event envelope (ADR-0041). Authn/ACL is a separate workstream: until\n/// it lands, every mutation runs as the anonymous PUBLIC principal with a fresh correlation id (also\n/// returned in the payload so the client can track the outcome on the read side).\nfn request_actor(_ctx: &async_graphql::Context<'_>) -> application::ports::Actor {\n    application::ports::Actor {\n        user_id: uuid::Uuid::nil(),\n        user_type: 0, // UserType::PUBLIC ordinal (enums are declaration-order integers, ADR-0037)\n        correlation_id: uuid::Uuid::new_v4(),\n        cause_id: None,\n    }\n}\n\n/// Map a command rejection onto the GraphQL error contract (P-10): an anticipated errors.yaml\n/// rejection surfaces `extensions.code` = the stable PascalCase code, the interpolated English\n/// message as the error message, and its typed context fields under the extensions; anything\n/// unexpected (repository/adapter failures) surfaces as the generic catalogued `Internal` — never\n/// leaking adapter details to the client.\nfn domain_error(e: domain::shared::errors::DomainError) -> async_graphql::Error {\n    use async_graphql::ErrorExtensions;\n    use domain::shared::errors::DomainError;\n    match e {\n        DomainError::Rejected { code, context } => {\n            let message = domain::generated::errors::message_en(&code, &context)\n                .unwrap_or_else(|| code.clone());\n            async_graphql::Error::new(message).extend_with(|_, ext| {\n                ext.set(\"code\", code.as_str());\n                if let Some(fields) = context.as_object() {\n                    for (key, value) in fields {\n                        if key == \"code\" {\n                            continue; // never let a context field shadow the wire code\n                        }\n                        ext.set(\n                            key.as_str(),\n                            async_graphql::Value::from_json(value.clone())\n                                .unwrap_or(async_graphql::Value::Null),\n                        );\n                    }\n                }\n            })\n        }\n        // Legacy \"<Code>: <detail>\" string invariants (interim adapters, e.g. the fail-closed\n        // payment stand-in): surface the prefix when it is a catalogued code, else it is unexpected.\n        DomainError::Invariant(msg) => {\n            let code = msg.split(':').next().map(str::trim).unwrap_or(\"\").to_string();\n            if domain::generated::errors::find(&code).is_some() {\n                async_graphql::Error::new(msg).extend_with(|_, ext| ext.set(\"code\", code.as_str()))\n            } else {\n                internal_error()\n            }\n        }\n        DomainError::Repository(_) => internal_error(),\n    }\n}\n\n/// The generic catalogued `Internal` fallback (errors.yaml): unexpected/infrastructure failures\n/// never leak their detail to the client.\nfn internal_error() -> async_graphql::Error {\n    use async_graphql::ErrorExtensions;\n    let def = domain::generated::errors::INTERNAL;\n    async_graphql::Error::new(def.message_en).extend_with(|_, ext| ext.set(\"code\", def.code))\n}\n",
+        "\n/// The stripped serde wire shape of the GraphQL input — both the journal `payload` column and the\n/// domain command deserialize from it (generated from the same commands.yaml, camelCase). `null`s\n/// are stripped first — an unset GraphQL optional serializes as an explicit null, while the domain\n/// payloads model absence as a MISSING key (`Option` fields / `#[serde(default)]` arrays).\nfn command_payload(input: &impl serde::Serialize) -> async_graphql::Result<serde_json::Value> {\n    let mut value = serde_json::to_value(input).map_err(|e| async_graphql::Error::new(e.to_string()))?;\n    strip_nulls(&mut value);\n    Ok(value)\n}\n\nfn strip_nulls(value: &mut serde_json::Value) {\n    match value {\n        serde_json::Value::Object(map) => {\n            map.retain(|_, v| !v.is_null());\n            for v in map.values_mut() {\n                strip_nulls(v);\n            }\n        }\n        serde_json::Value::Array(items) => {\n            for v in items.iter_mut() {\n                strip_nulls(v);\n            }\n        }\n        _ => {}\n    }\n}\n\n/// `RequestRole` → the scalars.yaml UserType declaration-order ordinal (ADR-0037).\nfn role_ordinal(role: &crate::graphql::acl::RequestRole) -> i32 {\n    use crate::graphql::acl::RequestRole as R;\n    match role {\n        R::Public => 0,\n        R::Customer => 1,\n        R::RestaurantAccount => 2,\n        R::Restaurant => 3,\n        R::Rider => 4,\n        R::Admin => 5,\n        R::External => 6,\n    }\n}\n\n/// The EFFECTIVE technical envelope of one mutation request (ADR-20260720-015500): what the client\n/// supplied via MetadataInput/headers, completed server-side (UUIDv7) and echoed back verbatim in\n/// the MutationAcceptance.\npub(crate) struct RequestEnvelope {\n    pub message_id: uuid::Uuid,\n    pub correlation_id: uuid::Uuid,\n    pub cause_id: Option<uuid::Uuid>,\n    pub session_id: Option<uuid::Uuid>,\n    pub trace_id: Option<String>,\n    pub user_id: Option<uuid::Uuid>,\n    pub user_type: i32,\n}\n\nfn request_envelope(ctx: &async_graphql::Context<'_>, metadata: &Option<MetadataInput>) -> RequestEnvelope {\n    let principal = ctx.data_opt::<crate::auth::Principal>();\n    let user_id = principal\n        .and_then(|p| p.user_id.as_deref())\n        .and_then(|s| uuid::Uuid::parse_str(s).ok());\n    let user_type = principal.map(|p| role_ordinal(&p.role)).unwrap_or(0);\n    let session_id = ctx.data_opt::<crate::graphql::session::SessionHeader>().and_then(|s| s.0);\n    let trace_id = ctx.data_opt::<crate::graphql::session::TraceContext>().and_then(|t| t.0.clone());\n    // Client-suppliable ids validate structurally at scalar parse time; anything missing is\n    // server-generated (time-ordered UUIDv7) and the correlation defaults to the messageId.\n    let message_id = metadata\n        .as_ref()\n        .and_then(|m| m.message_id.as_ref())\n        .map(|v| v.0)\n        .unwrap_or_else(uuid::Uuid::now_v7);\n    let correlation_id = metadata\n        .as_ref()\n        .and_then(|m| m.correlation_id.as_ref())\n        .map(|v| v.0)\n        .unwrap_or(message_id);\n    let cause_id = metadata.as_ref().and_then(|m| m.cause_id.as_ref()).map(|v| v.0);\n    RequestEnvelope { message_id, correlation_id, cause_id, session_id, trace_id, user_id, user_type }\n}\n\n/// The uniform acceptance payload from the effective envelope.\nfn acceptance(env: &RequestEnvelope, status: OperationStatus, duplicate: bool) -> MutationAcceptance {\n    MutationAcceptance {\n        message_id: MessageId(env.message_id),\n        correlation_id: CorrelationId(env.correlation_id),\n        cause_id: env.cause_id.map(CauseId),\n        session_id: env.session_id.map(SessionId),\n        trace_id: env.trace_id.clone().map(TraceId),\n        operation_status: status,\n        duplicate,\n    }\n}\n\n/// `command_journal` lifecycle → the caller-facing OperationStatus (RECEIVED reads as PENDING).\npub(crate) fn journal_status_api(s: domain::generated::scalars::CommandJournalStatus) -> OperationStatus {\n    use domain::generated::scalars::CommandJournalStatus as J;\n    match s {\n        J::RECEIVED => OperationStatus::PENDING,\n        J::SUCCEEDED => OperationStatus::SUCCEEDED,\n        J::REJECTED => OperationStatus::REJECTED,\n        J::FAILED => OperationStatus::FAILED,\n    }\n}\n\n/// A `command_journal` row → the API Operation shape (`operationStatus` / `operationStatusChanged`).\npub(crate) fn operation_from_journal(row: &application::journal::CommandJournalRow) -> Operation {\n    let error_code = row\n        .error\n        .as_ref()\n        .and_then(|e| e.get(\"code\"))\n        .and_then(|c| c.as_str())\n        .map(str::to_owned);\n    let message = match (&error_code, row.error.as_ref().and_then(|e| e.get(\"context\"))) {\n        (Some(code), Some(context)) => domain::generated::errors::message_en(code, context),\n        _ => None,\n    };\n    Operation {\n        message_id: MessageId(row.entry.message_id),\n        correlation_id: CorrelationId(row.entry.correlation_id),\n        status: journal_status_api(row.status),\n        error_code,\n        message,\n        occurred_at: row.completed_at.unwrap_or(row.received_at),\n    }\n}\n\n/// The operation ownership scope (ADR-20260720-015500): ADMIN, the journaling actor (JWT subject),\n/// or the journaling session (X-SESSION-ID). Callers resolve null / an empty stream on false — the\n/// PUBLIC surface must not become an existence oracle.\npub(crate) fn operation_owned(\n    ctx: &async_graphql::Context<'_>,\n    row: &application::journal::CommandJournalRow,\n) -> bool {\n    let admin = matches!(\n        ctx.data_opt::<crate::graphql::acl::RequestRole>(),\n        Some(crate::graphql::acl::RequestRole::Admin)\n    );\n    let principal_uuid = ctx\n        .data_opt::<crate::auth::Principal>()\n        .and_then(|p| p.user_id.as_deref())\n        .and_then(|s| uuid::Uuid::parse_str(s).ok());\n    let session = ctx.data_opt::<crate::graphql::session::SessionHeader>().and_then(|s| s.0);\n    admin\n        || (principal_uuid.is_some() && principal_uuid == row.entry.user_id)\n        || (session.is_some() && session == row.entry.session_id)\n}\n\n/// The spawned handler's terminal transition: complete the journal row and publish the update.\n/// REJECTED = an anticipated errors.yaml rejection (surfaced as Operation.errorCode); FAILED = the\n/// catalogued generic Internal (adapter detail never leaks).\nasync fn complete_operation(\n    journal: std::sync::Arc<dyn application::journal::CommandJournal>,\n    bus: infrastructure::OperationStatusBus,\n    message_id: uuid::Uuid,\n    correlation_id: uuid::Uuid,\n    outcome: Result<(), domain::shared::errors::DomainError>,\n) {\n    use domain::generated::scalars::CommandJournalStatus as J;\n    use domain::shared::errors::DomainError;\n    let (status, error, error_code, message) = match outcome {\n        Ok(()) => (J::SUCCEEDED, None, None, None),\n        Err(DomainError::Rejected { code, context }) => {\n            let msg = domain::generated::errors::message_en(&code, &context).unwrap_or_else(|| code.clone());\n            let error = serde_json::json!({ \"code\": code, \"context\": context });\n            (J::REJECTED, Some(error), Some(code), Some(msg))\n        }\n        // Legacy \"<Code>: <detail>\" string invariants (interim adapters): a catalogued prefix is a\n        // rejection; anything else — and every Repository failure — is a technical failure.\n        Err(DomainError::Invariant(msg)) => {\n            let code = msg.split(':').next().map(str::trim).unwrap_or(\"\").to_string();\n            if domain::generated::errors::find(&code).is_some() {\n                let error = serde_json::json!({ \"code\": code, \"context\": { \"detail\": msg } });\n                (J::REJECTED, Some(error), Some(code), Some(msg))\n            } else {\n                internal_completion()\n            }\n        }\n        Err(DomainError::Repository(_)) => internal_completion(),\n    };\n    if let Err(e) = journal.complete(message_id, status, error).await {\n        eprintln!(\"command journal: complete({message_id}) failed: {e}\");\n    }\n    bus.publish(infrastructure::OperationUpdate { message_id, correlation_id, status, error_code, message });\n}\n\nfn internal_completion() -> (\n    domain::generated::scalars::CommandJournalStatus,\n    Option<serde_json::Value>,\n    Option<String>,\n    Option<String>,\n) {\n    let def = domain::generated::errors::INTERNAL;\n    (\n        domain::generated::scalars::CommandJournalStatus::FAILED,\n        Some(serde_json::json!({ \"code\": def.code, \"context\": {} })),\n        Some(def.code.to_string()),\n        Some(def.message_en.to_string()),\n    )\n}\n\n/// The synchronous Conflict for a replayed messageId whose payload differs — a client bug, not a\n/// retry (ADR-20260720-015300); errors.yaml cross-cutting `Conflict`, P-10 extensions shape.\nfn conflict_error(message_id: uuid::Uuid) -> async_graphql::Error {\n    use async_graphql::ErrorExtensions;\n    let def = domain::generated::errors::CONFLICT;\n    async_graphql::Error::new(format!(\n        \"messageId {message_id} was already used with a different payload\"\n    ))\n    .extend_with(|_, ext| ext.set(\"code\", def.code))\n}\n\n/// Map a SYNCHRONOUS failure (journal insert, input deserialization) onto the GraphQL error\n/// contract (P-10): an anticipated errors.yaml rejection surfaces `extensions.code` = the stable\n/// PascalCase code, the interpolated English message as the error message, and its typed context\n/// fields under the extensions; anything unexpected (repository/adapter failures) surfaces as the\n/// generic catalogued `Internal` — never leaking adapter details to the client.\nfn domain_error(e: domain::shared::errors::DomainError) -> async_graphql::Error {\n",
+    );
+    out.push_str(
+        "    use async_graphql::ErrorExtensions;\n    use domain::shared::errors::DomainError;\n    match e {\n        DomainError::Rejected { code, context } => {\n            let message = domain::generated::errors::message_en(&code, &context)\n                .unwrap_or_else(|| code.clone());\n            async_graphql::Error::new(message).extend_with(|_, ext| {\n                ext.set(\"code\", code.as_str());\n                if let Some(fields) = context.as_object() {\n                    for (key, value) in fields {\n                        if key == \"code\" {\n                            continue; // never let a context field shadow the wire code\n                        }\n                        ext.set(\n                            key.as_str(),\n                            async_graphql::Value::from_json(value.clone())\n                                .unwrap_or(async_graphql::Value::Null),\n                        );\n                    }\n                }\n            })\n        }\n        // Legacy \"<Code>: <detail>\" string invariants (interim adapters, e.g. the fail-closed\n        // payment stand-in): surface the prefix when it is a catalogued code, else it is unexpected.\n        DomainError::Invariant(msg) => {\n            let code = msg.split(':').next().map(str::trim).unwrap_or(\"\").to_string();\n            if domain::generated::errors::find(&code).is_some() {\n                async_graphql::Error::new(msg).extend_with(|_, ext| ext.set(\"code\", code.as_str()))\n            } else {\n                internal_error()\n            }\n        }\n        DomainError::Repository(_) => internal_error(),\n    }\n}\n\n/// The generic catalogued `Internal` fallback (errors.yaml): unexpected/infrastructure failures\n/// never leak their detail to the client.\nfn internal_error() -> async_graphql::Error {\n    use async_graphql::ErrorExtensions;\n    let def = domain::generated::errors::INTERNAL;\n    async_graphql::Error::new(def.message_en).extend_with(|_, ext| ext.set(\"code\", def.code))\n}\n",
     );
     out
 }
 
-/// Resolver bodies for mutations whose command handler is wired (the Restaurant aggregate — the proven
-/// write vertical). Returned as the fn body (8-space indent); `None` → the `not implemented` stub.
-/// Extend as more aggregates land. `payload` is the mutation's `<Name>Payload` Rust type.
-fn wired_mutation_body(name: &str, payload: &str) -> Option<String> {
-    // verifyPhone is the one payload carrying more than the correlation id (customerId + created):
-    // the handler returns a VerifyPhoneOutcome the resolver maps into the payload, so it gets a
-    // bespoke body instead of the generic fire-and-ack template below.
+/// Dispatch fragments for mutations whose command handler is wired: `(resolve_ports, handler_call)`.
+/// `resolve_ports` Arc-CLONES every port the handler needs out of ctx.data (the spawned task owns
+/// them); `handler_call` is the awaited expression run INSIDE the task, normalized to
+/// `Result<(), DomainError>` (business return values are discarded — acceptance-first results are
+/// reads, ADR-20260720-015500). `None` → the `not implemented` stub.
+fn wired_mutation_dispatch(name: &str) -> Option<(String, String)> {
+    // verifyPhone resolves through the wrapped auth ACL (ADR-0015): its VerifyPhoneOutcome
+    // (customerId/created) is no longer returned — the client reads `me` once the operation
+    // SUCCEEDs.
     if name == "verifyPhone" {
-        return Some(format!(
-            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;\n        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?;\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?;\n        let cmd: domain::generated::commands::VerifyPhone = to_command(&input)?;\n        let actor = request_actor(ctx);\n        let outcome = application::commands::verify_phone(store.as_ref(), auth.as_ref(), customers.as_ref(), cmd, &actor)\n            .await\n            .map_err(domain_error)?;\n        Ok({payload} {{\n            correlation_id: CorrelationId(actor.correlation_id),\n            customer_id: outcome.customer_id.into(),\n            created: outcome.created,\n        }})"
+        return Some((
+            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();\n".into(),
+            "application::commands::verify_phone(store.as_ref(), auth.as_ref(), customers.as_ref(), cmd, &actor).await.map(|_| ())".into(),
         ));
     }
-    // placeOrder's payload carries the Stripe-assigned values (paymentIntentId + clientSecret): the
-    // handler returns the CreatedPaymentIntent the resolver maps into the payload, and it needs the
-    // CatalogReadRepository (server-side line pricing from the live catalog — the only price
-    // authority, rules.yaml#/ServerPriceAuthority) + PaymentGateway (create-intent seam; the
-    // composition root injects the fail-closed Stripe stand-in until the real adapter lands) + the
-    // PaymentProcessStateStore (the payment_process_manager row the handler opens
-    // AWAITING_PAYMENT_RESULT and single-flights concurrent checkouts of the same cart on,
-    // ADR-20260719-193500) — so it gets a bespoke body like verifyPhone. The saga's event legs
+    // placeOrder needs the CatalogReadRepository (server-side line pricing from the live catalog —
+    // the only price authority, rules.yaml#/ServerPriceAuthority) + PaymentGateway (create-intent
+    // seam) + PaymentProcessStateStore (the payment_process_manager row it opens and single-flights
+    // on, ADR-20260719-193500). Its CreatedPaymentIntent is no longer returned — the checkout reads
+    // queries/paymentStatus (+ paymentStatusChanged) off the run row. The saga's event legs
     // (PaymentCaptured/PaymentFailed) run in the infrastructure ProcessManagerRunner, not here.
     if name == "placeOrder" {
-        return Some(format!(
-            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;\n        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;\n        let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?;\n        let pm_state = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?;\n        let cmd: domain::generated::commands::PlaceOrder = to_command(&input)?;\n        let actor = request_actor(ctx);\n        let intent = application::commands::place_order(store.as_ref(), catalogs.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, &actor)\n            .await\n            .map_err(domain_error)?;\n        Ok({payload} {{\n            correlation_id: CorrelationId(actor.correlation_id),\n            payment_intent_id: intent.payment_intent_id.into(),\n            client_secret: intent.client_secret,\n        }})"
+        return Some((
+            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?.clone();\n        let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?.clone();\n        let pm_state = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?.clone();\n".into(),
+            "application::commands::place_order(store.as_ref(), catalogs.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, &actor).await.map(|_| ())".into(),
         ));
     }
     // The refund DECISION legs run on the RefundProcess orchestrator (application::process_managers::
     // refund), not an aggregate command handler: they need the RefundProcessStateStore (the pending
     // refund_process_manager row they decide on) and — for the approval — the PaymentGateway that
-    // requests the Stripe refund (fail closed). Bespoke bodies like placeOrder.
+    // requests the Stripe refund (fail closed).
     if name == "approveRefund" {
-        return Some(format!(
-            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;\n        let refund_state = ctx.data::<std::sync::Arc<dyn application::pm_state::RefundProcessStateStore>>()?;\n        let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?;\n        let cmd: domain::generated::commands::ApproveRefund = to_command(&input)?;\n        let actor = request_actor(ctx);\n        application::process_managers::refund::approve_refund(store.as_ref(), refund_state.as_ref(), payments.as_ref(), cmd, &actor)\n            .await\n            .map_err(domain_error)?;\n        Ok({payload} {{ correlation_id: CorrelationId(actor.correlation_id) }})"
+        return Some((
+            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n        let refund_state = ctx.data::<std::sync::Arc<dyn application::pm_state::RefundProcessStateStore>>()?.clone();\n        let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?.clone();\n".into(),
+            "application::process_managers::refund::approve_refund(store.as_ref(), refund_state.as_ref(), payments.as_ref(), cmd, &actor).await.map(|_| ())".into(),
         ));
     }
     if name == "denyRefund" {
-        return Some(format!(
-            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;\n        let refund_state = ctx.data::<std::sync::Arc<dyn application::pm_state::RefundProcessStateStore>>()?;\n        let cmd: domain::generated::commands::DenyRefund = to_command(&input)?;\n        let actor = request_actor(ctx);\n        application::process_managers::refund::deny_refund(store.as_ref(), refund_state.as_ref(), cmd, &actor)\n            .await\n            .map_err(domain_error)?;\n        Ok({payload} {{ correlation_id: CorrelationId(actor.correlation_id) }})"
+        return Some((
+            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n        let refund_state = ctx.data::<std::sync::Arc<dyn application::pm_state::RefundProcessStateStore>>()?.clone();\n".into(),
+            "application::process_managers::refund::deny_refund(store.as_ref(), refund_state.as_ref(), cmd, &actor).await.map(|_| ())".into(),
         ));
     }
     // (domain command, application::commands handler, extra port beyond the EventStore).
@@ -7947,36 +7994,41 @@ fn wired_mutation_body(name: &str, payload: &str) -> Option<String> {
     let (resolve_extra, extra_arg) = match extra {
         Extra::None => (String::new(), ""),
         Extra::Restaurants => (
-            "        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?;\n".to_string(),
+            "        let restaurants = ctx.data::<std::sync::Arc<dyn application::queries::RestaurantReadRepository>>()?.clone();\n".to_string(),
             ", restaurants.as_ref()",
         ),
         Extra::Ownership => (
-            "        let ownership = ctx.data::<std::sync::Arc<dyn application::ports::GoogleOwnershipVerifier>>()?;\n".to_string(),
+            "        let ownership = ctx.data::<std::sync::Arc<dyn application::ports::GoogleOwnershipVerifier>>()?.clone();\n".to_string(),
             ", ownership.as_ref()",
         ),
         Extra::Probe => (
-            "        let probe = ctx.data::<std::sync::Arc<dyn application::ports::GbpOrderLinkProbe>>()?;\n".to_string(),
+            "        let probe = ctx.data::<std::sync::Arc<dyn application::ports::GbpOrderLinkProbe>>()?.clone();\n".to_string(),
             ", probe.as_ref()",
         ),
         Extra::Prospection => (
-            "        let prospection = ctx.data::<std::sync::Arc<dyn application::queries::ProspectionReadRepository>>()?;\n".to_string(),
+            "        let prospection = ctx.data::<std::sync::Arc<dyn application::queries::ProspectionReadRepository>>()?.clone();\n".to_string(),
             ", prospection.as_ref()",
         ),
         Extra::Catalogs => (
-            "        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;\n".to_string(),
+            "        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?.clone();\n".to_string(),
             ", catalogs.as_ref()",
         ),
         Extra::Auth => (
-            "        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?;\n".to_string(),
+            "        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();\n".to_string(),
             ", auth.as_ref()",
         ),
         Extra::AuthCustomers => (
-            "        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?;\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?;\n".to_string(),
+            "        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();\n".to_string(),
             ", auth.as_ref(), customers.as_ref()",
         ),
     };
-    Some(format!(
-        "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;\n{resolve_extra}        let cmd: domain::generated::commands::{command} = to_command(&input)?;\n        let actor = request_actor(ctx);\n        application::commands::{handler}(store.as_ref(){extra_arg}, cmd, &actor)\n            .await\n            .map_err(domain_error)?;\n        Ok({payload} {{ correlation_id: CorrelationId(actor.correlation_id) }})"
+    Some((
+        format!(
+            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n{resolve_extra}"
+        ),
+        format!(
+            "application::commands::{handler}(store.as_ref(){extra_arg}, cmd, &actor).await.map(|_| ())"
+        ),
     ))
 }
 
@@ -7989,7 +8041,7 @@ fn wired_mutation_body(name: &str, payload: &str) -> Option<String> {
 fn emit_server_subscription(model: &Model) -> String {
     let api = parse_api(model);
     let mut out = String::from(
-        "// GENERATED by the Captain.Food codegen from specs/api.yaml — do not edit by hand.\n// The GraphQL SubscriptionRoot: one stream resolver per api.yaml subscription, matching the generated\n// SDL shape. Wired resolvers subscribe to the in-process EventBus (each envelope is published by\n// PgEventStore::append AFTER a successful commit) and map matching envelopes onto the declared return\n// type — re-resolving the read models rather than exposing raw domain_events (ADR-0005/0035). Each\n// non-public field carries its api.yaml `roles` as a `guard` (execution) + `visible` (introspection)\n// pair from the generated acl module (ADR-0006 role-as-path).\n//\n// Free-tier caveat: the bus is IN-PROCESS and a GraphQL-over-WebSocket connection lives only while\n// the app instance is warm (the uptimerobot ping keeps it so); after a restart/redeploy clients must\n// resubscribe and re-sync via the pull queries (`order`, `operation`).\n#![allow(unused_variables)]\n#![allow(dead_code)]\n\nuse async_graphql::futures_util::Stream;\n\nuse super::acl::*;\nuse super::inputs::*;\nuse super::scalars::*;\nuse super::types::*;\n\npub struct SubscriptionRoot;\n\n#[async_graphql::Subscription(name = \"Subscription\")]\nimpl SubscriptionRoot {\n",
+        "// GENERATED by the Captain.Food codegen from specs/api.yaml — do not edit by hand.\n// The GraphQL SubscriptionRoot: one stream resolver per api.yaml subscription, matching the generated\n// SDL shape. `operationStatusChanged` streams the command_journal lifecycle over the in-process\n// OperationStatusBus (snapshot-first, ownership-scoped — ADR-20260720-015500); the domain-fact\n// subscriptions (`orderStatusChanged`, `paymentStatusChanged`) subscribe to the in-process EventBus\n// (each envelope is published by PgEventStore::append AFTER a successful commit) and re-resolve the\n// read models / saga row rather than exposing raw domain_events (ADR-0005/0035). Each non-public\n// field carries its api.yaml `roles` as a `guard` (execution) + `visible` (introspection) pair from\n// the generated acl module (ADR-0006 role-as-path).\n//\n// Free-tier caveat: the buses are IN-PROCESS and a GraphQL-over-WebSocket connection lives only while\n// the app instance is warm (the uptimerobot ping keeps it so); after a restart/redeploy clients must\n// resubscribe and re-sync via the pull queries (`order`, `operationStatus`, `paymentStatus`).\n#![allow(unused_variables)]\n#![allow(dead_code)]\n\nuse async_graphql::futures_util::Stream;\n\nuse super::acl::*;\nuse super::inputs::*;\nuse super::scalars::*;\nuse super::types::*;\n\npub struct SubscriptionRoot;\n\n#[async_graphql::Subscription(name = \"Subscription\")]\nimpl SubscriptionRoot {\n",
     );
     for s in &api.subscriptions {
         let fnname = rust_ident(&snake_field(&s.name));
@@ -8029,29 +8081,151 @@ fn emit_server_subscription(model: &Model) -> String {
 /// matching envelope onto a SUCCEEDED `Operation` tick (the transient, non-projected type).
 fn wired_subscription_body(name: &str) -> Option<&'static str> {
     match name {
-        // A bus envelope EXISTS only after its append committed, so every matching envelope is a
-        // durable SUCCEEDED confirmation (one per emitted event). Rejections/failures return inline
-        // on the mutation itself and never reach the log — the `operation` query is the pull
-        // counterpart for the full PENDING/REJECTED/FAILED picture.
+        // The journaled-command status stream (ADR-20260720-015500): snapshot-first from the
+        // command_journal (closes the subscribe/complete race), then every OperationStatusBus
+        // transition for this messageId; completes on a terminal status. Ownership is checked at
+        // setup — a non-owned/unknown messageId yields an EMPTY stream (no existence oracle).
         "operationStatusChanged" => Some(
-            r#"        let bus = ctx.data::<infrastructure::EventBus>()?.clone();
-        let wanted = input.correlation_id.0;
+            r#"        let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();
+        let bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();
+        let wanted = input.message_id.0;
+        let admin = matches!(
+            ctx.data_opt::<crate::graphql::acl::RequestRole>(),
+            Some(crate::graphql::acl::RequestRole::Admin)
+        );
+        let principal_uuid = ctx
+            .data_opt::<crate::auth::Principal>()
+            .and_then(|p| p.user_id.as_deref())
+            .and_then(|s| uuid::Uuid::parse_str(s).ok());
+        let session = ctx.data_opt::<crate::graphql::session::SessionHeader>().and_then(|s| s.0);
         let mut rx = bus.subscribe();
         Ok(async_stream::stream! {
+            use domain::generated::scalars::CommandJournalStatus as J;
+            // Snapshot-first: the current journal row (the acceptance already inserted it).
+            let Ok(Some(row)) = journal.by_message(wanted).await else { return };
+            let owned = admin
+                || (principal_uuid.is_some() && principal_uuid == row.entry.user_id)
+                || (session.is_some() && session == row.entry.session_id);
+            if !owned {
+                return;
+            }
+            let terminal = row.status != J::RECEIVED;
+            yield Ok(super::mutation::operation_from_journal(&row));
+            if terminal {
+                return;
+            }
             loop {
                 match rx.recv().await {
-                    Ok(evt) if evt.correlation_id == wanted => {
+                    Ok(update) if update.message_id == wanted => {
+                        let terminal = update.status != J::RECEIVED;
                         yield Ok(Operation {
-                            correlation_id: CorrelationId(evt.correlation_id),
-                            status: OperationStatus::SUCCEEDED,
-                            message: Some(format!("{} ({} v{})", evt.event_type, evt.stream_name, evt.position)),
+                            message_id: MessageId(update.message_id),
+                            correlation_id: CorrelationId(update.correlation_id),
+                            status: super::mutation::journal_status_api(update.status),
+                            error_code: update.error_code.clone(),
+                            message: update.message.clone(),
                             occurred_at: chrono::Utc::now(),
                         });
+                        if terminal {
+                            break;
+                        }
                     }
                     Ok(_) => {}
-                    // Lagged: skipped envelopes are harmless for a liveness tick.
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    // Lagged: the journal row is the pull truth — re-read and finish if terminal.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if let Ok(Some(row)) = journal.by_message(wanted).await {
+                            let terminal = row.status != J::RECEIVED;
+                            yield Ok(super::mutation::operation_from_journal(&row));
+                            if terminal {
+                                break;
+                            }
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })"#,
+        ),
+        // Push-based checkout payment tracking (ADR-20260720-015500): initial resolve + re-resolve
+        // of the PlaceOrderProcess run row on every Payment-stream envelope; dedupes identical
+        // states and completes when the run resolves. Initiator-scoped like queries/paymentStatus.
+        "paymentStatusChanged" => Some(
+            r#"        let bus = ctx.data::<infrastructure::EventBus>()?.clone();
+        let pm = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?.clone();
+        let order_id: domain::generated::scalars::OrderId = input.order_id.into();
+        let admin = matches!(
+            ctx.data_opt::<crate::graphql::acl::RequestRole>(),
+            Some(crate::graphql::acl::RequestRole::Admin)
+        );
+        let session = ctx.data_opt::<crate::graphql::session::SessionHeader>().and_then(|s| s.0);
+        // Resolve the caller's Customer identity ONCE at setup (same path as queries/paymentStatus).
+        let caller_customer: Option<domain::generated::scalars::CustomerId> = match ctx
+            .data_opt::<crate::auth::Principal>()
+            .and_then(|p| p.user_id.clone())
+        {
+            Some(auth_ref) => {
+                let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();
+                customers
+                    .by_auth_ref(domain::generated::scalars::ExternalReference(auth_ref))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|c| c.customer_id)
+            }
+            None => None,
+        };
+        let mut rx = bus.subscribe();
+        Ok(async_stream::stream! {
+            use domain::generated::scalars as ds;
+            let owned = |row: &application::pm_state::PaymentProcessRow| {
+                admin
+                    || (caller_customer.is_some() && caller_customer == row.customer_id)
+                    || (session.is_some() && session == row.session_id.as_ref().map(|s| s.0))
+            };
+            // (payment_status, clientSecret presence): dedupe key + what the checkout cares about.
+            let mut last: Option<(ds::PaymentStatus, bool)> = None;
+            if let Ok(Some(row)) = pm.by_order(order_id).await {
+                if !owned(&row) {
+                    return;
+                }
+                let terminal = row.process_status != ds::PaymentProcessStatus::AWAITING_PAYMENT_RESULT;
+                last = Some((row.payment_status, row.client_secret.is_some()));
+                yield Ok(PaymentIntent {
+                    payment_intent_id: row.payment_intent_id.into(),
+                    client_secret: row.client_secret,
+                    status: row.payment_status.into(),
+                });
+                if terminal {
+                    return;
+                }
+            }
+            loop {
+                let evt = match rx.recv().await {
+                    Ok(evt) => evt,
+                    // Lagged: the next Payment envelope re-resolves the CURRENT row anyway.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
+                if !evt.stream_name.starts_with("Payment-") {
+                    continue;
+                }
+                let Ok(Some(row)) = pm.by_order(order_id).await else { continue };
+                if !owned(&row) {
+                    continue;
+                }
+                let key = (row.payment_status, row.client_secret.is_some());
+                if last.as_ref() == Some(&key) {
+                    continue;
+                }
+                last = Some(key);
+                let terminal = row.process_status != ds::PaymentProcessStatus::AWAITING_PAYMENT_RESULT;
+                yield Ok(PaymentIntent {
+                    payment_intent_id: row.payment_intent_id.into(),
+                    client_secret: row.client_secret,
+                    status: row.payment_status.into(),
+                });
+                if terminal {
+                    break;
                 }
             }
         })"#,

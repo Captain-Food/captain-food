@@ -58,7 +58,8 @@ customer:
         ViewMyCarts: { $ref: 'api.yaml#/queries/carts' }   # one OPEN cart per restaurant
         BrowseCategories: { $ref: 'api.yaml#/queries/categories' }   # category tree for filtering/discovery
         PlaceOrder: { $ref: 'api.yaml#/mutations/placeOrder' }
-        PollOperationStatus: { $ref: 'api.yaml#/queries/operation' }   # pull counterpart of the operationStatusChanged subscription
+        PollOperationStatus: { $ref: 'api.yaml#/queries/operationStatus' }   # by messageId — pull counterpart of the operationStatusChanged subscription
+        TrackPaymentStatus: { $ref: 'api.yaml#/queries/paymentStatus' }   # clientSecret + payment state after the placeOrder acceptance (ADR-20260720-015500)
         TrackOrderStatus: { $ref: 'api.yaml#/queries/order' }
         TrackDelivery: { $ref: 'api.yaml#/queries/delivery' }   # live courier/delivery progress (ADR-0031)
         CancelOrder: { $ref: 'api.yaml#/mutations/cancelOrderByCustomer' }

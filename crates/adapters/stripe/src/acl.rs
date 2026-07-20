@@ -29,18 +29,19 @@
 //! (`hmac::Mac::verify_slice`), and rejects timestamps outside the ±[`SIGNATURE_TOLERANCE_SECS`] replay
 //! window. The HTTP endpoint (in `server`) fails CLOSED when `STRIPE_WEBHOOK_SECRET` is unset.
 //!
-//! # Idempotency (redelivered webhooks are no-ops)
+//! # Durable inbox + idempotency (ADR-20260720-015400: inbound event sourcing)
 //!
-//! Stripe retries until it sees a 2xx, so redelivery is normal. The adapter is a STATELESS
-//! translator (ADR-20260719-193500): it maps the webhook and delivers the fact to the Payment
-//! AGGREGATE via `application::payments::record_inbound_payment_event`, which dedups by the
-//! aggregate's own fold ("already recorded?") — no `StripeEvent-%` envelope streams, no adapter
-//! idempotency table. A redelivery is absorbed as [`StripeIngestOutcome::Duplicate`]. The envelope
-//! `correlation_id` is the UUIDv5 of the Stripe event id for traceability.
+//! Stripe retries until it sees a 2xx, so redelivery is normal. Ingestion is verify → mirror the
+//! VERBATIM body into the adapter-owned `external_stripe_events` staging table → translate → stage
+//! the ADAPTED business event into `inbound_events` → ACK. The domain append happens later, in the
+//! `InboundEventsDrainWorker`, through the normal write path — where the Payment AGGREGATE's own
+//! fold stays the authoritative dedupe ("already recorded?"). Delivery-level dedupe is the staging
+//! `(source, external_id)` unique: a redelivery is absorbed as [`StripeIngestOutcome::Duplicate`].
+//! The envelope `correlation_id` is the UUIDv5 of the Stripe event id for traceability, and the
+//! staged row's `inbound_event_id` becomes `domain_events.cause_id` on delivery.
 
 use std::sync::Arc;
 
-use application::ports::{is_version_conflict, Actor, EventStore};
 use domain::generated::entities::Money;
 use domain::generated::events::{DomainEvent, PaymentCaptured, PaymentFailed, PaymentRefunded};
 use domain::generated::scalars::{
@@ -347,15 +348,34 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Ingestor — record the fact, idempotently
+// Ingestor — mirror the raw delivery, stage the adapted fact (ADR-20260720-015400)
 // ---------------------------------------------------------------------------------------------
+
+/// Adapter-owned raw mirror (`external_stripe_events`, `specs/database/tables/integration_staging.yaml`):
+/// the verified delivery is UPSERTed verbatim BEFORE interpretation, so redelivery dedupes on the
+/// Stripe event id and replay/backfill never needs Stripe to resend. Trait so the ingest flow is
+/// unit-testable in memory; [`PgRawStripeEvents`](crate::raw::PgRawStripeEvents) is the Postgres impl.
+#[async_trait::async_trait]
+pub trait RawStripeEvents: Send + Sync {
+    /// UPSERT the verified raw event; `Ok(true)` = newly mirrored, `Ok(false)` = already known.
+    async fn upsert(
+        &self,
+        stripe_event_id: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<bool, DomainError>;
+
+    /// Stamp the translation high-water mark once the delivery has been interpreted (staged into
+    /// `inbound_events`, or definitively Ignored/Unmappable).
+    async fn mark_processed(&self, stripe_event_id: &str) -> Result<(), DomainError>;
+}
 
 /// What the ingestor did with one verified delivery (all four are ACKed with 2xx by the endpoint).
 #[derive(Debug, Clone, PartialEq)]
 pub enum StripeIngestOutcome {
-    /// The fact was appended to `domain_events`.
+    /// The adapted fact was staged into `inbound_events` for the drain worker to deliver.
     Recorded { event_type: String },
-    /// This Stripe event id was already recorded — redelivery absorbed as a no-op.
+    /// This Stripe event id was already staged — redelivery absorbed as a no-op.
     Duplicate,
     /// An event type this ACL does not consume.
     Ignored { event_type: String },
@@ -363,46 +383,90 @@ pub enum StripeIngestOutcome {
     Unmappable { reason: String },
 }
 
-/// Records Stripe-reported payment facts through the ordinary event-store append port. Generic over
-/// the port (not the Pg adapter) so the idempotency behaviour is unit-testable in memory.
+/// Ingests one verified delivery: raw mirror UPSERT → ACL translation → `inbound_events` staging
+/// (ADR-20260720-015400). The domain append happens later, in the `InboundEventsDrainWorker`,
+/// through the normal write path — the ingestor never touches `domain_events`. Generic over the
+/// ports so the flow is unit-testable in memory.
 pub struct StripeWebhookIngestor {
-    store: Arc<dyn EventStore>,
+    raw: Arc<dyn RawStripeEvents>,
+    inbox: Arc<dyn application::journal::InboundEvents>,
+    /// Optional post-staging nudge (the composition root wires it to the drain worker's `run_once`)
+    /// so delivery lag is near zero; the worker's poll loop is the safety net.
+    on_staged: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl StripeWebhookIngestor {
-    pub fn new(store: Arc<dyn EventStore>) -> Self {
-        Self { store }
+    pub fn new(
+        raw: Arc<dyn RawStripeEvents>,
+        inbox: Arc<dyn application::journal::InboundEvents>,
+    ) -> Self {
+        Self { raw, inbox, on_staged: None }
     }
 
-    /// Map + append one verified delivery. Only infrastructure failures (DB unreachable) surface as
-    /// `Err` — the endpoint answers 5xx and Stripe retries; everything else is a definitive outcome.
-    pub async fn ingest(&self, event: &StripeEvent) -> Result<StripeIngestOutcome, DomainError> {
+    /// Wire the post-staging nudge (spawns the drain pass; must not block).
+    pub fn with_nudge(mut self, nudge: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.on_staged = Some(nudge);
+        self
+    }
+
+    /// Mirror + translate + stage one verified delivery. `raw_body` is the VERBATIM parsed request
+    /// body (never a re-serialization of the typed subset — the mirror keeps every field). Only
+    /// infrastructure failures (DB unreachable) surface as `Err` — the endpoint answers 5xx and
+    /// Stripe retries; everything else is a definitive outcome. Crash-safe ordering: the raw mirror
+    /// lands first; staging dedupes by `(source, external_id)`, so re-running any prefix of the
+    /// flow is a no-op.
+    pub async fn ingest(
+        &self,
+        event: &StripeEvent,
+        raw_body: &serde_json::Value,
+    ) -> Result<StripeIngestOutcome, DomainError> {
+        self.raw.upsert(&event.id, &event.event_type, raw_body).await?;
+
         let domain_event = match map_stripe_event(event) {
             Ok(StripeMapOutcome::Mapped(e)) => e,
             Ok(StripeMapOutcome::Ignored) => {
-                return Ok(StripeIngestOutcome::Ignored { event_type: event.event_type.clone() })
+                self.raw.mark_processed(&event.id).await?;
+                return Ok(StripeIngestOutcome::Ignored { event_type: event.event_type.clone() });
             }
-            Err(reason) => return Ok(StripeIngestOutcome::Unmappable { reason }),
+            Err(reason) => {
+                self.raw.mark_processed(&event.id).await?;
+                return Ok(StripeIngestOutcome::Unmappable { reason });
+            }
         };
 
-        let actor = Actor {
-            user_id: stripe_system_user_id(),
-            user_type: EXTERNAL_USER_TYPE,
+        // Stage the ADAPTED business event (external vocabulary stops here). The tagged serde form
+        // (`{"eventType": …, "payload": …}`) is what the drain worker deserializes back.
+        let tagged = serde_json::to_value(&domain_event).map_err(|e| {
+            DomainError::Repository(format!("adapted event for {} unserializable: {e}", event.id))
+        })?;
+        let event_type = tagged
+            .get("eventType")
+            .and_then(|t| t.as_str())
+            .unwrap_or("unknown")
+            .to_owned();
+        let row = application::journal::InboundEventRow {
+            inbound_event_id: uuid::Uuid::now_v7(),
+            source: "stripe".into(),
+            external_id: event.id.clone(),
             correlation_id: stripe_correlation_id(&event.id),
-            cause_id: None,
+            event_type,
+            payload: tagged,
+            status: domain::generated::scalars::InboundEventStatus::RECEIVED,
+            error: None,
+            received_at: chrono::Utc::now(),
+            delivered_at: None,
         };
-
-        // The adapter is a stateless translator (ADR-20260719-193500): the fact is delivered to the
-        // Payment AGGREGATE, which owns it — dedup is the actor's fold ("already recorded"), not an
-        // adapter envelope. No `StripeEvent-{id}` streams, nothing synthetic in the log.
-        match application::payments::record_inbound_payment_event(self.store.as_ref(), domain_event, &actor).await {
-            Ok(application::payments::RecordOutcome::Recorded) => {
-                Ok(StripeIngestOutcome::Recorded { event_type: event.event_type.clone() })
+        let outcome = match self.inbox.stage(&row).await? {
+            application::journal::StageOutcome::Staged => {
+                if let Some(nudge) = &self.on_staged {
+                    nudge();
+                }
+                StripeIngestOutcome::Recorded { event_type: event.event_type.clone() }
             }
-            Ok(application::payments::RecordOutcome::AlreadyRecorded) => Ok(StripeIngestOutcome::Duplicate),
-            Err(e) if is_version_conflict(&e) => Ok(StripeIngestOutcome::Duplicate),
-            Err(e) => Err(e),
-        }
+            application::journal::StageOutcome::Duplicate => StripeIngestOutcome::Duplicate,
+        };
+        self.raw.mark_processed(&event.id).await?;
+        Ok(outcome)
     }
 }
 
@@ -413,7 +477,8 @@ impl StripeWebhookIngestor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use application::ports::version_conflict;
+    use application::journal::InboundEvents;
+    use domain::shared::errors::DomainError;
 
     const SECRET: &str = "whsec_test_secret";
 
@@ -620,58 +685,120 @@ mod tests {
         assert!(err.contains("restaurantId"), "unexpected error: {err}");
     }
 
-    // ----- idempotent ingestion (in-memory event store) -----
+    // ----- ingest: mirror + stage, idempotently (in-memory port doubles) -----
 
-    /// Minimal in-memory port double reproducing the UNIQUE(stream_name, version) guard.
-    struct InMemoryEventStore {
-        appended: std::sync::Mutex<std::collections::HashMap<String, Vec<DomainEvent>>>,
+    /// Minimal in-memory [`RawStripeEvents`] mirroring the `external_stripe_events` semantics.
+    #[derive(Default)]
+    struct MemRawStripeEvents {
+        rows: std::sync::Mutex<std::collections::HashMap<String, (serde_json::Value, bool)>>,
     }
 
     #[async_trait::async_trait]
-    impl EventStore for InMemoryEventStore {
-        async fn append(
+    impl RawStripeEvents for MemRawStripeEvents {
+        async fn upsert(
             &self,
-            stream_name: &str,
-            expected_version: i64,
-            events: &[DomainEvent],
-            _actor: &Actor,
-        ) -> Result<i64, DomainError> {
-            let mut streams = self.appended.lock().unwrap();
-            let stream = streams.entry(stream_name.to_string()).or_default();
-            if stream.len() as i64 != expected_version {
-                return Err(version_conflict(stream_name, expected_version));
+            stripe_event_id: &str,
+            _event_type: &str,
+            payload: &serde_json::Value,
+        ) -> Result<bool, DomainError> {
+            let mut rows = self.rows.lock().unwrap();
+            if rows.contains_key(stripe_event_id) {
+                return Ok(false);
             }
-            stream.extend_from_slice(events);
-            Ok(stream.len() as i64)
+            rows.insert(stripe_event_id.to_string(), (payload.clone(), false));
+            Ok(true)
         }
 
-        async fn load(&self, stream_name: &str) -> Result<(Vec<DomainEvent>, i64), DomainError> {
-            let streams = self.appended.lock().unwrap();
-            let events = streams.get(stream_name).cloned().unwrap_or_default();
-            let version = events.len() as i64;
-            Ok((events, version))
+        async fn mark_processed(&self, stripe_event_id: &str) -> Result<(), DomainError> {
+            if let Some(row) = self.rows.lock().unwrap().get_mut(stripe_event_id) {
+                row.1 = true;
+            }
+            Ok(())
         }
+    }
+
+    fn ingestor_over(
+        raw: Arc<MemRawStripeEvents>,
+        inbox: Arc<application::journal::mem::MemInboundEvents>,
+    ) -> StripeWebhookIngestor {
+        StripeWebhookIngestor::new(raw, inbox)
+    }
+
+    #[tokio::test]
+    async fn a_delivery_is_mirrored_and_staged_for_the_drain() {
+        let raw = Arc::new(MemRawStripeEvents::default());
+        let inbox = Arc::new(application::journal::mem::MemInboundEvents::default());
+        let ingestor = ingestor_over(raw.clone(), inbox.clone());
+        let event = sample_succeeded();
+        let raw_body = serde_json::json!({ "id": event.id, "verbatim": true });
+
+        let outcome = ingestor.ingest(&event, &raw_body).await.unwrap();
+        assert_eq!(
+            outcome,
+            StripeIngestOutcome::Recorded { event_type: "payment_intent.succeeded".into() }
+        );
+        // The raw mirror holds the VERBATIM body and is marked processed…
+        let rows = raw.rows.lock().unwrap();
+        let (mirrored, processed) = rows.get(&event.id).expect("mirrored");
+        assert_eq!(mirrored["verbatim"], true);
+        assert!(processed);
+        drop(rows);
+        // …and the ADAPTED business event awaits the drain worker (no domain append here).
+        let pending = inbox.pending(10).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].source, "stripe");
+        assert_eq!(pending[0].external_id, event.id);
+        assert_eq!(pending[0].event_type, "PaymentCaptured");
+        assert_eq!(pending[0].correlation_id, stripe_correlation_id(&event.id));
+        let staged: DomainEvent = serde_json::from_value(pending[0].payload.clone()).unwrap();
+        assert!(matches!(staged, DomainEvent::PaymentCaptured(_)));
     }
 
     #[tokio::test]
     async fn redelivered_webhook_is_a_no_op() {
-        let store = Arc::new(InMemoryEventStore { appended: Default::default() });
-        let ingestor = StripeWebhookIngestor::new(store.clone());
+        let raw = Arc::new(MemRawStripeEvents::default());
+        let inbox = Arc::new(application::journal::mem::MemInboundEvents::default());
+        let ingestor = ingestor_over(raw, inbox.clone());
         let event = sample_succeeded();
+        let raw_body = serde_json::json!({ "id": event.id });
 
-        let first = ingestor.ingest(&event).await.unwrap();
+        let first = ingestor.ingest(&event, &raw_body).await.unwrap();
         assert_eq!(
             first,
             StripeIngestOutcome::Recorded { event_type: "payment_intent.succeeded".into() }
         );
-        // Stripe redelivers the SAME event → absorbed by the Payment aggregate's dedup, nothing
-        // appended twice. The fact lands on the Payment stream (ADR-20260719-193500) — no
-        // StripeEvent-% envelope streams.
-        let second = ingestor.ingest(&event).await.unwrap();
+        // Stripe redelivers the SAME event → the (source, external_id) staging dedupe absorbs it.
+        let second = ingestor.ingest(&event, &raw_body).await.unwrap();
         assert_eq!(second, StripeIngestOutcome::Duplicate);
+        assert_eq!(inbox.pending(10).await.unwrap().len(), 1, "staged exactly once");
+    }
 
-        let (events, version) = store.load("Payment-pi_3NabcSample").await.unwrap();
-        assert_eq!(version, 1);
-        assert!(matches!(events.as_slice(), [DomainEvent::PaymentCaptured(_)]));
+    #[tokio::test]
+    async fn ignored_and_unmappable_deliveries_are_mirrored_but_never_staged() {
+        let raw = Arc::new(MemRawStripeEvents::default());
+        let inbox = Arc::new(application::journal::mem::MemInboundEvents::default());
+        let ingestor = ingestor_over(raw.clone(), inbox.clone());
+
+        let ignored = event_from_json(serde_json::json!({
+            "id": "evt_other", "type": "customer.created", "data": { "object": {} }
+        }));
+        let outcome = ingestor.ingest(&ignored, &serde_json::json!({})).await.unwrap();
+        assert_eq!(outcome, StripeIngestOutcome::Ignored { event_type: "customer.created".into() });
+
+        let unmappable = event_from_json(serde_json::json!({
+            "id": "evt_nometa",
+            "type": "payment_intent.succeeded",
+            "data": { "object": { "id": "pi_x", "amount": 100, "currency": "eur", "metadata": {} } }
+        }));
+        let outcome = ingestor.ingest(&unmappable, &serde_json::json!({})).await.unwrap();
+        assert!(matches!(outcome, StripeIngestOutcome::Unmappable { .. }));
+
+        // Both are receipts in the mirror (processed — a retry would carry the same payload)…
+        let rows = raw.rows.lock().unwrap();
+        assert!(rows.get("evt_other").is_some_and(|r| r.1));
+        assert!(rows.get("evt_nometa").is_some_and(|r| r.1));
+        drop(rows);
+        // …but nothing crossed into the domain handoff.
+        assert!(inbox.pending(10).await.unwrap().is_empty());
     }
 }

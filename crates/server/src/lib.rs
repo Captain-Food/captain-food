@@ -61,6 +61,7 @@ mod hosts;
 /// The role-as-path ACL seam (RequestRole/RoleGuard, ADR-0006), re-exported so integration tests can
 /// execute the schema under a specific role (the HTTP layer injects it from the URL path).
 pub use graphql::acl as graphql_acl;
+pub use graphql::session as graphql_session;
 /// The schema composition surface (build_schema/ReadDeps/WriteDeps), re-exported so integration tests
 /// (and the embedding `desktop` shell) can build the master schema over their own adapters.
 pub use graphql::schema as graphql_schema;
@@ -74,9 +75,9 @@ pub fn wire() -> HealthDto {
 /// The schema version this build requires. Migrations are applied by **sqlx-cli in CI** (ADR-0043); the app
 /// only checks the DB has reached at least this version. Bump when adding a migration this build depends on.
 /// The gate is `>=` (never `==`) so an older build still runs against a newer DB (rollback-by-redeploy).
-/// `20260718100000` = the `external_sirene_restaurants` staging table the in-process SIRENE sync worker
-/// (ADR-0045) drains.
-pub const REQUIRED_SCHEMA_VERSION: i64 = 20260718100000;
+/// `20260720030000` = the command/inbound journals (ADR-20260720-015300/-015400): every mutation now
+/// writes `command_journal` at acceptance, so the app cannot serve writes without it.
+pub const REQUIRED_SCHEMA_VERSION: i64 = 20260720030000;
 
 /// Readiness states published by the heartbeat, read by `/health`.
 mod db_state {
@@ -120,13 +121,18 @@ pub fn router() -> Router {
     // Constructed unconditionally so the schema always carries a bus (subscriptions without a DB
     // simply never receive anything).
     let event_bus = EventBus::default();
+    // Journal-transition broadcast (ADR-20260720-015500): the acceptance-first dispatch publishes
+    // every command_journal transition here; operationStatusChanged streams it. Like the event bus,
+    // constructed unconditionally so the schema always carries one.
+    let operation_status_bus = infrastructure::OperationStatusBus::default();
     let mut read_deps: Option<ReadDeps> = None;
     let mut write_deps: Option<WriteDeps> = None;
     let mut projector_status: Option<Arc<Mutex<ProjectionStatus>>> = None;
     let mut saga_status: Option<Arc<Mutex<ProcessManagerStatus>>> = None;
     let mut sirene_worker: Option<Arc<SireneSyncWorker>> = None;
     let mut stripe_ingestor: Option<Arc<StripeWebhookIngestor>> = None;
-    let mut hubrise_enricher: Option<Arc<dyn hubrise_adapter::Enricher>> = None;
+    let mut hubrise_state = hubrise_adapter::HubRiseWebhookState::default();
+    let mut inbound_drain: Option<Arc<infrastructure::InboundEventsDrainWorker>> = None;
 
     match std::env::var("DATABASE_URL") {
         Ok(url) if !url.is_empty() => match PgPoolOptions::new()
@@ -210,6 +216,10 @@ pub fn router() -> Router {
                     refund_state: Arc::new(infrastructure::persistence::PgRefundProcessState::new(
                         pool.clone(),
                     )),
+                    // Acceptance-first dispatch (ADR-20260720-015300/-015500): the durable command
+                    // journal + the journal-transition broadcast behind operationStatus(+Changed).
+                    journal: Arc::new(infrastructure::PgCommandJournal::new(pool.clone())),
+                    status_bus: operation_status_bus.clone(),
                 });
 
                 // In-process projection worker (ADR-0040). RUN_PROJECTOR=false hands it to a dedicated worker.
@@ -240,20 +250,49 @@ pub fn router() -> Router {
                 // table through the ACL into the ordinary write path. Always constructed (the
                 // /internal/sirene/drain ping needs it); the slow safety-net poll loop is gated by
                 // RUN_SIRENE_WORKER (default on) like the projector.
-                // Stripe webhook ingestor (INBOUND payment facts): records what Stripe reports through
-                // the ordinary event-store append port, idempotently by Stripe event id. The HTTP
-                // endpoint (`POST /adapters/stripe/webhooks`) is mounted below with the other non-GraphQL routes.
-                stripe_ingestor = Some(Arc::new(StripeWebhookIngestor::new(Arc::new(
-                    PgEventStore::with_bus(pool.clone(), event_bus.clone()),
-                ))));
+                // Inbound-events drain worker (ADR-20260720-015400): delivers adapter-staged
+                // business events through the normal write path, and runs the command_journal
+                // stale-RECEIVED sweep (ADR-20260720-015300). Always constructed (the webhook nudge
+                // + /internal/inbound/drain need it); the safety-net poll loop is gated by
+                // RUN_INBOUND_DRAIN (default on) like the projector.
+                let drain = Arc::new(infrastructure::InboundEventsDrainWorker::new(
+                    Arc::new(infrastructure::PgInboundEvents::new(pool.clone())),
+                    Arc::new(infrastructure::PgCommandJournal::new(pool.clone())),
+                    Arc::new(PgEventStore::with_bus(pool.clone(), event_bus.clone())),
+                ));
+                inbound_drain = Some(drain.clone());
+                if std::env::var("RUN_INBOUND_DRAIN").map(|v| v != "false").unwrap_or(true) {
+                    tokio::spawn(drain.clone().run_loop());
+                    println!("inbound drain worker: running in-process (set RUN_INBOUND_DRAIN=false to disable)");
+                } else {
+                    println!("RUN_INBOUND_DRAIN=false — inbound drain poll loop not started (nudge trigger stays active)");
+                }
 
-                // HubRise domain enrichment (ADR-20260718-145856): a verified catalog/inventory callback
-                // triggers an OAuth API pull → ACL map → `ImportCatalog` / per-SKU stock update. Only
-                // wired when `HUBRISE_ACCESS_TOKEN` is present (the outbound pull needs it); otherwise the
-                // endpoint stays ingress-only (verified callbacks ACK as pending).
+                // Stripe webhook ingestor (ADR-20260720-015400 inbound event sourcing): verify →
+                // mirror the verbatim delivery into external_stripe_events → ACL → stage the adapted
+                // business event in inbound_events → ACK, nudging the drain worker. The HTTP endpoint
+                // (`POST /adapters/stripe/webhooks`) is mounted below with the other non-GraphQL routes.
+                let nudge_worker = drain.clone();
+                stripe_ingestor = Some(Arc::new(
+                    StripeWebhookIngestor::new(
+                        Arc::new(stripe_adapter::PgRawStripeEvents::new(pool.clone())),
+                        Arc::new(infrastructure::PgInboundEvents::new(pool.clone())),
+                    )
+                    .with_nudge(Arc::new(move || {
+                        let w = nudge_worker.clone();
+                        tokio::spawn(async move { w.run_once().await });
+                    })),
+                ));
+
+                // HubRise webhook wiring: the raw mirror (external_hubrise_callbacks) needs only the
+                // database; the domain enrichment (ADR-20260718-145856: OAuth API pull → ACL map →
+                // `ImportCatalog` / per-SKU stock update) additionally needs `HUBRISE_ACCESS_TOKEN` —
+                // otherwise the endpoint stays mirror+verify only (callbacks ACK as pending).
+                hubrise_state.raw =
+                    Some(Arc::new(hubrise_adapter::PgRawHubRiseCallbacks::new(pool.clone())));
                 match hubrise_adapter::api::HubRiseApiClient::from_env() {
                     Ok(api) => {
-                        hubrise_enricher = Some(Arc::new(hubrise_adapter::HubRiseEnricher::new(
+                        hubrise_state.enricher = Some(Arc::new(hubrise_adapter::HubRiseEnricher::new(
                             Arc::new(PgEventStore::with_bus(pool.clone(), event_bus.clone())),
                             api,
                         )));
@@ -293,11 +332,13 @@ pub fn router() -> Router {
     )))
         // Internal trigger (ADR-0045): the CI ingestion pings this to wake the SIRENE sync worker.
         .merge(graphql::routes::sirene_internal_routes(sirene_worker))
+        // Internal trigger (ADR-20260720-015400): ops ping to wake the inbound-events drain worker.
+        .merge(graphql::routes::inbound_internal_routes(inbound_drain))
         // Partner webhook adapters (ADR-20260718-213352): self-contained crates under crates/adapters/*,
         // each mountable here (monolith) or deployable as its own web service. `POST /adapters/stripe/webhooks`
         // (signature-verified inbound payment facts) and `POST /adapters/hubrise/webhooks` (HMAC-verified ingress).
         .merge(stripe_adapter::routes(stripe_ingestor))
-        .merge(hubrise_adapter::routes(hubrise_enricher))
+        .merge(hubrise_adapter::routes(hubrise_state))
         // Host-based landing (ADR-0036): any path not matched above is dispatched by the request `Host`
         // to its per-audience/tenant placeholder. Explicit routes (/health, /ping, /{role}/graphql) win,
         // so Render's health check (internal *.onrender.com host) is unaffected. Covers `/` too.

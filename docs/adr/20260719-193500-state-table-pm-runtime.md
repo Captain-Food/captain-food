@@ -4,6 +4,11 @@
 
 Accepted — implementation in progress on the `claude/process-manager-sagas-dsl-ki2tlj` branch.
 
+**Amended by ADR-20260720-015500 (2026-07-20):** the "PM state tables are private" doctrine gains
+one narrow exception — a saga row MAY back an initiator-scoped transient read the saga explicitly
+declares (`paymentStatus` over `payment_process_manager`, which also gains
+`customer_id`/`session_id`/`client_secret` columns).
+
 ## Context
 
 ADR-20260719-172821 made `specs/processmanager.yaml` a typed, code-generation-grade step DSL, but the

@@ -6,3 +6,4 @@ pub mod acl;
 pub mod generated;
 pub mod routes;
 pub mod schema;
+pub mod session;

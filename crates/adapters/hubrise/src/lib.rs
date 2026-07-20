@@ -20,6 +20,8 @@ pub mod acl;
 pub mod api;
 pub mod enrich;
 mod http;
+pub mod raw;
 
 pub use enrich::{Enricher, HubRiseEnricher};
-pub use http::routes;
+pub use http::{routes, HubRiseWebhookState};
+pub use raw::{PgRawHubRiseCallbacks, RawHubRiseCallbacks};

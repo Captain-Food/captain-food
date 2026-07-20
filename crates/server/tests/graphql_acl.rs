@@ -87,13 +87,18 @@ async fn introspection_is_filtered_per_role() {
     assert!(rest_q.contains(&"orders".into()), "RESTAURANT query missing: {rest_q:?}");
 
     // Type visibility follows field visibility: PricingPolicy is reachable only via admin-only
-    // queries, RegisterRestaurantInput/Payload only via registerRestaurant.
-    for ty in ["PricingPolicy", "RegisterRestaurantInput", "RegisterRestaurantPayload"] {
+    // queries, RegisterRestaurantInput only via registerRestaurant. (The mutation RETURN type is the
+    // shared MutationAcceptance, reachable from every mutation — visible to all roles.)
+    for ty in ["PricingPolicy", "RegisterRestaurantInput"] {
         assert!(!type_visible(&schema, RequestRole::Public, ty).await, "{ty} leaked to PUBLIC");
         assert!(!type_visible(&schema, RequestRole::Restaurant, ty).await, "{ty} leaked to RESTAURANT");
         assert!(type_visible(&schema, RequestRole::Admin, ty).await, "{ty} missing under ADMIN");
     }
     assert!(type_visible(&schema, RequestRole::Public, "Restaurant").await, "public type hidden");
+    assert!(
+        type_visible(&schema, RequestRole::Public, "MutationAcceptance").await,
+        "the shared acceptance payload must be visible to every role (acceptance-first)"
+    );
 }
 
 /// Executing an operation outside the role's api.yaml `roles` is rejected by the guard (FORBIDDEN)

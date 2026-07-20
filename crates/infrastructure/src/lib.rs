@@ -17,12 +17,14 @@ pub use integrations::google::{FailClosedGoogleOwnershipVerifier, UnverifiedGbpO
 // Stripe/HubRise webhook adapters moved to their own crates (`crates/adapters/*`, ADR-20260718-213352).
 pub use integrations::payments::FailClosedPaymentGateway;
 pub use integrations::supabase_auth::FailClosedAuthProviderGateway;
+pub use integrations::inbound_drain_worker::{InboundDrainSummary, InboundEventsDrainWorker};
 pub use integrations::sync_sirene_worker::{SireneSyncSummary, SireneSyncWorker};
 pub use persistence::{
-    AppendedEvent, EventBus, PgCartRepository, PgCatalogRepository, PgCustomerRepository,
-    PgDeliveryRepository, PgEventStore, PgOrderRepository, PgPricingPolicyRepository,
-    PgProspectionRepository, PgRefundQueueRepository, PgRestaurantRepository,
-    PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,
+    AppendedEvent, EventBus, OperationStatusBus, OperationUpdate, PgCartRepository,
+    PgCatalogRepository, PgCommandJournal, PgCustomerRepository, PgDeliveryRepository, PgEventStore,
+    PgInboundEvents, PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository,
+    PgRefundQueueRepository, PgRestaurantRepository, PgUberEstimationPolicyRepository,
+    PgUberSplitPolicyRepository,
 };
 pub use process_manager::{ProcessManagerRunner, ProcessManagerStatus};
 pub use projection::{ProjectionStatus, ProjectionWorker};
