@@ -17,6 +17,12 @@
 >   renumber the survivors — the order, not the denominator, is the contract
 >   (ADR-20260720-213024 §3).
 > - New issues get a value rank at triage (two-tier test above) and a row here.
+> - **GitHub Project sync** ("Prioritized backlog" board): the org **Priority** field mirrors the
+>   queue position — ranks 1–6 → `Urgent`, 7–11 (codegen wave) → `High`, 12–14 → `Medium`,
+>   15/post-V0 → `Low` — and the **Effort** field mirrors the size label (XXS–S → `Low`,
+>   M → `Medium`, L and up → `High`). Value drives Priority; effort is displayed but never drives
+>   order. Update both fields whenever a rank or size changes; exact order within a Priority
+>   bucket is this file + the issue header stamps.
 >
 > Last updated: 2026-07-20 · Sizes/estimates: ADR-20260720-143000 (unchanged by the re-ordering).
 
