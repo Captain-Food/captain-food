@@ -913,6 +913,21 @@ fn invalid_order_status(order_id: &OrderId, status: OrderStatus) -> DomainError 
     reject("InvalidOrderStatus", json!({ "orderId": order_id, "currentStatus": status }))
 }
 
+/// Guard an Order lifecycle move with the GENERATED transition table
+/// (`domain::order::lifecycle::transition`, from `specs/actors.yaml#/Order/lifecycle`,
+/// ADR-20260720-004419): a move the declared machine does not contain rejects with
+/// `errors.yaml#/InvalidOrderStatus` (rules.yaml#/OrderLifecycleIsExplicit).
+fn require_order_transition(
+    order_id: &OrderId,
+    status: OrderStatus,
+    event: &DomainEvent,
+) -> Result<(), DomainError> {
+    match domain::order::lifecycle::transition(status, event) {
+        Some(_) => Ok(()),
+        None => Err(invalid_order_status(order_id, status)),
+    }
+}
+
 /// Handle `commands.yaml#/AcceptOrder` → emit `events.yaml#/OrderAcceptedByRestaurant`. Only a PLACED
 /// order can be accepted (rules.yaml#/OrderLifecycleStatusMachine).
 pub async fn accept_order(
@@ -921,14 +936,12 @@ pub async fn accept_order(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let (state, version) = require_order(store, &cmd.order_id, &cmd.restaurant_id).await?;
-    if state.status != OrderStatus::PLACED {
-        return Err(invalid_order_status(&cmd.order_id, state.status));
-    }
     let event = DomainEvent::OrderAcceptedByRestaurant(OrderAcceptedByRestaurant {
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
         estimated_ready_at: cmd.estimated_ready_at,
     });
+    require_order_transition(&cmd.order_id, state.status, &event)?;
     Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
@@ -940,13 +953,11 @@ pub async fn start_preparation(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let (state, version) = require_order(store, &cmd.order_id, &cmd.restaurant_id).await?;
-    if state.status != OrderStatus::ACCEPTED {
-        return Err(invalid_order_status(&cmd.order_id, state.status));
-    }
     let event = DomainEvent::OrderPreparationStarted(OrderPreparationStarted {
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
     });
+    require_order_transition(&cmd.order_id, state.status, &event)?;
     Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
@@ -959,31 +970,28 @@ pub async fn mark_order_ready(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let (state, version) = require_order(store, &cmd.order_id, &cmd.restaurant_id).await?;
-    if !matches!(state.status, OrderStatus::ACCEPTED | OrderStatus::PREPARING) {
-        return Err(invalid_order_status(&cmd.order_id, state.status));
-    }
     let event = DomainEvent::OrderMarkedReady(OrderMarkedReady {
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
     });
+    require_order_transition(&cmd.order_id, state.status, &event)?;
     Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
 /// Handle `commands.yaml#/MarkOrderDelivered` → emit `events.yaml#/OrderDelivered`. Allowed from READY
-/// (hand-over/collection) or OUT_FOR_DELIVERY (rules.yaml#/OrderLifecycleStatusMachine).
+/// (hand-over/collection) per the declared machine (rules.yaml#/OrderLifecycleStatusMachine;
+/// OUT_FOR_DELIVERY is a read-side presentation status, unreachable in the write-side fold).
 pub async fn mark_order_delivered(
     store: &dyn EventStore,
     cmd: MarkOrderDelivered,
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let (state, version) = require_order(store, &cmd.order_id, &cmd.restaurant_id).await?;
-    if !matches!(state.status, OrderStatus::READY | OrderStatus::OUT_FOR_DELIVERY) {
-        return Err(invalid_order_status(&cmd.order_id, state.status));
-    }
     let event = DomainEvent::OrderDelivered(OrderDelivered {
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
     });
+    require_order_transition(&cmd.order_id, state.status, &event)?;
     Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
@@ -996,14 +1004,12 @@ pub async fn reject_order(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let (state, version) = require_order(store, &cmd.order_id, &cmd.restaurant_id).await?;
-    if state.status != OrderStatus::PLACED {
-        return Err(invalid_order_status(&cmd.order_id, state.status));
-    }
     let event = DomainEvent::OrderRejectedByRestaurant(OrderRejectedByRestaurant {
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
+    require_order_transition(&cmd.order_id, state.status, &event)?;
     Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
@@ -1016,14 +1022,12 @@ pub async fn cancel_order_by_customer(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let (state, version) = require_order(store, &cmd.order_id, &cmd.restaurant_id).await?;
-    if state.status != OrderStatus::PLACED {
-        return Err(invalid_order_status(&cmd.order_id, state.status));
-    }
     let event = DomainEvent::OrderCancelledByCustomer(OrderCancelledByCustomer {
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
+    require_order_transition(&cmd.order_id, state.status, &event)?;
     Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
@@ -1036,14 +1040,12 @@ pub async fn cancel_order_by_restaurant(
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let (state, version) = require_order(store, &cmd.order_id, &cmd.restaurant_id).await?;
-    if !matches!(state.status, OrderStatus::ACCEPTED | OrderStatus::PREPARING | OrderStatus::READY) {
-        return Err(invalid_order_status(&cmd.order_id, state.status));
-    }
     let event = DomainEvent::OrderCancelledByRestaurant(OrderCancelledByRestaurant {
         order_id: cmd.order_id,
         restaurant_id: cmd.restaurant_id,
         reason: cmd.reason,
     });
+    require_order_transition(&cmd.order_id, state.status, &event)?;
     Repository::new(store).save(&order_stream(&cmd.order_id), version, &[event], actor).await.map(|_| ())
 }
 
