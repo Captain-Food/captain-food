@@ -73,6 +73,23 @@ CauseId:
     Causation id: the id of the message/event that directly caused this one (matches
     domain_events.cause_id). Threads a cause→effect chain through the log; null for a root command.
 
+MessageId:
+  type: string
+  format: uuid
+  description: >
+    Unique id of one command submission — the idempotency key of the write path (command_journal pk,
+    ADR-20260720-015300). Client-suppliable via MetadataInput; server-generated (UUIDv7) when absent.
+    A replayed messageId with an identical payload acknowledges against the original; the same id
+    with a different payload is rejected (Conflict). Events emitted by the command carry it as
+    domain_events.cause_id.
+
+TraceId:
+  type: string
+  pattern: '^[0-9a-f]{32}$'
+  description: >
+    W3C trace-id (from the inbound `traceparent` header, or server-started). Response-only technical
+    tracing identifier — never client-suppliable, never a substitute for correlationId (P-02).
+
 DeliveryJobId:
   type: string
   format: uuid
@@ -497,6 +514,34 @@ OperationStatus:
   description: >
     Live status of a command/operation streamed by the operationStatusChanged subscription:
     PENDING (accepted, in flight), SUCCEEDED, REJECTED (business invariant), FAILED (technical error)."
+
+# --- Write-path journal lifecycles (database/tables/journals.yaml, ADR-20260720-015300/-015400) ---
+# Enum $ref columns are stored as the compact ordinal + a seeded ref_<enum> table (ADR-0037), so the
+# value ORDER below is a frozen contract once migrated — append-only forever.
+
+CommandJournalStatus:
+  type: string
+  enum: [RECEIVED, SUCCEEDED, REJECTED, FAILED]
+  description: >
+    Lifecycle of a journaled command: RECEIVED (durably accepted, handler spawned), then SUCCEEDED,
+    REJECTED (business invariant) or FAILED (technical). Maps onto the API OperationStatus
+    (RECEIVED → PENDING). A duplicate submission is an acceptance-response attribute, not a status —
+    the journal row keeps the original's real state.
+
+CommandChannel:
+  type: string
+  enum: [GRAPHQL, WORKER, INTERNAL]
+  description: >
+    Surface a journaled command arrived through: the GraphQL BFF dispatch, an on-app drain/enrichment
+    worker (e.g. the HubRise enricher), or an internal trigger endpoint.
+
+InboundEventStatus:
+  type: string
+  enum: [RECEIVED, DELIVERED, FAILED]
+  description: >
+    Lifecycle of an adapted inbound business event (inbound_events row): RECEIVED (staged by the
+    adapter ACL), DELIVERED (appended through the normal write path — includes the aggregate's
+    already-recorded no-op), FAILED (delivery error, left for retry/inspection).
 
 # --- Process-manager state statuses (processmanager.yaml state tables) ---
 

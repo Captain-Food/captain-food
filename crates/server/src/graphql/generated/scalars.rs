@@ -226,6 +226,36 @@ impl From<CauseId> for ds::CauseId {
     }
 }
 
+/// Unique id of one command submission — the idempotency key of the write path (command_journal pk, ADR-20260720-015300). Client-suppliable via MetadataInput; server-generated (UUIDv7) when absent. A replayed messageId with an identical payload acknowledges against the original; the same id with a different payload is rejected (Conflict). Events emitted by the command carry it as domain_events.cause_id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct MessageId(pub uuid::Uuid);
+async_graphql::scalar!(MessageId, "MessageId", "Unique id of one command submission — the idempotency key of the write path (command_journal pk, ADR-20260720-015300). Client-suppliable via MetadataInput; server-generated (UUIDv7) when absent. A replayed messageId with an identical payload acknowledges against the original; the same id with a different payload is rejected (Conflict). Events emitted by the command carry it as domain_events.cause_id.");
+impl From<ds::MessageId> for MessageId {
+    fn from(v: ds::MessageId) -> Self {
+        Self(v.0)
+    }
+}
+impl From<MessageId> for ds::MessageId {
+    fn from(v: MessageId) -> Self {
+        Self(v.0)
+    }
+}
+
+/// W3C trace-id (from the inbound `traceparent` header, or server-started). Response-only technical tracing identifier — never client-suppliable, never a substitute for correlationId (P-02).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct TraceId(pub String);
+async_graphql::scalar!(TraceId, "TraceId", "W3C trace-id (from the inbound `traceparent` header, or server-started). Response-only technical tracing identifier — never client-suppliable, never a substitute for correlationId (P-02).");
+impl From<ds::TraceId> for TraceId {
+    fn from(v: ds::TraceId) -> Self {
+        Self(v.0)
+    }
+}
+impl From<TraceId> for ds::TraceId {
+    fn from(v: TraceId) -> Self {
+        Self(v.0)
+    }
+}
+
 /// Identifies one DeliveryJob (a single delivery of an order from restaurant to customer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DeliveryJobId(pub uuid::Uuid);
@@ -1522,6 +1552,97 @@ impl From<OperationStatus> for ds::OperationStatus {
             OperationStatus::SUCCEEDED => Self::SUCCEEDED,
             OperationStatus::REJECTED => Self::REJECTED,
             OperationStatus::FAILED => Self::FAILED,
+        }
+    }
+}
+
+/// Lifecycle of a journaled command: RECEIVED (durably accepted, handler spawned), then SUCCEEDED, REJECTED (business invariant) or FAILED (technical). Maps onto the API OperationStatus (RECEIVED → PENDING). A duplicate submission is an acceptance-response attribute, not a status — the journal row keeps the original's real state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum CommandJournalStatus {
+    #[graphql(name = "RECEIVED")]
+    RECEIVED,
+    #[graphql(name = "SUCCEEDED")]
+    SUCCEEDED,
+    #[graphql(name = "REJECTED")]
+    REJECTED,
+    #[graphql(name = "FAILED")]
+    FAILED,
+}
+impl From<ds::CommandJournalStatus> for CommandJournalStatus {
+    fn from(v: ds::CommandJournalStatus) -> Self {
+        match v {
+            ds::CommandJournalStatus::RECEIVED => Self::RECEIVED,
+            ds::CommandJournalStatus::SUCCEEDED => Self::SUCCEEDED,
+            ds::CommandJournalStatus::REJECTED => Self::REJECTED,
+            ds::CommandJournalStatus::FAILED => Self::FAILED,
+        }
+    }
+}
+impl From<CommandJournalStatus> for ds::CommandJournalStatus {
+    fn from(v: CommandJournalStatus) -> Self {
+        match v {
+            CommandJournalStatus::RECEIVED => Self::RECEIVED,
+            CommandJournalStatus::SUCCEEDED => Self::SUCCEEDED,
+            CommandJournalStatus::REJECTED => Self::REJECTED,
+            CommandJournalStatus::FAILED => Self::FAILED,
+        }
+    }
+}
+
+/// Surface a journaled command arrived through: the GraphQL BFF dispatch, an on-app drain/enrichment worker (e.g. the HubRise enricher), or an internal trigger endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum CommandChannel {
+    #[graphql(name = "GRAPHQL")]
+    GRAPHQL,
+    #[graphql(name = "WORKER")]
+    WORKER,
+    #[graphql(name = "INTERNAL")]
+    INTERNAL,
+}
+impl From<ds::CommandChannel> for CommandChannel {
+    fn from(v: ds::CommandChannel) -> Self {
+        match v {
+            ds::CommandChannel::GRAPHQL => Self::GRAPHQL,
+            ds::CommandChannel::WORKER => Self::WORKER,
+            ds::CommandChannel::INTERNAL => Self::INTERNAL,
+        }
+    }
+}
+impl From<CommandChannel> for ds::CommandChannel {
+    fn from(v: CommandChannel) -> Self {
+        match v {
+            CommandChannel::GRAPHQL => Self::GRAPHQL,
+            CommandChannel::WORKER => Self::WORKER,
+            CommandChannel::INTERNAL => Self::INTERNAL,
+        }
+    }
+}
+
+/// Lifecycle of an adapted inbound business event (inbound_events row): RECEIVED (staged by the adapter ACL), DELIVERED (appended through the normal write path — includes the aggregate's already-recorded no-op), FAILED (delivery error, left for retry/inspection).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, async_graphql::Enum)]
+pub enum InboundEventStatus {
+    #[graphql(name = "RECEIVED")]
+    RECEIVED,
+    #[graphql(name = "DELIVERED")]
+    DELIVERED,
+    #[graphql(name = "FAILED")]
+    FAILED,
+}
+impl From<ds::InboundEventStatus> for InboundEventStatus {
+    fn from(v: ds::InboundEventStatus) -> Self {
+        match v {
+            ds::InboundEventStatus::RECEIVED => Self::RECEIVED,
+            ds::InboundEventStatus::DELIVERED => Self::DELIVERED,
+            ds::InboundEventStatus::FAILED => Self::FAILED,
+        }
+    }
+}
+impl From<InboundEventStatus> for ds::InboundEventStatus {
+    fn from(v: InboundEventStatus) -> Self {
+        match v {
+            InboundEventStatus::RECEIVED => Self::RECEIVED,
+            InboundEventStatus::DELIVERED => Self::DELIVERED,
+            InboundEventStatus::FAILED => Self::FAILED,
         }
     }
 }

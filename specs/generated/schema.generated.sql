@@ -72,6 +72,18 @@ INSERT INTO ref_payment_status (value, sort_order) VALUES ('PENDING',0),('CAPTUR
 CREATE TABLE ref_operation_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_operation_status (value, sort_order) VALUES ('PENDING',0),('SUCCEEDED',1),('REJECTED',2),('FAILED',3);
 
+-- CommandJournalStatus
+CREATE TABLE ref_command_journal_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_command_journal_status (value, sort_order) VALUES ('RECEIVED',0),('SUCCEEDED',1),('REJECTED',2),('FAILED',3);
+
+-- CommandChannel
+CREATE TABLE ref_command_channel(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_command_channel (value, sort_order) VALUES ('GRAPHQL',0),('WORKER',1),('INTERNAL',2);
+
+-- InboundEventStatus
+CREATE TABLE ref_inbound_event_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_inbound_event_status (value, sort_order) VALUES ('RECEIVED',0),('DELIVERED',1),('FAILED',2);
+
 -- PaymentProcessStatus
 CREATE TABLE ref_payment_process_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_payment_process_status (value, sort_order) VALUES ('AWAITING_PAYMENT_RESULT',0),('ORDER_PLACED',1),('FAILED',2);
@@ -158,12 +170,83 @@ CREATE INDEX ON external_sirene_restaurants (naf);
 CREATE INDEX ON external_sirene_restaurants (department);
 CREATE INDEX ON external_sirene_restaurants (last_seen_at);
 
+CREATE TABLE external_stripe_events (
+  stripe_event_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
+  processed_at TIMESTAMPTZ NULL
+);
+CREATE INDEX ON external_stripe_events (event_type);
+CREATE INDEX ON external_stripe_events (received_at);
+CREATE INDEX ON external_stripe_events (processed_at);
+
+CREATE TABLE external_hubrise_callbacks (
+  callback_id TEXT PRIMARY KEY,
+  resource_type TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  location_id TEXT NULL,
+  payload JSONB NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
+  processed_at TIMESTAMPTZ NULL
+);
+CREATE INDEX ON external_hubrise_callbacks (resource_type);
+CREATE INDEX ON external_hubrise_callbacks (location_id);
+CREATE INDEX ON external_hubrise_callbacks (received_at);
+CREATE INDEX ON external_hubrise_callbacks (processed_at);
+
+CREATE TABLE command_journal (
+  message_id UUID PRIMARY KEY,
+  correlation_id UUID NOT NULL,
+  cause_id UUID NULL,
+  session_id UUID NULL,
+  trace_id TEXT NULL,
+  user_id UUID NULL,
+  user_type INTEGER NOT NULL,
+  channel INTEGER NOT NULL,
+  command_type TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  payload_hash TEXT NOT NULL,
+  status INTEGER NOT NULL,
+  error JSONB NULL,
+  received_at TIMESTAMPTZ NOT NULL,
+  completed_at TIMESTAMPTZ NULL
+);
+CREATE INDEX ON command_journal (correlation_id);
+CREATE INDEX ON command_journal (session_id);
+CREATE INDEX ON command_journal (user_id);
+CREATE INDEX ON command_journal (command_type);
+CREATE INDEX ON command_journal (status);
+CREATE INDEX ON command_journal (received_at);
+
+CREATE TABLE inbound_events (
+  inbound_event_id UUID PRIMARY KEY,
+  source TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  correlation_id UUID NOT NULL,
+  event_type TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  status INTEGER NOT NULL,
+  error JSONB NULL,
+  received_at TIMESTAMPTZ NOT NULL,
+  delivered_at TIMESTAMPTZ NULL,
+  UNIQUE (source, external_id)
+);
+CREATE INDEX ON inbound_events (source);
+CREATE INDEX ON inbound_events (correlation_id);
+CREATE INDEX ON inbound_events (event_type);
+CREATE INDEX ON inbound_events (status);
+CREATE INDEX ON inbound_events (received_at);
+
 CREATE TABLE payment_process_manager (
   cart_id UUID PRIMARY KEY,
   order_id UUID NOT NULL,
   payment_intent_id TEXT NOT NULL UNIQUE,
   process_status INTEGER NOT NULL,
   payment_status INTEGER NOT NULL,
+  customer_id UUID NULL,
+  session_id UUID NULL,
+  client_secret TEXT NULL,
   last_processed_stripe_event_id TEXT NULL,
   last_update_utc TIMESTAMPTZ NOT NULL
 );

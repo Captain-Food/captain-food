@@ -1,0 +1,59 @@
+version: 1
+description: >
+  WRITE-PATH JOURNALS (ADR-20260720-015300 / -015400) — a fifth table category alongside the event
+  store, the projections, the seeded referential tables and the raw integration staging: durable
+  records of REQUESTS entering the system (command_journal) and of ADAPTED FACTS entering from
+  outside (inbound_events). Journals NEVER write domain_events (aggregates own the log via the
+  write-side Repository) and are never replayed as state — the event log stays the single source of
+  truth. command_journal backs the MutationAcceptance contract, write-path idempotency and the
+  operationStatus query/subscription; inbound_events is the adapters' handoff, drained by the
+  InboundEventsDrainWorker through the normal write path. Neither is projected nor a GraphQL
+  `reads` target — the operationStatus resolver serves the journal directly (transient Operation
+  type, no View_*).
+
+command_journal:
+  description: >
+    One row per command submission, any channel (GRAPHQL / WORKER / INTERNAL), persisted BEFORE
+    handling. pk message_id is the write-path idempotency key: a replay with the same payload_hash
+    acknowledges against this row (acceptance `duplicate: true`); the same id with a different hash
+    is rejected (Conflict). Records rejections too — `status` + `error` are the source of the
+    operationStatus surface. The envelope lives in the COLUMNS; `payload` is the business command
+    only (ADR-0041). Events appended by the handler carry message_id as domain_events.cause_id.
+  columns:
+    message_id:     { type: { $ref: 'scalars.yaml#/MessageId' }, pk: true, note: "Client-suppliable (MetadataInput) or server-generated UUIDv7 — the acceptance handle." }
+    correlation_id: { type: { $ref: 'scalars.yaml#/CorrelationId' }, index: true, note: "Effective correlation (client-supplied or defaulted to message_id); matches domain_events.correlation_id." }
+    cause_id:       { type: { $ref: 'scalars.yaml#/CauseId' }, nullable: true, note: "Parent message/event id when this command was caused by another message; null for a root command." }
+    session_id:     { type: { $ref: 'scalars.yaml#/SessionId' }, nullable: true, index: true, note: "X-SESSION-ID header — the anonymous ownership scope for operationStatus." }
+    trace_id:       { type: { $ref: 'scalars.yaml#/TraceId' }, nullable: true, note: "W3C trace-id (traceparent-derived or server-started); technical tracing, not business correlation." }
+    user_id:        { type: uuid, nullable: true, index: true, note: "Acting user's auth subject (null for anonymous) — the authenticated ownership scope. Envelope, mirrors domain_events.user_id semantics (ADR-0041)." }
+    user_type:      { type: { $ref: 'scalars.yaml#/UserType' }, note: "Role of the acting user; stored as the compact UserType ordinal (ref_user_type.sort_order)." }
+    channel:        { type: { $ref: 'scalars.yaml#/CommandChannel' }, note: "Dispatch surface the command arrived through." }
+    command_type:   { type: text, index: true, note: "commands.yaml key, e.g. 'PlaceOrder'." }
+    payload:        { type: jsonb, note: "The BUSINESS command payload only — the envelope is the columns (ADR-0041)." }
+    payload_hash:   { type: text, note: "sha256 hex over the canonical (serde_json) payload — the duplicate-vs-conflict discriminator." }
+    status:         { type: { $ref: 'scalars.yaml#/CommandJournalStatus' }, index: true, note: "RECEIVED → SUCCEEDED | REJECTED | FAILED; a stale-RECEIVED sweep marks crashed runs FAILED." }
+    error:          { type: jsonb, nullable: true, note: "{ code, context } on REJECTED/FAILED — the errors.yaml code surfaced as Operation.errorCode." }
+    received_at:    { type: timestamptz, index: true }
+    completed_at:   { type: timestamptz, nullable: true, note: "Terminal transition time; null while RECEIVED." }
+
+inbound_events:
+  description: >
+    Adapted inbound BUSINESS events (events.yaml vocabulary only — no external shapes) staged by
+    adapter ACLs after signature verification and raw external_* staging (integration_staging.yaml),
+    drained by the InboundEventsDrainWorker through the normal write path (Repository append; the
+    aggregate's fold-based dedupe stays authoritative — an already-recorded no-op still DELIVERs).
+    (source, external_id) is the delivery-level dedupe; inbound_event_id becomes
+    domain_events.cause_id for the appended fact.
+  columns:
+    inbound_event_id: { type: uuid, pk: true, note: "UUIDv7 minted at staging — the causality link into domain_events.cause_id." }
+    source:           { type: text, index: true, note: "Owning adapter: 'stripe' (others as they adopt the inbox, ADR-20260720-015400)." }
+    external_id:      { type: text, note: "Provider event id (e.g. Stripe 'evt_…'); UNIQUE with source (constraints below)." }
+    correlation_id:   { type: { $ref: 'scalars.yaml#/CorrelationId' }, index: true, note: "UUIDv5 of the provider event id — the established ACL convention; matches domain_events.correlation_id on delivery." }
+    event_type:       { type: text, index: true, note: "events.yaml key, e.g. 'PaymentCaptured'." }
+    payload:          { type: jsonb, note: "The serialized domain event — business vocabulary only (the ACL already translated)." }
+    status:           { type: { $ref: 'scalars.yaml#/InboundEventStatus' }, index: true, note: "RECEIVED → DELIVERED | FAILED." }
+    error:            { type: jsonb, nullable: true, note: "Delivery failure detail; FAILED rows are retryable/inspectable." }
+    received_at:      { type: timestamptz, index: true }
+    delivered_at:     { type: timestamptz, nullable: true }
+  constraints:
+    - unique: [source, external_id]    # delivery-level dedupe: one row per provider event

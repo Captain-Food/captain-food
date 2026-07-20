@@ -5,6 +5,10 @@ Accepted — first realization shipped 2026-07-18 (MutationRoot + the Restaurant
 aggregates (Prospect, Catalog, Cart, Order, Customer, RestaurantAccount, Delivery) are a follow-up that
 reuses this pattern.
 
+**Amended by ADR-20260720-015300/-015500 (2026-07-20):** dispatch is now journal-then-spawn —
+mutations persist a `command_journal` row and return a uniform acceptance; the handler pattern
+described here is unchanged but runs asynchronously after acceptance.
+
 ## Context
 The read side landed first (ADR-0039/0040 projections; the `restaurants`/`prospectionPipeline`/policy
 queries). The API was read-only: `EmptyMutation`, and the only write path was the idempotent

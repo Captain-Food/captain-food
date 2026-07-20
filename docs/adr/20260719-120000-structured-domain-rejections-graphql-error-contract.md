@@ -4,6 +4,11 @@
 Proposed — realizes the "structured typed error" follow-up flagged in ADR-0046 (Consequences →
 "Error typing is interim").
 
+**Amended by ADR-20260720-015500 (2026-07-20):** with acceptance-first mutations the contract
+splits — synchronous validation failures (input shape, metadata, duplicate-payload Conflict) keep
+the GraphQL `extensions.code` mapping described here; post-acceptance business rejections surface
+asynchronously as `Operation.errorCode` + the interpolated message (same errors.yaml catalog).
+
 ## Context
 Command handlers rejected requests with `DomainError::Invariant(String)` carrying the errors.yaml code
 as an interim `"<Code>: <detail>"` string (ADR-0046). That shape is unparseable-by-contract on the wire

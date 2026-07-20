@@ -21,6 +21,8 @@ scalar CartId
 scalar CartLineId
 scalar CorrelationId
 scalar CauseId
+scalar MessageId
+scalar TraceId
 scalar DeliveryJobId
 scalar RiderId
 scalar PaymentIntentId
@@ -194,6 +196,25 @@ enum OperationStatus {
   PENDING
   SUCCEEDED
   REJECTED
+  FAILED
+}
+
+enum CommandJournalStatus {
+  RECEIVED
+  SUCCEEDED
+  REJECTED
+  FAILED
+}
+
+enum CommandChannel {
+  GRAPHQL
+  WORKER
+  INTERNAL
+}
+
+enum InboundEventStatus {
+  RECEIVED
+  DELIVERED
   FAILED
 }
 
