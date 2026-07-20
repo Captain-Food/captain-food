@@ -1,7 +1,16 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-20 (13:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-20 (21:30 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> ✅ **2026-07-20 — backlog re-ordered by VALUE, not effort (ADR-20260720-213024, product-owner
+> directive).** ADR-20260720-143000 §4's simplest-first queue is amended: tier 1 = foundations &
+> cross-functional/non-functional, tier 2 = features in value-stream order (customer ordering →
+> restaurant onboarding → delivery). New queue: #14 → #22 → #15 → #16 → #19 → #18 (contracts,
+> security, invariants, observability, retention) → #27 → #26 → #24 → #25 → #23 (codegen wave) →
+> #17 → #21 (customer stream) → #20 (restaurant onboarding) → #28 (delivery, post-V0). All 15 open
+> issues re-stamped `Value rank N/15 (foundations → value stream)`; sizing & pre-task-doc rules
+> unchanged. Docs-only change — no specs, no code.
 
 > ✅ **2026-07-20 — #12: anonymous checkout survives restarts (ADR-20260720-213000).**
 > `place_order` now takes the dispatch-layer `X-SESSION-ID` as an ENVELOPE parameter (never command
