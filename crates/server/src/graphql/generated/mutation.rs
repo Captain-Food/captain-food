@@ -1060,12 +1060,12 @@ impl MutationRoot {
     #[graphql(name = "placeOrder", guard = "RoleGuard::new(ALLOW_CUSTOMER)", visible = "visible_customer")]
     async fn place_order(&self, ctx: &async_graphql::Context<'_>, input: PlaceOrderInput) -> async_graphql::Result<PlaceOrderPayload> {
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?;
-        let carts = ctx.data::<std::sync::Arc<dyn application::queries::CartReadRepository>>()?;
+        let catalogs = ctx.data::<std::sync::Arc<dyn application::queries::CatalogReadRepository>>()?;
         let payments = ctx.data::<std::sync::Arc<dyn application::ports::PaymentGateway>>()?;
         let pm_state = ctx.data::<std::sync::Arc<dyn application::pm_state::PaymentProcessStateStore>>()?;
         let cmd: domain::generated::commands::PlaceOrder = to_command(&input)?;
         let actor = request_actor(ctx);
-        let intent = application::commands::place_order(store.as_ref(), carts.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, &actor)
+        let intent = application::commands::place_order(store.as_ref(), catalogs.as_ref(), payments.as_ref(), pm_state.as_ref(), cmd, &actor)
             .await
             .map_err(domain_error)?;
         Ok(PlaceOrderPayload {

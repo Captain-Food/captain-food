@@ -3048,7 +3048,7 @@ _⚙️ process manager_ — The checkout saga. On PlaceOrder: reads the OPEN ca
 
 | Receives | Emits → | Throws |
 | --- | --- | --- |
-| [📩 `PlaceOrder`](#command-placeorder) | [⚡ `PaymentIntentCreated`](#event-paymentintentcreated) | [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `PaymentDeclined`](#error-paymentdeclined) |
+| [📩 `PlaceOrder`](#command-placeorder) | [⚡ `PaymentIntentCreated`](#event-paymentintentcreated) | [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `PriceUnresolvable`](#error-priceunresolvable), [⛔ `PriceMismatch`](#error-pricemismatch), [⛔ `PaymentDeclined`](#error-paymentdeclined) |
 | [⚡ `PaymentCaptured`](#event-paymentcaptured) | [⚡ `OrderPlaced`](#event-orderplaced), [⚡ `CartCheckedOut`](#event-cartcheckedout) | [⛔ `PaymentEventOrphaned`](#error-paymenteventorphaned) |
 | [⚡ `PaymentFailed`](#event-paymentfailed) | _Payment failed: resolve the run; no order is placed and the cart stays OPEN._ | [⛔ `PaymentEventOrphaned`](#error-paymenteventorphaned) |
 
@@ -3077,6 +3077,8 @@ sequenceDiagram
   PM--xIN: throws CannotOrderTestRestaurant
   PM--xIN: throws DeliveryAddressRequired
   PM--xIN: throws OutsideDeliveryArea
+  PM--xIN: throws PriceUnresolvable
+  PM--xIN: throws PriceMismatch
   PM->>PT_payment: request
   PM--xIN: throws PaymentDeclined
   PM->>AG_Payment: deliver PaymentIntentCreated — the aggregate records it
@@ -3305,7 +3307,7 @@ SAGA (checkout). Reads the OPEN cart referenced by cartId, re-validates it again
 
 - **Dispatched by**: [✏️ `placeOrder`](#mutation-placeorder) · **handled by** [🎭 `PlaceOrderProcess`](#actor-placeorderprocess)
 - **Emits**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
-- **Throws**: [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `PaymentDeclined`](#error-paymentdeclined)
+- **Throws**: [⛔ `CartNotFound`](#error-cartnotfound), [⛔ `CartNotOpen`](#error-cartnotopen), [⛔ `CartEmpty`](#error-cartempty), [⛔ `RestaurantPaused`](#error-restaurantpaused), [⛔ `CannotOrderTestRestaurant`](#error-cannotordertestrestaurant), [⛔ `DeliveryAddressRequired`](#error-deliveryaddressrequired), [⛔ `OutsideDeliveryArea`](#error-outsidedeliveryarea), [⛔ `PriceUnresolvable`](#error-priceunresolvable), [⛔ `PriceMismatch`](#error-pricemismatch), [⛔ `PaymentDeclined`](#error-paymentdeclined)
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3319,6 +3321,7 @@ SAGA (checkout). Reads the OPEN cart referenced by cartId, re-validates it again
 | <a id="command-placeorder--deliveryaddress"></a>`deliveryAddress` | [📦 `Address`](#entity-address) | ⬜ |  |
 | <a id="command-placeorder--note"></a>`note` | [🔤 `OrderNote`](#scalar-ordernote) | ⬜ |  |
 | <a id="command-placeorder--paymentmethodid"></a>`paymentMethodId` | `string` | ✅ | Stripe PaymentMethod / client secret reference for the payment step. The wallet behind it (card, Apple Pay, Google Pay) is a client-side/Stripe concern and does not change the domain: every method yields a standard Stripe PaymentMethod and the same saga.  |
+| <a id="command-placeorder--expectedtotal"></a>`expectedTotal` | [📦 `Money`](#entity-money) | ⬜ | OPTIONAL confirmation of the total the client displayed at checkout. NEVER used to price anything — the server recomputes the total from the live catalog (the only price authority) and rejects with errors.yaml#/PriceMismatch when the two diverge, so a customer is never charged an amount other than the one they were shown.  |
 
 <a id="command-acceptorder"></a>
 #### 📩 Command: `AcceptOrder`
@@ -4030,7 +4033,7 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="entity-checkoutsnapshot--customercontact"></a>`customerContact` | [📦 `CustomerContact`](#entity-customercontact) | ✅ |  |
 | <a id="entity-checkoutsnapshot--servicetype"></a>`serviceType` | [🔤 `ServiceType`](#scalar-servicetype) | ✅ |  |
 | <a id="entity-checkoutsnapshot--deliveryaddress"></a>`deliveryAddress` | [📦 `Address`](#entity-address) | ⬜ |  |
-| <a id="entity-checkoutsnapshot--items"></a>`items` | [[📦 `OrderLineItem`](#entity-orderlineitem)] | ✅ | Priced order lines frozen at checkout; may be empty until server-side line pricing lands. |
+| <a id="entity-checkoutsnapshot--items"></a>`items` | [[📦 `OrderLineItem`](#entity-orderlineitem)] | ✅ | Priced order lines frozen at checkout — recomputed server-side from the live catalog (rules.yaml#/ServerPriceAuthority). |
 | <a id="entity-checkoutsnapshot--totalamount"></a>`totalAmount` | [📦 `Money`](#entity-money) | ✅ |  |
 | <a id="entity-checkoutsnapshot--breakdown"></a>`breakdown` | [📦 `PaymentBreakdown`](#entity-paymentbreakdown) | ✅ |  |
 | <a id="entity-checkoutsnapshot--note"></a>`note` | [🔤 `OrderNote`](#scalar-ordernote) | ⬜ |  |
@@ -4075,7 +4078,7 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="scalar-paymentstatus"></a>🔤 `PaymentStatus` | enum (PENDING \| CAPTURED \| FAILED \| REFUNDED) | Order payment state, folded from Stripe facts (PaymentIntentCreated/Captured/Failed/Refunded). |
 | <a id="scalar-comparisonbasis"></a>🔤 `ComparisonBasis` | enum (ESTIMATED \| REAL) | Provenance of an Uber Eats comparison amount: REAL (the restaurant's own Uber prices, shared via HubRise after explicit opt-in — ADR-0023) or ESTIMATED (coefficient-based, always labelled — ADR-0024).  |
 
-### ⛔ Errors _(20)_
+### ⛔ Errors _(22)_
 
 | Error | Description | Message (en) | Message (fr) | Thrown by |
 | --- | --- | --- | --- | --- |
@@ -4097,10 +4100,12 @@ The validated, server-priced checkout PlaceOrderProcess freezes onto events.yaml
 | <a id="error-deliveryaddressrequired"></a>⛔ `DeliveryAddressRequired` | serviceType is DELIVERY but no delivery address was provided. | 🇬🇧 A delivery address is required for delivery. | 🇫🇷 Une adresse de livraison est requise pour la livraison. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-outsidedeliveryarea"></a>⛔ `OutsideDeliveryArea` | Delivery address is outside the restaurant's delivery area. | 🇬🇧 This address is outside the delivery area of '{restaurantName}'. | 🇫🇷 Cette adresse est en dehors de la zone de livraison de '{restaurantName}'. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-paymentdeclined"></a>⛔ `PaymentDeclined` | Stripe declined the payment synchronously at checkout (no order placed). | 🇬🇧 Payment was declined. | 🇫🇷 Le paiement a été refusé. | [📩 `PlaceOrder`](#command-placeorder) |
+| <a id="error-pricemismatch"></a>⛔ `PriceMismatch` | The client-submitted confirmation total (PlaceOrder.expectedTotal) differs from the total the server recomputed from the live catalog. The server is the only price authority: the checkout is rejected so the customer is never charged an amount other than the one they were shown.  | 🇬🇧 Prices have changed since you loaded the menu. Please review your cart and try again. | 🇫🇷 Les prix ont changé depuis l'affichage du menu. Veuillez vérifier votre panier et réessayer. | [📩 `PlaceOrder`](#command-placeorder) |
+| <a id="error-priceunresolvable"></a>⛔ `PriceUnresolvable` | A cart line's price could not be resolved from the live catalog at checkout (offer or selected option no longer present). Fail-closed: the checkout is rejected — the server never falls back to a client-supplied amount.  | 🇬🇧 An item in your cart is no longer available at a known price. Please review your cart. | 🇫🇷 Un article de votre panier n'a plus de prix connu. Veuillez vérifier votre panier. | [📩 `PlaceOrder`](#command-placeorder) |
 | <a id="error-refundnotpending"></a>⛔ `RefundNotPending` | The refund decision (ApproveRefund / DenyRefund, by the restaurant or an admin) targets an order with no refund pending approval — either no refund run exists for the order, or it was already approved, denied or settled.  | 🇬🇧 No refund is pending approval for this order. | 🇫🇷 Aucun remboursement n'est en attente d'approbation pour cette commande. | [📩 `ApproveRefund`](#command-approverefund), [📩 `DenyRefund`](#command-denyrefund) |
 | <a id="error-cannotordertestrestaurant"></a>⛔ `CannotOrderTestRestaurant` | A production (LIVE) order was placed against a TEST restaurant (ADR-0038 test-mode isolation). Real customers never reach test data; a TEST order may instead target a LIVE restaurant (receipt validation).  | 🇬🇧 This restaurant is not available. | 🇫🇷 Ce restaurant n'est pas disponible. | [📩 `PlaceOrder`](#command-placeorder) |
 
-### 📐 Business rules _(16)_
+### 📐 Business rules _(17)_
 
 <a id="rule-cartpricedfromlivecatalog"></a>
 #### 📐 Rule: `CartPricedFromLiveCatalog`
@@ -4150,6 +4155,13 @@ _Tips (rider/restaurant/Captain, by customer or restaurant) are additive and sep
 _A customer can request a refund for an order._
 
 - **Verified by**: [🧪 `TestOrderRefundRequested`](#test-testorderrefundrequested)
+
+<a id="rule-serverpriceauthority"></a>
+#### 📐 Rule: `ServerPriceAuthority`
+
+_The server is the only price authority on the write path: order line totals, the order total and the payment-intent amount are recomputed at checkout from the live catalog (Offer prices, Option prices) — no client-supplied amount is ever trusted. A client-submitted expectedTotal is a confirmation only, checked for equality (divergence rejects with PriceMismatch), and a cart line whose price cannot be resolved from the live catalog rejects the checkout fail-closed (PriceUnresolvable) — never a fallback to the client's number._
+
+- **Verified by**: [🧪 `TestPlaceOrderRecomputesPriceServerSide`](#test-testplaceorderrecomputespriceserverside), [🧪 `TestPlaceOrderRejectsPriceMismatch`](#test-testplaceorderrejectspricemismatch), [🧪 `TestPlaceOrderRejectsUnresolvablePrice`](#test-testplaceorderrejectsunresolvableprice)
 
 <a id="rule-checkoutpricescartcreatespaymentintent"></a>
 #### 📐 Rule: `CheckoutPricesCartCreatesPaymentIntent`
@@ -4543,6 +4555,36 @@ _Checkout reads the open cart, prices it, and creates a Stripe payment intent_
 - **When**: [📩 `PlaceOrder`](#command-placeorder)
 - **Then**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
 - **Verifies**: [📐 `CheckoutPricesCartCreatesPaymentIntent`](#rule-checkoutpricescartcreatespaymentintent), [📐 `CheckoutSnapshotFrozenAtIntent`](#rule-checkoutsnapshotfrozenatintent)
+
+<a id="test-testplaceorderrecomputespriceserverside"></a>
+#### 🧪 Test: `TestPlaceOrderRecomputesPriceServerSide`
+
+_Checkout recomputes every line total and the order total from the live catalog; a matching client confirmation total passes_
+
+- **Given**: [⚡ `CatalogCreated`](#event-catalogcreated), [⚡ `ProductAdded`](#event-productadded), [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
+- **When**: [📩 `PlaceOrder`](#command-placeorder)
+- **Then**: [⚡ `PaymentIntentCreated`](#event-paymentintentcreated)
+- **Verifies**: [📐 `ServerPriceAuthority`](#rule-serverpriceauthority)
+
+<a id="test-testplaceorderrejectspricemismatch"></a>
+#### 🧪 Test: `TestPlaceOrderRejectsPriceMismatch`
+
+_A client confirmation total that diverges from the server-recomputed total rejects the checkout (server is the price authority)_
+
+- **Given**: [⚡ `CatalogCreated`](#event-catalogcreated), [⚡ `ProductAdded`](#event-productadded), [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
+- **When**: [📩 `PlaceOrder`](#command-placeorder)
+- **Thrown**: [⛔ `PriceMismatch`](#error-pricemismatch)
+- **Verifies**: [📐 `ServerPriceAuthority`](#rule-serverpriceauthority)
+
+<a id="test-testplaceorderrejectsunresolvableprice"></a>
+#### 🧪 Test: `TestPlaceOrderRejectsUnresolvablePrice`
+
+_A cart line whose price cannot be resolved from the live catalog rejects the checkout fail-closed (never the client's number)_
+
+- **Given**: [⚡ `CartStarted`](#event-cartstarted), [⚡ `CartLineAdded`](#event-cartlineadded)
+- **When**: [📩 `PlaceOrder`](#command-placeorder)
+- **Thrown**: [⛔ `PriceUnresolvable`](#error-priceunresolvable)
+- **Verifies**: [📐 `ServerPriceAuthority`](#rule-serverpriceauthority)
 
 <a id="test-testplaceorderisrejected"></a>
 #### 🧪 Test: `TestPlaceOrderIsRejected`

@@ -312,7 +312,7 @@ pub struct CheckoutSnapshot {
     pub service_type: ServiceType,
     #[graphql(name = "deliveryAddress")]
     pub delivery_address: Option<Address>,
-    /// Priced order lines frozen at checkout; may be empty until server-side line pricing lands.
+    /// Priced order lines frozen at checkout — recomputed server-side from the live catalog (rules.yaml#/ServerPriceAuthority).
     #[graphql(name = "items")]
     #[serde(default)]
     pub items: Vec<OrderLineItem>,

@@ -1718,6 +1718,70 @@ tests:
     then:
       - { $ref: '#/fixtures/paymentIntentCreated' }
 
+  TestPlaceOrderRecomputesPriceServerSide:
+    name: "Checkout recomputes every line total and the order total from the live catalog; a matching client confirmation total passes"
+    rules: [{ $ref: 'rules.yaml#/ServerPriceAuthority' }]
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
+    given:
+      - { $ref: '#/fixtures/catalogCreated' }
+      - { $ref: '#/fixtures/productAdded' }
+      - { $ref: '#/fixtures/cartStarted' }
+      - { $ref: '#/fixtures/cartLineAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/PlaceOrder' }
+      data:
+        orderId: "order-1"
+        restaurantId: "resto-1"
+        cartId: "cart-1"
+        customerContact: { displayName: "Johnny", phone: "+33612345678" }
+        serviceType: "PICKUP"
+        expectedTotal: { amountCents: 1960, currency: "EUR" }
+        paymentMethodId: "pm_123"
+    then:
+      - { $ref: '#/fixtures/paymentIntentCreated' }
+
+  TestPlaceOrderRejectsPriceMismatch:
+    name: "A client confirmation total that diverges from the server-recomputed total rejects the checkout (server is the price authority)"
+    rules: [{ $ref: 'rules.yaml#/ServerPriceAuthority' }]
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
+    given:
+      - { $ref: '#/fixtures/catalogCreated' }
+      - { $ref: '#/fixtures/productAdded' }
+      - { $ref: '#/fixtures/cartStarted' }
+      - { $ref: '#/fixtures/cartLineAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/PlaceOrder' }
+      data:
+        orderId: "order-1"
+        restaurantId: "resto-1"
+        cartId: "cart-1"
+        customerContact: { displayName: "Johnny", phone: "+33612345678" }
+        serviceType: "PICKUP"
+        expectedTotal: { amountCents: 100, currency: "EUR" }
+        paymentMethodId: "pm_123"
+    thrown:
+      - { $ref: 'errors.yaml#/PriceMismatch' }
+
+  TestPlaceOrderRejectsUnresolvablePrice:
+    name: "A cart line whose price cannot be resolved from the live catalog rejects the checkout fail-closed (never the client's number)"
+    rules: [{ $ref: 'rules.yaml#/ServerPriceAuthority' }]
+    actor: { $ref: 'processmanager.yaml#/PlaceOrderProcess' }
+    given:
+      # No catalog facts: the cart's offer resolves to no live price.
+      - { $ref: '#/fixtures/cartStarted' }
+      - { $ref: '#/fixtures/cartLineAdded' }
+    when:
+      type: { $ref: 'commands.yaml#/PlaceOrder' }
+      data:
+        orderId: "order-1"
+        restaurantId: "resto-1"
+        cartId: "cart-1"
+        customerContact: { displayName: "Johnny", phone: "+33612345678" }
+        serviceType: "PICKUP"
+        paymentMethodId: "pm_123"
+    thrown:
+      - { $ref: 'errors.yaml#/PriceUnresolvable' }
+
   TestPlaceOrderIsRejected:
     name: "Rejects checkout when the restaurant is paused, the cart is empty, the delivery address is missing or out of area, or the payment is declined"
     rules: [{ $ref: 'rules.yaml#/CheckoutPricesCartCreatesPaymentIntent' }]

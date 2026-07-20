@@ -987,6 +987,7 @@ input PlaceOrderInput {
   deliveryAddress: AddressInput
   note: OrderNote
   paymentMethodId: String!
+  expectedTotal: MoneyInput
 }
 
 input AcceptOrderInput {

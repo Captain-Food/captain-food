@@ -35,7 +35,7 @@ use domain::generated::commands::{
     UpdateRestaurant, UpdateRestaurantAccount, UpdateRestaurantGoogleBusinessProfile, VerifyPhone,
     VerifyGoogleBusinessProfileOrderLink,
 };
-use domain::generated::entities::{CheckoutSnapshot, Money, PaymentBreakdown, Product, Stock};
+use domain::generated::entities::{CheckoutSnapshot, Money, Product, Stock};
 use domain::generated::events::{
     CatalogCategoryAdded, CatalogCategoryRemoved, CatalogCategoryUpdated, CatalogCreated,
     CatalogImported, CustomerAddressRemoved, CustomerAddressSet, CustomerEmailVerified,
@@ -93,7 +93,7 @@ use domain::generated::events::{
     RestaurantRated as RestaurantRatedEvent, RiderInfoUpdated, RiderRegistered, RiderStatusChanged,
 };
 use domain::generated::scalars::{
-    CartId, CartStatus, CatalogItemAvailability, DeliveryJobId, DeliveryStatus, Mode, MoneyCents,
+    CartId, CartStatus, CatalogItemAvailability, DeliveryJobId, DeliveryStatus, Mode,
     OrderAcceptanceMode, OrderId, OrderStatus, OptionId, PaymentProcessStatus, PaymentStatus,
     RiderId, RiderStatus, ServiceType, TipRecipient, Tipper,
 };
@@ -102,7 +102,7 @@ use domain::rider::RiderState;
 
 use crate::pm_state::{PaymentProcessRow, PaymentProcessStateStore};
 use crate::ports::{CreatedPaymentIntent, PaymentGateway};
-use crate::queries::{CartReadRepository, CatalogReadRepository, OfferView};
+use crate::queries::{CatalogReadRepository, OfferView};
 use crate::repository::Repository;
 
 /// Absorb the optimistic-concurrency clash of a CREATION command (expected_version = 0) as success:
@@ -1676,9 +1676,13 @@ pub async fn change_rider_status(
 /// fact, carrying the frozen checkout snapshot the capture leg reads back from the log) and open the
 /// PlaceOrderProcess run as a `payment_process_manager` row (AWAITING_PAYMENT_RESULT, keyed by cart).
 /// This is ONLY the saga's first, command-initiated leg: validate the checkout, price the cart
-/// server-side and create the Stripe PaymentIntent through the [`PaymentGateway`] seam (a synchronous
-/// decline is the canonical `errors.yaml#/PaymentDeclined`). Returns the created intent so the
-/// mutation payload can carry `paymentIntentId`/`clientSecret` (api.yaml).
+/// server-side from the LIVE catalog (`crate::pricing::price_cart` —
+/// rules.yaml#/ServerPriceAuthority: the server is the only price authority; an unresolvable line
+/// price rejects fail-closed with `errors.yaml#/PriceUnresolvable`, and a client `expectedTotal`
+/// that diverges from the recomputed total rejects with `errors.yaml#/PriceMismatch`) and create
+/// the Stripe PaymentIntent through the [`PaymentGateway`] seam for exactly that recomputed amount
+/// (a synchronous decline is the canonical `errors.yaml#/PaymentDeclined`). Returns the created
+/// intent so the mutation payload can carry `paymentIntentId`/`clientSecret` (api.yaml).
 ///
 /// Single-flight per cart: a live run still AWAITING_PAYMENT_RESULT for this cart means a concurrent
 /// (or double-submitted) checkout — rejected with the cross-cutting `errors.yaml#/Conflict` (retry
@@ -1693,7 +1697,7 @@ pub async fn change_rider_status(
 ///   * `events.yaml#/PaymentFailed` (INBOUND) → abort: no OrderPlaced, the cart stays OPEN.
 pub async fn place_order(
     store: &dyn EventStore,
-    carts: &dyn CartReadRepository,
+    catalogs: &dyn CatalogReadRepository,
     payments: &dyn PaymentGateway,
     pm_state: &dyn PaymentProcessStateStore,
     cmd: PlaceOrder,
@@ -1759,17 +1763,31 @@ pub async fn place_order(
     // TODO(invariant): OutsideDeliveryArea — needs a delivery-area policy port (the restaurant's
     //                  delivery zone is not modelled in any read port yet).
     // TODO(invariant): OfferUnavailable / InsufficientStock / InvalidOptionSelection — re-validating
-    //                  each cart line against the LIVE catalog needs an offer-level Catalog read port
-    //                  (same gap as add_cart_line).
-    // Price the cart server-side: the projected Cart total (never trust client prices).
-    // TODO(runtime): the Cart projector does not price lines yet (total stays 0 until the
-    //                catalog+policy pricing lands) — the seam is in place so this handler is unchanged.
-    let cart_row = carts.by_id(cmd.cart_id).await?.ok_or_else(|| {
-        DomainError::Repository(format!("cart projection not yet available for cart {}", cmd.cart_id.0))
-    })?;
-    let amount = Money { amount_cents: cart_row.total_amount_cents, currency: cart_row.currency };
-    // Create the Stripe PaymentIntent through the gateway seam; a synchronous decline surfaces as the
-    // canonical `PaymentDeclined` rejection (see the PaymentGateway contract).
+    //                  each line's ORDERABILITY at checkout (pricing below already fails closed on a
+    //                  line that has left the catalog, but availability/stock re-checks are pending).
+    // Price the cart server-side from the LIVE catalog (rules.yaml#/ServerPriceAuthority): the fold's
+    // lines (offer + quantity + selected options — authoritative, from the cart's own stream) are
+    // repriced through the Catalog read port. Fail-closed: an unresolvable line price rejects with
+    // `PriceUnresolvable` — never a fallback to any client number.
+    let priced = crate::pricing::price_cart(catalogs, cmd.cart_id, cmd.restaurant_id, &cart.lines).await?;
+    // The client's expectedTotal (optional) is a CONFIRMATION only — checked for equality against the
+    // recomputed total so the customer is never charged an amount other than the one displayed.
+    if let Some(expected) = &cmd.expected_total {
+        if *expected != priced.total_amount {
+            return Err(reject(
+                "PriceMismatch",
+                json!({
+                    "cartId": cmd.cart_id,
+                    "expectedAmountCents": priced.total_amount.amount_cents,
+                    "submittedAmountCents": expected.amount_cents,
+                    "currency": priced.total_amount.currency,
+                }),
+            ));
+        }
+    }
+    let amount = priced.total_amount.clone();
+    // Create the Stripe PaymentIntent through the gateway seam FOR THE RECOMPUTED AMOUNT; a
+    // synchronous decline surfaces as the canonical `PaymentDeclined` rejection.
     let intent = payments
         .create_payment_intent(&crate::ports::PaymentIntentRequest {
             amount: amount.clone(),
@@ -1780,12 +1798,9 @@ pub async fn place_order(
         })
         .await?;
     // Freeze the priced checkout onto the event so PlaceOrderProcess can rebuild OrderPlaced +
-    // CartCheckedOut from the log on capture (rules.yaml#/CheckoutSnapshotFrozenAtIntent). `items` and the
-    // `breakdown` split are best-available until server-side line pricing lands (TODO(pricing): a catalog
-    // read port for priced OrderLineItems + the ADR-0016/0017 fee/split); `amount` is the server-priced
-    // cart total. The saga still resolves the snapshot through the fail-closed CheckoutSnapshotSource seam
-    // until that source (and the pricing) land — nothing reads `checkout` yet.
-    let zero = Money { amount_cents: MoneyCents(0), currency: amount.currency.clone() };
+    // CartCheckedOut from the log on capture (rules.yaml#/CheckoutSnapshotFrozenAtIntent): the
+    // server-priced items, total and breakdown — all recomputed above from the live catalog
+    // (the ADR-0016/0017 fee/split policy plugs into `pricing` when it lands).
     let checkout = CheckoutSnapshot {
         order_id: cmd.order_id,
         cart_id: cmd.cart_id,
@@ -1796,18 +1811,9 @@ pub async fn place_order(
         customer_contact: cmd.customer_contact.clone(),
         service_type: cmd.service_type,
         delivery_address: cmd.delivery_address.clone(),
-        items: Vec::new(),
+        items: priced.items.clone(),
         total_amount: amount.clone(),
-        breakdown: PaymentBreakdown {
-            articles: amount.clone(),
-            delivery: zero.clone(),
-            service_fee: zero.clone(),
-            total: amount.clone(),
-            restaurant_contribution: zero.clone(),
-            restaurant_payout: amount.clone(),
-            rider_payout: zero.clone(),
-            captain_net: zero,
-        },
+        breakdown: priced.breakdown.clone(),
         note: cmd.note.clone(),
     };
     // Deliver the saga's first fact to the Payment aggregate's stream — its BIRTH (the Order stream
