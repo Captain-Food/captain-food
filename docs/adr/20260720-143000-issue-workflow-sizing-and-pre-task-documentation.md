@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Accepted — §4's simplest-first ordering (and §1's rank stamp) amended by
+[ADR-20260720-213024](20260720-213024-value-first-issue-prioritisation.md): the queue is now
+ordered by **value** (foundations/cross-functional first, then features by value stream).
+Sizing, pre-task documentation and the PR-as-post-task-record rules stand unchanged.
 
 ## Context
 

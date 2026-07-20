@@ -117,6 +117,12 @@ mutation/query is reached by a story step, and every test↔rule link holds both
   ADRs in the same change** — so concurrent sessions never diverge on state or intent. ADR ids are
   **date-time** (`ADR-YYYYMMDD-HHMMSS`) to avoid collisions (ADR-20260718-135417); legacy `0001`–`0047`
   keep their sequential ids.
+- **Respect the prioritised backlog**: priorities are defined **in the GitHub Project
+  "Prioritized backlog"** (Priority field + row order) — pick work from the top; skipping the top item
+  needs a stated reason. Re-prioritising is a **product-owner decision made in the project**, never by
+  an agent. [docs/BACKLOG.md](docs/BACKLOG.md) records the process and how value is defined
+  (value-first, ADR-20260720-213024): foundations/cross-functional/non-functional first, then features
+  in value-stream order.
 - Autonomous loops/routines run under the **weekly time budget** (`make budgeted-loop` or the routine
   guard) — Claude Code has no native cap; see [docs/claude/loops.md](docs/claude/loops.md) / ADR-0014.
 
