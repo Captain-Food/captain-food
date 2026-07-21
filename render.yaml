@@ -1,9 +1,17 @@
-# Render Blueprint (Infrastructure-as-Code) — Captain.Food BFF (ADR-0042).
+# Render Blueprint (Infrastructure-as-Code) — Captain.Food BFF (ADR-0042, build model ADR-20260721-175411).
 #
 # Hosted in Frankfurt, co-located with Supabase (eu-central-1) for low app<->DB latency, both in the EU.
-# Built via the cargo-chef Dockerfile so Render caches the dependency layer across deploys (only changed
-# app code recompiles). The Dockerfile builds just `-p server` (the workspace's web/desktop crates are not
-# built here). First deploy is a full build (seeds the layer cache); later deploys are fast.
+#
+# BUILD MODEL (ADR-20260721-175411): Render does NOT build this service. The Rust image is compiled in
+# GitHub Actions (.github/workflows/build-image.yml — free/unlimited on this PUBLIC repo) and pushed to
+# GHCR; Render only PULLS and runs it, so it spends ZERO build-pipeline minutes. Deploys are triggered by
+# that workflow via a Render deploy hook that pins the exact image (`imgURL=...:sha-<commit>`); therefore
+# git-push auto-deploy is OFF (`autoDeploy: false`). The `image.url` below is only the bootstrap default
+# Render pulls when the blueprint is first synced / re-created.
+#
+# GHCR image visibility: the package `ghcr.io/captain-food/captain-food` must be PUBLIC for Render to pull
+# it without credentials (Packages -> package settings -> change visibility -> Public). If kept private,
+# add a `registryCredential` here referencing a credential created in the Render dashboard instead.
 #
 # Secrets (`sync: false`) are entered in the Render dashboard, never committed:
 #   DATABASE_URL  -> Supabase *Session pooler* string (IPv4), port 5432, with ?sslmode=require.
@@ -17,24 +25,23 @@
 # Projector: runs in-process in this web service for now (Render Background Workers are paid); it will move
 # to a dedicated worker service later (ADR-0040/0043).
 #
-# Auto-Deploy gating: `autoDeployTrigger: checksPass` makes a push to `main` deploy ONLY once all GitHub
-# checks (the `ci` workflow) conclude green — the "After CI Checks Pass" mode, now encoded
-# in source so it survives a blueprint re-create. Caveat: in this mode Render will NOT deploy a commit that
-# has zero checks, so keep the CI workflow triggering on every push to `main`.
-#
 # This file is the single source of truth ONLY once the repo is linked as a Blueprint in Render (Blueprints
 # -> New Blueprint Instance); Render then matches the existing `captain-food` service by name and re-syncs
 # this config on every push. Secrets stay dashboard-managed via `sync: false`.
 services:
   - type: web
     name: captain-food
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    runtime: image
+    image:
+      # Pre-built in CI and pushed to GHCR (see .github/workflows/build-image.yml). Bootstrap default only;
+      # real deploys pin an immutable `:sha-<commit>` tag via the deploy hook.
+      url: ghcr.io/captain-food/captain-food:latest
     region: frankfurt
     plan: free
     branch: main
     healthCheckPath: /health
-    autoDeployTrigger: checksPass
+    # Deploys are driven by the build-image workflow's deploy hook (pinned image), never by git push.
+    autoDeploy: false
     envVars:
       - key: DATABASE_URL
         sync: false

@@ -1,7 +1,22 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-21 (17:25 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-21 (17:54 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> 🚧 **2026-07-21 — Deployment build model changed: CI builds the image, Render only pulls it
+> (ADR-20260721-175411, amends ADR-0042).** Render meters build-pipeline minutes at a $0 cap, so
+> compiling the Rust workspace on Render (`runtime: docker`) repeatedly failed deploys under the
+> high merge cadence (every merge → a full Render build, incl. spec/doc/tooling merges that don't
+> change the binary). New model: `.github/workflows/build-image.yml` builds the same cargo-chef
+> Dockerfile in **GitHub Actions** (free/unlimited on this PUBLIC repo — buildx `type=gha` layer
+> cache), pushes to **GHCR** (`ghcr.io/captain-food/captain-food:{sha-<commit>,latest}`), and triggers
+> a **Render deploy hook** pinning the SHA image — gated on green `ci`/`main` exactly like db-migrate
+> (ADR-0043). `render.yaml` is now `runtime: image` + `autoDeploy: false`, so **Render spends zero
+> build-pipeline minutes**; deploys are immutable + rollback-friendly. ⏳ **Operator steps to go live**
+> (ADR follow-ups): switch the Render service to the GHCR image + Auto-Deploy off, create the Deploy
+> Hook → repo secret `RENDER_DEPLOY_HOOK_URL`, set the GHCR package **public**, then verify a merge →
+> `/health` `db:up`. A narrower `buildFilter`-only fallback (keep the Render build, skip spec/doc
+> merges) is prototyped on branch `claude/rust-build-pipeline-99uzow`.
 
 > ✅ **2026-07-21 — #57: Uber Direct delivery-partner adapter COMPLETE (ADR-20260721-172500).** A
 > `DeliveryProvider=PARTNER` adapter via the Uber **Direct** delivery API (not the Uber Eats

@@ -1,0 +1,99 @@
+# ADR-20260721-175411 — Build the server image in CI (GHCR); Render only pulls it
+
+<!-- Filename: docs/adr/20260721-175411-ci-built-image-render-pulls.md — UTC date-time id. -->
+
+## Status
+
+Accepted (amends ADR-0042 — the *build/deploy mechanism* only; hosting decision unchanged)
+
+## Context
+
+ADR-0042 hosts the Axum BFF on **Render** and builds it there from the repo via the cargo-chef
+`Dockerfile` (`runtime: docker`, `autoDeployTrigger: checksPass`). Render has since started metering
+**build-pipeline minutes** as a separately-billed resource with its own spend cap. Our account's cap sits
+at **$0.00**, so once the free included minutes are exhausted Render **kills the build and the deploy
+fails** ("your most recent build failed … reached its custom build pipeline minute spend limit of $0.00").
+
+Two forces made this bite hard:
+
+- **Rust builds are long.** Even with the cargo-chef dependency-layer cache, a cold or dependency-changing
+  build of the workspace is many minutes on Render's build host.
+- **High merge frequency.** The operating model (CLAUDE.md: claim ⇒ draft PR ⇒ supervised auto-merge)
+  merges to `main` often, and *every* merge triggered a full Render build — including the many merges that
+  only touch `specs/**`, `docs/**`, ADRs, or the codegen tool and do **not** change the deployed binary.
+
+So we were paying (in failed deploys) to recompile Rust on Render on a cadence Render's free build pipeline
+was never going to sustain. Meanwhile **GitHub Actions is free and unlimited on standard runners for public
+repositories** — and this repo is public.
+
+## Decision
+
+**Move the build off Render into CI, and make Render a pure image-runner.**
+
+- **Build in GitHub Actions** (`.github/workflows/build-image.yml`): build the same cargo-chef `Dockerfile`
+  with buildx, using a GitHub Actions layer cache (`type=gha`) so the dependency layer persists across runs.
+  Push to **GHCR** (`ghcr.io/captain-food/captain-food`) with two tags: an immutable `sha-<commit>` (the
+  artifact each deploy pins) and a moving `latest` (the blueprint's bootstrap default).
+- **Gate it like migrations** (ADR-0043): the workflow runs on `workflow_run` after the `ci` workflow
+  concludes **success on `main`**, so no image is ever published for a commit that fails build, tests, or
+  spec-validation.
+- **Render pulls, never builds** (`render.yaml`): `runtime: image` with `image.url` pointing at GHCR, and
+  `autoDeploy: false`. Deploys are triggered by the workflow calling a **Render deploy hook** with
+  `imgURL=…:sha-<commit>` so Render runs the exact image CI just built. Render spends **zero
+  build-pipeline minutes**.
+
+The ordering property from ADR-0043 is preserved unchanged: db-migrate and build-image both fire off the
+same green `ci` run; if a deploy races ahead of its migration, the app's `/health` schema-version gate
+holds it at 503 until the migration lands.
+
+## Alternatives considered
+
+- **Raise Render's build-pipeline spend limit.** Simplest, but pays per-minute to recompile Rust on
+  *every* deploy forever, on a build host we don't control the cache ergonomics of. Rejected: recurring
+  cost for the slowest possible build, and merge-frequency makes it worse.
+- **Keep building on Render but add a `buildFilter`** so only `crates/**` / root build inputs trigger a
+  build (spec/doc/tooling merges skip it). This genuinely removes the *wasteful* builds and is a valid
+  lighter-touch fix; it was prototyped on a branch. Rejected as the primary approach because it still runs
+  slow Rust builds *on Render's metered pipeline* for every real code change — it narrows the bleeding
+  rather than stopping it. The CI-built-image path makes build cost structurally $0 on Render regardless of
+  merge cadence, and gives us control over the build cache. (The buildFilter remains a useful fallback if
+  we ever revert to `runtime: docker`.)
+- **GitHub Actions → deploy to Render via the Render API instead of a deploy hook.** Equivalent; the deploy
+  hook is a single secret URL with no extra token scopes, so it is the smaller surface. The `RENDER_API_KEY`
+  we already hold (prod-smoke) could drive this later if we need richer deploy control.
+- **Push to Docker Hub / a Render-native registry** instead of GHCR. GHCR is free for public images, needs
+  no extra account, and authenticates in-workflow with the built-in `GITHUB_TOKEN` — least friction.
+
+## Consequences
+
+### Positive
+
+- **Render build cost is structurally $0** — it only pulls an image; merge frequency no longer matters.
+- **Faster, cache-controlled builds** in CI (buildx `type=gha` + cargo-chef), free/unlimited on this public
+  repo's standard runners.
+- **Traceable, rollback-friendly deploys**: every deploy pins an immutable `sha-<commit>` image; rolling
+  back is redeploying a previous tag (no rebuild).
+- **Same safety gate**: image publish is gated on green `ci`, mirroring db-migrate — no drift, no untested
+  image shipped.
+
+### Negative
+
+- **The Rust image is compiled twice per green `main`**: once as the CI `cargo build`/tests, once as the
+  release Docker image. Both are on free CI; acceptable. (Could be unified later by building the image
+  inside `ci` and gating differently, at the cost of a more complex single workflow.)
+- **New moving parts / secrets to operate**: a GHCR package whose visibility must stay **public** (or carry
+  a Render `registryCredential`), and a `RENDER_DEPLOY_HOOK_URL` repo secret. If the hook secret is missing
+  the workflow fails loudly (by design) rather than silently not deploying.
+- **The Render service must be switched from `runtime: docker` to `runtime: image`** — a one-time blueprint
+  re-sync / service reconfigure (see Follow-up).
+
+### Follow-up actions
+
+- [ ] In Render, either sync the blueprint or set the `captain-food` service to **Deploy an existing image**
+      = `ghcr.io/captain-food/captain-food:latest`, and turn **Auto-Deploy off**.
+- [ ] Create the service's **Deploy Hook** and store it as the GitHub repo secret `RENDER_DEPLOY_HOOK_URL`.
+- [ ] Set the GHCR package `captain-food/captain-food` visibility to **Public** (or add a `registryCredential`).
+- [ ] Verify end-to-end: merge to `main` → `ci` green → `build-image` pushes `sha-<commit>` → Render deploys
+      it → `/health` returns `db:up` with the schema gate satisfied.
+- [ ] Update ADR-0042's operational note (done in this change) and, once verified live, record the first
+      image-pull deploy commit here.

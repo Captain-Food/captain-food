@@ -67,10 +67,13 @@ and data inside the EU**.
   [`render.yaml`](../../render.yaml) at the repo root, linked as a Render **Blueprint** so the file — not
   the dashboard — is the source of truth (matched to the existing service by name, `captain-food`).
   - Blueprint ID: `exs-d9d8q058nd3s73dosclg` · repo `Captain-Food/captain-food` · branch `main` · path `render.yaml`.
-  - Enforced config: `runtime: docker` + `dockerfilePath: ./Dockerfile` (cargo-chef cached build + slim
-    runtime image), and `autoDeployTrigger: checksPass` so a push to `main` deploys **only after** the
-    `ci` workflow checks pass (ADR-0043 keeps migrations out-of-band; the `/health`
-    schema-version gate still holds a deploy that races ahead of a migration).
+  - Enforced config (build model **superseded by ADR-20260721-175411** — see below): originally
+    `runtime: docker` + `dockerfilePath: ./Dockerfile` (cargo-chef cached build **on Render**) with
+    `autoDeployTrigger: checksPass`. Render metering build-pipeline minutes at a $0 cap made building Rust
+    on Render unsustainable, so the build moved to CI: the image is now compiled in GitHub Actions and
+    pushed to GHCR, and the service is `runtime: image` + `autoDeploy: false`, pulling the pre-built image
+    (deploys triggered by a Render deploy hook pinning `sha-<commit>`). ADR-0043 still keeps migrations
+    out-of-band and the `/health` schema-version gate still holds a deploy that races ahead of a migration.
   - Every push to `main` re-syncs the Blueprint automatically; "Manual sync" in the dashboard only forces
     one. Secrets stay dashboard-managed via `sync: false` and are never committed.
   - Linked 2026-07-17; first sync at commit `5a9e2f5` switched the service from a manually-configured

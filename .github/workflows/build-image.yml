@@ -1,0 +1,80 @@
+# Build the server image in CI, then hand Render a PRE-BUILT image to run (ADR-20260721-175411).
+#
+# WHY: Render meters "build-pipeline minutes". Compiling the Rust workspace on Render repeatedly blew the
+# account's build-pipeline spend cap ($0.00) and failed deploys — every merge to `main` triggered a full
+# cargo build. GitHub Actions is free and unlimited on standard runners for this PUBLIC repo, so we build
+# the Docker image HERE (the same cargo-chef Dockerfile, with a buildx layer cache), push it to GHCR, and
+# then trigger Render to PULL and run it. Render never compiles Rust again — it only pulls an image.
+#
+# Gated exactly like db-migrate.yml (ADR-0043): runs ONLY after the `ci` workflow succeeds on `main`, so we
+# never publish an image for a commit that fails build / tests / spec-validation. Ordering vs migrations is
+# self-correcting: the app's /health schema-version gate holds the new deploy (503) until db-migrate has
+# applied pending migrations.
+name: build-image
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+
+# Least privilege: read the repo, write packages (push to GHCR). Nothing else.
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/captain-food/captain-food
+
+jobs:
+  build-and-deploy:
+    # Only proceed when the gating CI run actually passed.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }} # the exact commit that passed CI
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # scoped by the workflow's `packages: write`
+
+      - name: Build and push (cargo-chef Dockerfile + buildx GHA layer cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # Immutable SHA tag = the pinned artifact each deploy runs (traceable, rollback-friendly);
+          # `latest` is the moving default the render.yaml blueprint bootstraps from.
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.event.workflow_run.head_sha }}
+            ${{ env.IMAGE }}:latest
+          # Persist the cargo-chef dependency layer across runs — only changed app crates recompile,
+          # so warm builds are minutes, not the full cold compile.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger Render to deploy the pinned image
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::repo secret RENDER_DEPLOY_HOOK_URL is not set — image pushed but Render was not told to deploy it"
+            exit 1
+          fi
+          # Render image-backed deploy hook: the `imgURL` query param pins the EXACT image this deploy runs
+          # (Render docs: "Deploy hooks for image-backed services"). We pin the immutable SHA tag, not latest.
+          curl -fsS -X POST "${HOOK}&imgURL=${IMAGE}:sha-${{ github.event.workflow_run.head_sha }}" >/dev/null
+          echo "✓ triggered Render deploy of ${IMAGE}:sha-${{ github.event.workflow_run.head_sha }}"
