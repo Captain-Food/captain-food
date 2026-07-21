@@ -44,11 +44,12 @@ Within a tier, order stays dependency-consistent (an issue never ranks above one
 - **Value Size** (org field, T-shirt `XS`–`XL`) = **how much value the issue brings if
   completed**, graded from its Impact section (what it unblocks / what breaks if delayed).
   Informational — it explains the Priority placement, it does not sort.
-- **Impact** = **the size of the change on the code** (blast radius) — the T-shirt formerly known
-  as "size" (ADR-20260720-143000 estimation table, `XXS`–`XXL`). It appears twice, same value in
-  both places: the **org Impact field** (`XS`–`XL`; XXS/XXL clamp to XS/XL until those options
-  exist) and the **`impact/*` repo label** (full `XXS`–`XXL` scale, visible on issue lists/cards).
-  The former `size/*` labels are **renamed** to `impact/*`, not re-graded.
+- **Impact** = **the size of the change on the code** (blast radius). One 5-step T-shirt scale
+  (`XS`–`XL`, product-owner decision), in two places with the same value: the **org Impact field**
+  and the **`impact/*` repo label** (visible on issue lists/cards). It replaces the former
+  `size/*` labels; the finer XXS–XXXL granularity of ADR-20260720-143000's estimation table lives
+  only in the body's Estimation section (an estimate beyond XL is a "split before starting" flag,
+  not a field value).
 - **Effort** (org field, `Low`/`Medium`/`High`) = delivery cost, the coarse projection of the
   Impact T-shirt (XXS–S → `Low`, M → `Medium`, L and up → `High`). Impact/Effort are displayed
   for planning but **never drive the order** — value does.
