@@ -22,6 +22,15 @@
 # in source so it survives a blueprint re-create. Caveat: in this mode Render will NOT deploy a commit that
 # has zero checks, so keep the CI workflow triggering on every push to `main`.
 #
+# Build filtering (cost control): most merges to `main` only touch the DSL specs, docs, ADRs or the codegen
+# tool — none of which change the deployed `server` binary. `buildFilter` makes Render skip the build (and
+# so spend ZERO build-pipeline minutes) for those pushes: a push triggers a build only when a changed file
+# matches `paths` AND does not match `ignoredPaths`. The server binary is `cargo build -p server`, whose
+# dependency tree is domain → application → infrastructure(+sirene_ingest, adapters) → shared_types → server;
+# `crates/web`, `crates/desktop` and `crates/core` feed the client shells, NOT the server, so changes there
+# never affect this image and are ignored. Root build inputs (Cargo.*, Dockerfile, toolchain, this blueprint)
+# always build. NOTE: this only gates git-push auto-deploys — a manual "Deploy latest commit" always builds.
+#
 # This file is the single source of truth ONLY once the repo is linked as a Blueprint in Render (Blueprints
 # -> New Blueprint Instance); Render then matches the existing `captain-food` service by name and re-syncs
 # this config on every push. Secrets stay dashboard-managed via `sync: false`.
@@ -35,6 +44,22 @@ services:
     branch: main
     healthCheckPath: /health
     autoDeployTrigger: checksPass
+    buildFilter:
+      # Only these paths can trigger a build; everything else (specs/**, docs/**, tools/**, .github/**,
+      # migrations/**, .claude/**, README, LICENSES…) is skipped and costs no build-pipeline minutes.
+      paths:
+        - crates/**
+        - Cargo.toml
+        - Cargo.lock
+        - Dockerfile
+        - .dockerignore
+        - rust-toolchain.toml
+        - render.yaml
+      ignoredPaths:
+        # Client-shell crates not compiled into the `server` image — changes here must not rebuild it.
+        - crates/web/**
+        - crates/desktop/**
+        - crates/core/**
     envVars:
       - key: DATABASE_URL
         sync: false
