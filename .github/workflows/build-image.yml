@@ -50,6 +50,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} # scoped by the workflow's `packages: write`
 
+      - name: Compute the short commit SHA (7 chars, as GitHub displays it)
+        id: vars
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: echo "short=${SHA:0:7}" >> "$GITHUB_OUTPUT" # e.g. 829f4ad — human-readable version label
+
       - name: Build and push (cargo-chef Dockerfile + buildx GHA layer cache)
         id: build # exposes steps.build.outputs.digest — the content-addressed image reference
         uses: docker/build-push-action@v6
@@ -57,16 +63,17 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          # `sha-<commit>` = a human/git-readable immutable tag (for correlating an image to a commit);
-          # `latest` is ONLY the blueprint bootstrap seed — deploys never resolve it (they pin the digest
-          # below). The digest (steps.build.outputs.digest) is the reference each deploy actually runs.
+          # `sha-<short>` = a human/git-readable tag (correlates the image to a commit, matches the SHA
+          # GitHub shows); `latest` is ONLY the blueprint bootstrap seed — deploys never resolve either
+          # (they pin the digest below). The digest (steps.build.outputs.digest) is the reference each
+          # deploy actually runs, so the short tag being human-friendly costs nothing in precision.
           tags: |
-            ${{ env.IMAGE }}:sha-${{ github.event.workflow_run.head_sha }}
+            ${{ env.IMAGE }}:sha-${{ steps.vars.outputs.short }}
             ${{ env.IMAGE }}:latest
-          # Bake the precise build identity into the image (env + OCI labels) so the running app can report
-          # it at /health — the git SHA is the immutable, unambiguous version for failure diagnostics.
+          # Bake the build identity into the image (env + OCI labels) so the running app reports it at
+          # /health — the short git SHA is the readable version; the digest remains the exact identity.
           build-args: |
-            CAPTAIN_BUILD_VERSION=${{ github.event.workflow_run.head_sha }}
+            CAPTAIN_BUILD_VERSION=${{ steps.vars.outputs.short }}
           # Persist the cargo-chef dependency layer across runs — only changed app crates recompile,
           # so warm builds are minutes, not the full cold compile.
           cache-from: type=gha
@@ -91,4 +98,4 @@ jobs:
           # image-backed services"). `latest` is never what production resolves.
           REF="${IMAGE}@${DIGEST}"
           curl -fsS -X POST "${HOOK}&imgURL=${REF}" >/dev/null
-          echo "✓ triggered Render deploy of ${REF} (sha-${{ github.event.workflow_run.head_sha }})"
+          echo "✓ triggered Render deploy of ${REF} (sha-${{ steps.vars.outputs.short }})"

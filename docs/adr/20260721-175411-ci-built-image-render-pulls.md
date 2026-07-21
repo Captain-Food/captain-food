@@ -56,12 +56,14 @@ The ordering property from ADR-0043 is preserved unchanged: db-migrate and build
 same green `ci` run; if a deploy races ahead of its migration, the app's `/health` schema-version gate
 holds it at 503 until the migration lands.
 
-**Precise build identity (diagnostics).** The commit SHA is the version. It flows end-to-end: the workflow
-tags the image `sha-<commit>` (the immutable artifact each deploy pins), passes the same SHA as the
-`CAPTAIN_BUILD_VERSION` Docker build-arg, and the `Dockerfile` bakes it into the runtime image as an env
-var + OCI labels (`org.opencontainers.image.revision`). The build-arg is declared only in the Dockerfile's
-final stage, so a new SHA changes only trailing metadata layers and never invalidates the cached
-cargo-chef build.
+**Precise build identity (diagnostics).** The **short (7-char) commit SHA** is the human-readable version
+(e.g. `829f4ad`, matching what GitHub displays); the image **digest** remains the exact machine identity.
+It flows end-to-end: the workflow tags the image `sha-<short>` and passes the short SHA as the
+`CAPTAIN_BUILD_VERSION` Docker build-arg, which the `Dockerfile` bakes into the runtime image as an env
+var + OCI labels (`org.opencontainers.image.revision`); the server reports it as `version` at `/health`.
+The build-arg is declared only in the Dockerfile's final stage, so a new SHA changes only trailing metadata
+layers and never invalidates the cached cargo-chef build. (Deploys still pin the immutable **digest**, not
+this tag — the short SHA is a label, so its 7-char abbreviation costs no precision.)
 
 Because a health endpoint is useless when the instance never starts, the version is discoverable at **three
 layers**, each covering the failure mode the one above it cannot:
@@ -70,7 +72,7 @@ layers**, each covering the failure mode the one above it cannot:
 2. **Startup log line** — `main()` prints `captain-food server starting — version <sha>` as its *first*
    statement, before any fallible startup (router build, port bind, DB probe), so a process that panics or
    never binds still names its version in the Render logs.
-3. **The pinned image tag** — deploys pin the immutable `sha-<commit>` tag via the deploy hook, so Render's
+3. **The pinned image digest** — deploys pin the immutable `@sha256:<digest>` via the deploy hook, so Render's
    deploy/event record names the exact image even for a container that never execs at all (bad image, exec
    error). This is the platform-side source of truth, independent of the app running.
 

@@ -92,7 +92,7 @@ pub fn wire() -> HealthDto {
 pub const REQUIRED_SCHEMA_VERSION: i64 = 20260721150000;
 
 /// The precise build identity, for diagnostics (ADR-20260721-175411). CI bakes `CAPTAIN_BUILD_VERSION`
-/// (the exact git commit SHA the image was built from) into the deployed image — see
+/// (the short 7-char git commit SHA the image was built from, e.g. `829f4ad`) into the deployed image — see
 /// `.github/workflows/build-image.yml` + the `Dockerfile` runtime stage — and `/health` reports it in
 /// EVERY state, including `degraded`/`down`: when the app is failing is precisely when you need to know
 /// which build is running. Falls back to `dev-<crate version>` for local / uncontainerized runs where the
