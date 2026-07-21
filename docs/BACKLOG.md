@@ -41,25 +41,27 @@ Within a tier, order stays dependency-consistent (an issue never ranks above one
   `Low` = post-V0.
   Within a bucket the fine order is the **row order** on the board — no numeric value field is
   used for ordering.
-- **Value Size** (org field, T-shirt `XS`–`XL`) = how much value the issue delivers, graded from
-  its **Impact** section (what it unblocks / what breaks if delayed). Informational — it explains
-  the Priority placement, it does not sort.
-- **`impact/*` label** (repo label, `impact/XS`…`impact/XL`) = the same T-shirt as Value Size,
-  mirrored as a label so the value is visible on issue lists and cards outside the project.
-  The former `size/*` labels are **retired** (labels can't sort, and they displayed effort where
-  value should be).
-- **Effort** (org field, `Low`/`Medium`/`High`) = delivery cost, derived from the issue's
-  **Estimation** section (ADR-20260720-143000 shirt-size table: XXS–S → `Low`, M → `Medium`,
-  L and up → `High`). Effort is displayed for planning but **never drives the order** — value does.
+- **Value Size** (org field, T-shirt `XS`–`XL`) = **how much value the issue brings if
+  completed**, graded from its Impact section (what it unblocks / what breaks if delayed).
+  Informational — it explains the Priority placement, it does not sort.
+- **Impact** = **the size of the change on the code** (blast radius) — the T-shirt formerly known
+  as "size" (ADR-20260720-143000 estimation table, `XXS`–`XXL`). It appears twice, same value in
+  both places: the **`impact/*` repo label** (visible on issue lists/cards) and the
+  project-scoped **Impact** field on the board (renamed from the template's "Size"). The former
+  `size/*` labels are **renamed** to `impact/*`, not re-graded.
+- **Effort** (org field, `Low`/`Medium`/`High`) = delivery cost, the coarse projection of the
+  Impact T-shirt (XXS–S → `Low`, M → `Medium`, L and up → `High`). Impact/Effort are displayed
+  for planning but **never drive the order** — value does.
 - **Type** = `Foundation` (non-functional: contracts, security, invariants, observability,
   retention, codegen/operating-model) or `Feature` (functional, user-visible capability) —
   matching the two value tiers; `Bug`/`Task` for the rest.
-- Estimation rules are unchanged: ADR-20260720-143000 (the shirt-size **estimate** now lives only
-  in the issue body's Estimation section + the Effort field, no longer as a label).
+- Estimation rules are unchanged: ADR-20260720-143000 (the detailed shirt-size estimate still
+  lives in the issue body's Estimation section; label/field above are its visible form).
 
 ## Triage of new issues
 
 A new issue gets, at triage time: the standard pre-task sections (ADR-20260720-143000), a **Type**
-(`Foundation`/`Feature`/`Bug`/`Task`), then on the project **Priority + Value Size + Effort** and
-the mirroring **`impact/*` label**, using the definitions above. The product owner adjusts its row
-position in the project if the default bucket placement isn't enough.
+(`Foundation`/`Feature`/`Bug`/`Task`), an **`impact/*` label** (change size, from the Estimation
+section), then on the project **Priority + Value Size + Effort** (and the project's Impact field,
+set in the board UI), using the definitions above. The product owner adjusts its row position in
+the project if the default bucket placement isn't enough.
