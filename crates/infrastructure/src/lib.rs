@@ -8,6 +8,7 @@
 //! SIRENE prospect sync; later HubRise/Stripe/delivery, incl. recording inbound facts). Depends on
 //! `application` + `domain`; referencing both proves the infrastructure → application, domain edges.
 
+pub mod generated;
 pub mod integrations;
 pub mod persistence;
 pub mod process_manager;
