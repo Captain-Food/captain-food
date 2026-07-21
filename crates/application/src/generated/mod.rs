@@ -5,3 +5,5 @@ pub mod pm_state;
 pub mod process_managers;
 pub mod services;
 pub mod handlers;
+#[cfg(test)]
+pub mod behaviour_tests;
