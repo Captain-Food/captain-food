@@ -1,7 +1,7 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-21 (03:40 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-21 (03:50 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
 > ✅ **2026-07-21 — #27: PM state-table rows and Postgres stores are GENERATED
 > (ADR-20260721-031734, codegen-roadmap item 5).** Two new emitters in `tools/codegen-rs` over
@@ -17,6 +17,36 @@
 > processmanager.yaml `state.by` keys map 1:1 onto store methods for roadmap item 3. Journal
 > stores (`command_journal.rs`/`inbound_events.rs`) stay hand-written — follow-up slice.
 > `make rust` green: workspace builds, all tests pass, validate 0 errors, no drift.
+
+> ✅ **2026-07-21 — #16: `surface: graphql` binding kind + the generic `command-acceptance`
+> contract (ADR-20260721-031127).** Validator §8 now accepts `workflow.surface` as a binding kind
+> (rules `obs-surface-unknown`, `obs-surface-exclusive`; `obs-no-workflow-binding` amended) so a
+> contract can bind a whole dispatch surface instead of one command/saga/aggregate; doc emitters
+> render it (files under cross-cutting). New `command-acceptance` contract instruments the
+> acceptance-first write pipeline (ADR-20260720-015500): spans
+> `command.receive`/`command.journal`/`command.dispatch`, ids `message_id`/`correlation_id`/
+> `trace_id`/`command_type`/`channel`, metrics `commands_accepted_total{channel}`,
+> `command_duplicates_total{channel}`, `command_sync_conflicts_total{command_type}`,
+> `command_completion_ms{status}` (REJECTED/FAILED split — #19's decision data). Latency budget
+> binds the sync acceptance path only. Runtime emission stays contract-only until the OTel layer
+> exists; #15 landed in parallel, so `{channel}` already sees all channels. Validate 0 errors.
+
+> ✅ **2026-07-21 — #15: the WORKER channel journals (ADR-20260720-015300 follow-up).** The command
+> journal invariant — ALL command submissions converge on `command_journal`, whatever the channel —
+> is now true: the HubRise enricher (`ImportCatalog` + per-SKU `UpdateOfferStock`) and the SIRENE
+> sync worker (`RegisterRestaurant` / `MarkRestaurantClosed`) no longer call handlers directly but go
+> through the new reusable worker-side journaling dispatch `application::dispatch::dispatch_journaled`
+> (`channel: WORKER`, journal-before-handle, same REJECTED/FAILED discrimination as the generated
+> GraphQL dispatch; a FAILED duplicate is re-executed under the same id — for a worker, redelivery IS
+> the retry). Deterministic idempotency keys: HubRise `message_id` = UUIDv5(callback id, command
+> type[, offer id]), `cause_id` = UUIDv5(callback id) → `external_hubrise_callbacks →
+> command_journal → domain_events` is fully traceable, and a webhook redelivery dedupes instead of
+> double-applying; SIRENE `message_id` = UUIDv5(command type, SIRET, staged `last_seen_at`),
+> `cause_id` = UUIDv5(`row:<SIRET>`) — a re-drained staged version dedupes, an ingestion refresh
+> journals anew. Worker rejections finally leave a durable REJECTED trace. No spec change; unit tests
+> (dispatch + enricher dedup) + Pg-gated worker tests extended with journal/causality assertions;
+> workspace tests green, validate 0 errors. Unblocks #16 (`commands_accepted_total{channel}` now sees
+> all channels).
 
 > ✅ **2026-07-21 — #18: retention policy for write-path journals & adapter mirrors
 > (ADR-20260721-025159).** The unbounded-growth follow-ups of ADR-20260720-015300/-015400 are

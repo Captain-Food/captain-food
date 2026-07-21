@@ -1192,6 +1192,9 @@ fn validate(model: &Model) -> Report {
     // --- 8. Observability contracts (observability.yaml) ----------------------------------------
     {
         let span_kinds: BTreeSet<&str> = ["SERVER", "CLIENT", "INTERNAL", "PRODUCER", "CONSUMER"].into_iter().collect();
+        // Dispatch surfaces a contract may bind INSTEAD of a single command/saga/aggregate
+        // (ADR-20260721-031127: pipeline contracts, e.g. command-acceptance over the GraphQL dispatch).
+        const SURFACE_KINDS: [&str; 1] = ["graphql"];
         if let Some(obs) = model.defs.get("observability.yaml").and_then(|x| x.as_mapping()) {
             for (fk, c) in obs {
                 let feature = match fk.as_str() {
@@ -1203,12 +1206,29 @@ fn validate(model: &Model) -> Report {
 
                 let wf = c.get("workflow");
                 let has = |k: &str| wf.and_then(|w| w.get(k)).map(|v| !v.is_null()).unwrap_or(false);
-                if !has("command") && !has("saga") && !has("aggregate") {
+                let surface = wf.and_then(|w| w.get("surface")).and_then(|v| v.as_str());
+                if surface.is_none() && !has("command") && !has("saga") && !has("aggregate") {
                     issues.push(err(
                         "obs-no-workflow-binding",
                         at.clone(),
-                        "workflow must bind a `command` and/or `saga`/`aggregate` ($ref into the model).".into(),
+                        "workflow must bind a `command` and/or `saga`/`aggregate` ($ref into the model), or a dispatch `surface`.".into(),
                     ));
+                }
+                if let Some(s) = surface {
+                    if !SURFACE_KINDS.contains(&s) {
+                        issues.push(err(
+                            "obs-surface-unknown",
+                            format!("{}.workflow.surface", at),
+                            format!("surface '{}' is not a known dispatch surface ({}).", s, SURFACE_KINDS.join("|")),
+                        ));
+                    }
+                    if has("command") || has("saga") || has("aggregate") {
+                        issues.push(err(
+                            "obs-surface-exclusive",
+                            format!("{}.workflow", at),
+                            "a `surface` contract binds the whole dispatch surface — it must not also bind a `command`/`saga`/`aggregate`.".into(),
+                        ));
+                    }
                 }
 
                 let id_names: BTreeSet<&str> = c
@@ -5287,7 +5307,7 @@ fn emit_documentation(model: &Model) -> String {
         Doc { ctx, md: vec![
             format!("{}\n#### {} Contract: `{}`", id_tag(&danchor("obs", feature)), d_emo("obs"), feature),
             format!("\n_criticality: **{}**_\n", c.get("criticality").and_then(|x| x.as_str()).unwrap_or("—")),
-            format!("- **Workflow**: {}{}", wf.and_then(|w| w.get("saga")).map(|s| format!("saga {}", any_link(s.get("$ref").and_then(|x| x.as_str()).unwrap_or_default()))).unwrap_or_default(), wf.and_then(|w| w.get("command")).map(|c| format!(" · command {}", any_link(c.get("$ref").and_then(|x| x.as_str()).unwrap_or_default()))).unwrap_or_default()),
+            format!("- **Workflow**: {}{}{}", wf.and_then(|w| w.get("surface")).and_then(|s| s.as_str()).map(|s| format!("surface `{}` (dispatch pipeline)", s)).unwrap_or_default(), wf.and_then(|w| w.get("saga")).map(|s| format!("saga {}", any_link(s.get("$ref").and_then(|x| x.as_str()).unwrap_or_default()))).unwrap_or_default(), wf.and_then(|w| w.get("command")).map(|c| format!(" · command {}", any_link(c.get("$ref").and_then(|x| x.as_str()).unwrap_or_default()))).unwrap_or_default()),
             format!("- **Emits**: {} · **Inbound**: {}", ref_list_links(wf.and_then(|w| w.get("emits"))), ref_list_links(wf.and_then(|w| w.get("inbound")))),
             if id_rows.is_empty() { String::new() } else { format!("\n**Run identity**\n\n{}", md_table(&["Id", "Source", "Req.", "Business key"], &id_rows)) },
             if span_rows.is_empty() { String::new() } else { format!("\n**Spans** (`*` = required attribute)\n\n{}", md_table(&["Span", "Kind", "Req.", "Multiplicity", "Attributes"], &span_rows)) },
@@ -5886,7 +5906,8 @@ fn emit_documentation_html(model: &Model) -> String {
         let saga = ref_name(wf.and_then(|w| w.get("saga")).and_then(|x| x.get("$ref")).and_then(|x| x.as_str()).unwrap_or(""));
         let ctx = if let Some(c) = &cmd { cx.of_command(c) } else if let Some(s) = &saga { cx.of_actor(s) } else { CROSS.to_string() };
         let body = format!(
-            "<div class=\"rel\"><span class=\"lbl\">workflow:</span> {}{}</div><div class=\"rel\"><span class=\"lbl\">emits:</span> {} · <span class=\"lbl\">inbound:</span> {}</div>{}{}<div class=\"rel\"><span class=\"lbl\">metrics:</span> {} · <span class=\"lbl\">business:</span> {}</div>{}<div class=\"rel\"><span class=\"lbl\">SLOs:</span> p95 ≤ {}ms · p99 ≤ {}ms · error ≤ {}%</div>",
+            "<div class=\"rel\"><span class=\"lbl\">workflow:</span> {}{}{}</div><div class=\"rel\"><span class=\"lbl\">emits:</span> {} · <span class=\"lbl\">inbound:</span> {}</div>{}{}<div class=\"rel\"><span class=\"lbl\">metrics:</span> {} · <span class=\"lbl\">business:</span> {}</div>{}<div class=\"rel\"><span class=\"lbl\">SLOs:</span> p95 ≤ {}ms · p99 ≤ {}ms · error ≤ {}%</div>",
+            wf.and_then(|w| w.get("surface")).and_then(|s| s.as_str()).map(|s| format!("surface <span class=\"kw\">{}</span> <span class=\"muted\">(dispatch pipeline)</span>", h_esc(s))).unwrap_or_default(),
             wf.and_then(|w| w.get("saga")).map(|s| format!("saga {}", h_any_link(s.get("$ref").and_then(|x| x.as_str()).unwrap_or_default()))).unwrap_or_default(),
             wf.and_then(|w| w.get("command")).map(|c| format!(" · command {}", h_any_link(c.get("$ref").and_then(|x| x.as_str()).unwrap_or_default()))).unwrap_or_default(),
             h_ref_links(wf.and_then(|w| w.get("emits"))), h_ref_links(wf.and_then(|w| w.get("inbound"))),
@@ -8918,7 +8939,7 @@ fn main() {
     eprintln!("    - tests: {} Given/When/Then cases — data fields, actor handles `when`, `then`⊆emits, `thrown`⊆throws; every message/event/error exercised", coverage.test_cases);
     eprintln!("    - rules: {} business rules — every test asserts ≥1 rule, every rule asserted by ≥1 test (ADR-0032)", coverage.rules);
     eprintln!("    - ui: {} SDUI screens — resolver/action bindings $ref real api ops (API-meets-UI), data_requirements resolve; {} translations (en+fr, params match)", coverage.screens, coverage.translations);
-    eprintln!("    - observability: {} workflow contracts — $ref bindings resolve, mandatory ids (correlation_id/trace_id), span kinds, success.required_spans ⊆ declared spans", coverage.obs_contracts);
+    eprintln!("    - observability: {} workflow contracts — $ref/surface bindings resolve, mandatory ids (correlation_id/trace_id), span kinds, success.required_spans ⊆ declared spans", coverage.obs_contracts);
     eprintln!("    - c4: bounded-context↔actor mapping (no unmapped aggregate / phantom container ref)");
 
     if !issues.is_empty() {
