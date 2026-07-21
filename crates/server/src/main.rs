@@ -6,6 +6,12 @@
 
 #[tokio::main]
 async fn main() {
+    // Print the build identity FIRST — before any fallible startup (router build, port bind, DB probe) — so
+    // a boot that panics or never binds still names its version in the logs, exactly the case where /health
+    // never comes up and cannot help (ADR-20260721-175411). The deployed image tag (`sha-<commit>`, pinned
+    // by the deploy hook) is the platform-side source of truth for a container that never execs at all.
+    println!("captain-food server starting — version {}", server::build_version());
+
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{port}");
 
