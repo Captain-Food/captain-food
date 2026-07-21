@@ -8229,6 +8229,172 @@ fn lifecycle_state_map(model: &Model) -> Vec<(String, String)> {
         .collect()
 }
 
+// ─── crates/application/src/generated/handlers.rs (issue #23 — require+guard+append handlers) ────
+
+/// The per-aggregate SEAMS of the generated require+guard+append handlers (ADR-20260721-093027):
+/// rehydration (existence + tenant scoping), stream naming and the illegal-move rejection stay
+/// hand-written policy in `crates/application/src/commands.rs` (`pub(crate)`), referenced here by
+/// expression — error-context construction is per-aggregate policy, not mechanics. Folded into the
+/// DSL if a second consumer appears (PM-pipeline precedent, ADR-20260721-053456).
+struct LifecycleHandlerSeam {
+    aggregate: &'static str,
+    /// The domain module whose `lifecycle` re-export holds this aggregate's generated tables.
+    lifecycle: &'static str,
+    /// Rehydration expression yielding `(state, version)` (awaited with `?`).
+    require: &'static str,
+    /// Rejection expression for a move the declared machine does not contain.
+    reject: &'static str,
+    /// Stream-name expression for the append.
+    stream: &'static str,
+}
+
+const LIFECYCLE_HANDLER_SEAMS: &[LifecycleHandlerSeam] = &[
+    LifecycleHandlerSeam {
+        aggregate: "Order",
+        lifecycle: "domain::order::lifecycle",
+        require: "require_order(store, &cmd.order_id, &cmd.restaurant_id)",
+        reject: "invalid_order_status(&cmd.order_id, state.status)",
+        stream: "order_stream(&cmd.order_id)",
+    },
+    LifecycleHandlerSeam {
+        aggregate: "Rider",
+        lifecycle: "domain::rider::lifecycle",
+        require: "require_rider(store, &cmd.rider_id)",
+        reject: "reject(\"InvalidRiderStatusTransition\", json!({ \"riderId\": cmd.rider_id, \"currentStatus\": state.status, \"targetStatus\": cmd.status }))",
+        stream: "rider_stream(&cmd.rider_id)",
+    },
+    LifecycleHandlerSeam {
+        aggregate: "DeliveryJob",
+        lifecycle: "domain::delivery_job::lifecycle",
+        require: "require_delivery_job(store, &cmd.delivery_job_id)",
+        reject: "invalid_delivery_status(&cmd.delivery_job_id, state.status, canonical_predecessor(cmd.status))",
+        stream: "delivery_job_stream(&cmd.delivery_job_id)",
+    },
+];
+
+/// The commands whose WHOLE handler is mechanical require+guard+append — the single emitted event is
+/// built from the command by name and legalized by the declared lifecycle table. A command with
+/// business checks beyond the machine (`DeliveryAlreadyAssigned` arbitration, rider-identity checks,
+/// ensure-command idempotency, cross-aggregate invariants) stays hand-written in commands.rs.
+const LIFECYCLE_GENERATED_HANDLERS: &[(&str, &str)] = &[
+    ("Order", "AcceptOrder"),
+    ("Order", "StartPreparation"),
+    ("Order", "MarkOrderReady"),
+    ("Order", "MarkOrderDelivered"),
+    ("Order", "RejectOrder"),
+    ("Order", "CancelOrderByCustomer"),
+    ("Order", "CancelOrderByRestaurant"),
+    ("Rider", "ChangeRiderStatus"),
+    ("DeliveryJob", "UpdateDeliveryStatus"),
+    ("DeliveryJob", "UpdateDeliveryPartnerStatus"),
+];
+
+/// Emit `crates/application/src/generated/handlers.rs` — one require+guard+append command handler per
+/// [`LIFECYCLE_GENERATED_HANDLERS`] row (issue #23, ADR-20260721-093027): rehydrate through the
+/// aggregate's seam, build the single emitted event from the command's same-named fields (`None` for
+/// an optional field the command does not carry), consult the GENERATED lifecycle transition table,
+/// append. Generation FAILS if the actors.yaml wiring stops matching (≠1 emitted event, an event
+/// outside the declared machine, or a required event field the command cannot supply).
+fn emit_application_handlers(model: &Model) -> String {
+    let lifecycles: BTreeSet<String> = parse_lifecycles(model).into_iter().map(|l| l.aggregate).collect();
+    let mut commands: BTreeSet<String> = BTreeSet::new();
+    let mut events: BTreeSet<String> = BTreeSet::new();
+    let mut fns = String::new();
+    for (aggregate, command) in LIFECYCLE_GENERATED_HANDLERS {
+        let seam = LIFECYCLE_HANDLER_SEAMS
+            .iter()
+            .find(|s| s.aggregate == *aggregate)
+            .unwrap_or_else(|| panic!("handlers: no seam for aggregate '{}'", aggregate));
+        if !lifecycles.contains(*aggregate) {
+            panic!("handlers: aggregate '{}' declares no lifecycle", aggregate);
+        }
+        // The command's single emitted event, per the aggregate's receives wiring.
+        let receives = model
+            .defs
+            .get("actors.yaml")
+            .and_then(|a| a.get(*aggregate))
+            .and_then(|n| n.get("receives"))
+            .and_then(|r| r.as_sequence())
+            .unwrap_or_else(|| panic!("handlers: actors.yaml#/{} has no receives", aggregate));
+        let entry = receives
+            .iter()
+            .find(|e| {
+                e.get("message")
+                    .and_then(|m| m.get("$ref"))
+                    .and_then(|r| r.as_str())
+                    .map(|r| {
+                        ref_target_file(r, "actors.yaml").as_deref() == Some("commands.yaml")
+                            && ref_name(r).as_deref() == Some(command)
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or_else(|| panic!("handlers: actors.yaml#/{} does not receive '{}'", aggregate, command));
+        let emits: Vec<String> = ref_strings(entry.get("emits")).iter().filter_map(|r| ref_name(r)).collect();
+        let event = match emits.as_slice() {
+            [one] => one.clone(),
+            other => panic!("handlers: '{}' must emit exactly one event, got {:?}", command, other),
+        };
+        // Build the event payload from the command's same-named fields.
+        let event_node = model
+            .defs
+            .get("events.yaml")
+            .and_then(|e| e.get(event.as_str()))
+            .unwrap_or_else(|| panic!("handlers: events.yaml#/{} missing", event));
+        let required: BTreeSet<String> = event_node
+            .get("required")
+            .and_then(|r| r.as_sequence())
+            .map(|s| s.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let cmd_props: BTreeSet<String> = model
+            .defs
+            .get("commands.yaml")
+            .and_then(|c| c.get(*command))
+            .and_then(|n| n.get("properties"))
+            .and_then(|p| p.as_mapping())
+            .map(|m| m.keys().filter_map(|k| k.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let mut fields = String::new();
+        if let Some(props) = event_node.get("properties").and_then(|p| p.as_mapping()) {
+            for (k, _) in props {
+                let prop = k.as_str().unwrap_or_default();
+                let field = snake_field(prop);
+                if cmd_props.contains(prop) {
+                    fields.push_str(&format!("        {}: cmd.{},\n", field, field));
+                } else if required.contains(prop) {
+                    panic!(
+                        "handlers: required event field {}.{} has no same-named field on command {}",
+                        event, prop, command
+                    );
+                } else {
+                    fields.push_str(&format!("        {}: None,\n", field));
+                }
+            }
+        }
+        commands.insert((*command).to_string());
+        events.insert(event.clone());
+        fns.push_str(&format!(
+            "\n/// Handle `commands.yaml#/{cmd}` → emit `events.yaml#/{evt}` — require + guard + append over\n/// the declared machine (`{lc}::transition`); an illegal move rejects through the\n/// aggregate's seam (specs/actors.yaml#/{agg}/lifecycle).\npub async fn {f}(\n    store: &dyn EventStore,\n    cmd: {cmd},\n    actor: &Actor,\n) -> Result<(), DomainError> {{\n    let (state, version) = {require}.await?;\n    let event = DomainEvent::{evt}({evt} {{\n{fields}    }});\n    if {lc}::transition(state.status, &event).is_none() {{\n        return Err({reject});\n    }}\n    Repository::new(store).save(&{stream}, version, &[event], actor).await.map(|_| ())\n}}\n",
+            cmd = command,
+            evt = event,
+            agg = aggregate,
+            lc = seam.lifecycle,
+            f = snake_type(command),
+            require = seam.require,
+            reject = seam.reject,
+            stream = seam.stream,
+            fields = fields,
+        ));
+    }
+    let cmd_list = commands.into_iter().collect::<Vec<_>>().join(", ");
+    let evt_list = events.into_iter().collect::<Vec<_>>().join(", ");
+    format!(
+        "// GENERATED by the Captain.Food codegen from specs/actors.yaml (receives wiring + `lifecycle`\n// blocks), specs/commands.yaml and specs/events.yaml (issue #23, ADR-20260721-093027) — do not edit\n// by hand. The mechanical \"require + guard + append\" command handlers: rehydrate the aggregate\n// through its hand-written seam, build the single emitted event from the command's same-named\n// fields, legalize the move against the GENERATED lifecycle transition table, append.\n// `crates/application/src/commands.rs` re-exports these, so call sites and the behaviour suite (the\n// parity gate until #24's generated harness lands) are unchanged.\n\nuse serde_json::json;\n\nuse domain::generated::commands::{{{cmds}}};\nuse domain::generated::events::{{DomainEvent, {evts}}};\nuse domain::shared::errors::DomainError;\n\nuse crate::commands::{{\n    canonical_predecessor, delivery_job_stream, invalid_delivery_status, invalid_order_status,\n    order_stream, reject, require_delivery_job, require_order, require_rider, rider_stream,\n}};\nuse crate::ports::{{Actor, EventStore}};\nuse crate::repository::Repository;\n{fns}",
+        cmds = cmd_list,
+        evts = evt_list,
+        fns = fns,
+    )
+}
+
 // ─── crates/server/src/graphql/generated/ (Stage 1a — async-graphql type layer from api.yaml) ───
 //
 // The server hosts the GraphQL surface with async-graphql, but `domain` must stay GraphQL-free
@@ -11196,7 +11362,8 @@ fn main() {
         ("pm_state.rs", emit_pm_state_application(&model)),
         ("services.rs", emit_services_application(&model)),
         ("process_managers.rs", emit_pm_orchestrators(&model)),
-        ("mod.rs", "// GENERATED module index — do not edit by hand.\npub mod rows;\npub mod projectors;\npub mod pm_state;\npub mod process_managers;\npub mod services;\n".to_string()),
+        ("handlers.rs", emit_application_handlers(&model)),
+        ("mod.rs", "// GENERATED module index — do not edit by hand.\npub mod rows;\npub mod projectors;\npub mod pm_state;\npub mod process_managers;\npub mod services;\npub mod handlers;\n".to_string()),
     ] {
         let path = app_gen.join(name);
         if let Err(e) = fs::write(&path, content) {
