@@ -100,6 +100,14 @@ INSERT INTO ref_refund_process_status (value, sort_order) VALUES ('PENDING_APPRO
 CREATE TABLE ref_delivery_dispatch_process_status(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_delivery_dispatch_process_status (value, sort_order) VALUES ('OFFERED',0),('ACCEPTED',1),('FAILED',2),('COMPLETED',3);
 
+-- RestaurantDispatchMode
+CREATE TABLE ref_restaurant_dispatch_mode(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_restaurant_dispatch_mode (value, sort_order) VALUES ('CAPTAIN',0),('RESTAURANT',1);
+
+-- DeliveryChannelKind
+CREATE TABLE ref_delivery_channel_kind(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
+INSERT INTO ref_delivery_channel_kind (value, sort_order) VALUES ('POOL',0),('PARTNER',1);
+
 -- CatalogItemAvailability
 CREATE TABLE ref_catalog_item_availability(sort_order INT PRIMARY KEY, value TEXT NOT NULL UNIQUE);
 INSERT INTO ref_catalog_item_availability (value, sort_order) VALUES ('AVAILABLE',0),('UNAVAILABLE',1);
@@ -340,6 +348,39 @@ CREATE TABLE UberSplitPolicy (
   platform_fee_pct NUMERIC NOT NULL,
   effective_from TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE City (
+  city_id UUID PRIMARY KEY,
+  name TEXT NOT NULL,
+  country TEXT NOT NULL
+);
+
+CREATE TABLE DeliveryChannelCatalog (
+  channel TEXT PRIMARY KEY,
+  kind INTEGER NOT NULL,
+  default_offer_ttl_seconds INTEGER NOT NULL,
+  enabled BOOLEAN NOT NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE CityDeliveryRanking (
+  id TEXT PRIMARY KEY,
+  city_id UUID NULL,
+  rank INTEGER NOT NULL,
+  channel TEXT NOT NULL,
+  ttl_override_seconds INTEGER NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX ON CityDeliveryRanking (city_id);
+
+CREATE TABLE RestaurantDispatchConfig (
+  restaurant_id UUID PRIMARY KEY,
+  city_id UUID NOT NULL,
+  mode INTEGER NOT NULL,
+  self_dispatch_ttl_seconds INTEGER NULL,
+  effective_from TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX ON RestaurantDispatchConfig (city_id);
 
 CREATE TABLE Restaurant (
   restaurant_id UUID PRIMARY KEY,

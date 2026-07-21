@@ -7475,7 +7475,7 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="entity-address--city"></a>`city` | [🔤 `CityName`](#scalar-cityname) | ✅ |  |
 | <a id="entity-address--country"></a>`country` | [🔤 `CountryCode`](#scalar-countrycode) | ✅ |  |
 
-### 🔤 Scalars _(38)_
+### 🔤 Scalars _(42)_
 
 | Scalar | Type | Description |
 | --- | --- | --- |
@@ -7499,6 +7499,7 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-emailaddress"></a>🔤 `EmailAddress` | string _email_ |  |
 | <a id="scalar-phonenumber"></a>🔤 `PhoneNumber` | string | Canonical E.164 phone (e.g. '+33612345678'). Composed server-side from DialingCode + NationalPhoneNumber and stored on events/views. Validation enforced at application level.  |
 | <a id="scalar-addressline"></a>🔤 `AddressLine` | string |  |
+| <a id="scalar-cityid"></a>🔤 `CityId` | string _uuid_ | A city Captain operates in — the scope that anchors delivery routing config (CityDeliveryRanking) and, later, partner availability. First-class id (delivery dispatch strategy foundation, #60). |
 | <a id="scalar-postalcode"></a>🔤 `PostalCode` | string |  |
 | <a id="scalar-countrycode"></a>🔤 `CountryCode` | string `^[A-Z]{2}$` | ISO 3166-1 alpha-2 country code. Example: 'FR'. |
 | <a id="scalar-timezone"></a>🔤 `TimeZone` | string | IANA timezone. Example: 'Europe/Paris'. |
@@ -7515,6 +7516,9 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="scalar-paymentprocessstatus"></a>🔤 `PaymentProcessStatus` | enum (AWAITING_PAYMENT_RESULT \| ORDER_PLACED \| FAILED) | State of one PlaceOrderProcess checkout run (payment_process_manager row, keyed by cart). |
 | <a id="scalar-refundprocessstatus"></a>🔤 `RefundProcessStatus` | enum (PENDING_APPROVAL \| APPROVED_AWAITING_SETTLEMENT \| DENIED \| REFUNDED) | State of one RefundProcess run (refund_process_manager row, keyed by order). Refunds are approved by the restaurant (own orders) or an admin. |
 | <a id="scalar-deliverydispatchprocessstatus"></a>🔤 `DeliveryDispatchProcessStatus` | enum (OFFERED \| ACCEPTED \| FAILED \| COMPLETED) | State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order). FAILED keeps REOFFER_REQUIRED's ordinal slot (both flag manual handling; ADR-20260720-004556). |
+| <a id="scalar-restaurantdispatchmode"></a>🔤 `RestaurantDispatchMode` | enum (CAPTAIN \| RESTAURANT) | Who is responsible for fulfilling a restaurant's deliveries (restaurant-scoped config, resolved at runtime; #60). Default CAPTAIN keeps today's behaviour. |
+| <a id="scalar-deliverychannelkey"></a>🔤 `DeliveryChannelKey` | string `^[a-z0-9]+(?:_[a-z0-9]+)*$` | Slug key of a delivery channel in the DeliveryChannelCatalog (e.g. 'independent', 'avelo37', 'uber_direct', 'coopcycle'). Data-driven (a new partner = a catalog row + an adapter), so channels are NOT a fixed enum (#60). |
+| <a id="scalar-deliverychannelkind"></a>🔤 `DeliveryChannelKind` | enum (POOL \| PARTNER) | Kind of a DeliveryChannelCatalog entry — POOL (independent riders) vs PARTNER (adapter-backed). Every PARTNER channel must have a wired services.yaml delivery implementation (#60). |
 | <a id="scalar-mode"></a>🔤 `Mode` | enum (LIVE \| TEST) | Whether an aggregate is production (LIVE) or a non-production TEST fixture coexisting in prod (ADR-0038, Stripe-`livemode`-style). Set at creation, immutable; absent = LIVE. TEST data is isolated from payouts, analytics and real notifications; a TEST order may target a LIVE restaurant to validate the real receipt path.  |
 | <a id="scalar-usertype"></a>🔤 `UserType` | enum (PUBLIC \| CUSTOMER \| RESTAURANT_ACCOUNT \| RESTAURANT \| RIDER \| ADMIN \| EXTERNAL) |  |
 

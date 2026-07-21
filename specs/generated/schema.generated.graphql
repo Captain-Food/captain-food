@@ -59,6 +59,7 @@ scalar OtpCode
 scalar EmailVerificationToken
 scalar AddressLine
 scalar CityName
+scalar CityId
 scalar PostalCode
 scalar CountryCode
 scalar TimeZone
@@ -74,6 +75,7 @@ scalar StarRating
 scalar RatingComment
 scalar TimeOfDay
 scalar ProspectionScore
+scalar DeliveryChannelKey
 
 # ==============================================================================
 # Enums
@@ -245,6 +247,16 @@ enum DeliveryDispatchProcessStatus {
   ACCEPTED
   FAILED
   COMPLETED
+}
+
+enum RestaurantDispatchMode {
+  CAPTAIN
+  RESTAURANT
+}
+
+enum DeliveryChannelKind {
+  POOL
+  PARTNER
 }
 
 enum CatalogItemAvailability {
