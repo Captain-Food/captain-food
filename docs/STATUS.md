@@ -27,6 +27,16 @@
 > of the board; re-prioritising is a product-owner decision made in the project). Sizing &
 > pre-task-doc rules unchanged. Docs-only change — no specs, no code.
 
+> ✅ **2026-07-20 — #14: `orderStatusChanged` keys on orderId + per-row ownership (ADR-20260720-220000).**
+> The last pre-acceptance-first convention is gone: the subscription takes `orderId` (what the
+> confirmation route holds) and matches exactly the `Order-<id>` stream. Ownership per resolved
+> row: ADMIN any; CUSTOMER path must BE the order's customer (auth_ref → Customer), strangers and
+> anonymous callers get silence; RESTAURANT/RESTAURANT_ACCOUNT paths stay trusted like `orders`
+> (RECORDED GAP: no caller↔restaurant binding exists yet — scoping is one coherent follow-up across
+> order/orders/orderStatusChanged); guests follow `paymentStatusChanged` (ADR-20260720-213000 §3).
+> Roles literal `[CUSTOMER, RESTAURANT, RESTAURANT_ACCOUNT, ADMIN]`. New ownership test; 7
+> subscription tests green; validate 0 errors.
+
 > ✅ **2026-07-20 — #12: anonymous checkout survives restarts (ADR-20260720-213000).**
 > `place_order` now takes the dispatch-layer `X-SESSION-ID` as an ENVELOPE parameter (never command
 > payload, ADR-0041) and stamps it onto the `payment_process_manager` row — a guest resumes
