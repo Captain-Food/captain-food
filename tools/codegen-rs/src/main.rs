@@ -9844,7 +9844,7 @@ fn pm_read_infos<'a>(model: &'a Model, pm: &PmOrchDef, table: Option<&PmTable>) 
     }
     // Pass 2: consumed columns and their sink types.
     let views = parse_views(model);
-    let mut add_field = |reads: &mut Vec<PmReadInfo>, alias: &str, col: &str, ty: String, doc: String| {
+    let add_field = |reads: &mut Vec<PmReadInfo>, alias: &str, col: &str, ty: String, doc: String| {
         let r = reads
             .iter_mut()
             .find(|r| r.alias == alias)
