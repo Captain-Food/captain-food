@@ -761,7 +761,7 @@ pub mod delivery_dispatch_process {
 
         /// Orchestrator-resolved `process_status` (#60, the DSL's `from_hook` marker — resolved at runtime,
         /// e.g. from the delivery-strategy config tables). Open the run under the resolved strategy (#60). A CAPTAIN-dispatch order opens OFFERED at rank 1 with current_rank/current_channel set to the rank-1 channel offer_job was invoked against; a RESTAURANT-dispatch order opens SELF_DISPATCHED with current_rank/current_channel null (Captain offers no channel and only tracks — the restaurant drives progress and the customer still gets tracking). process_status/current_rank/current_channel are resolved by runtime strategy hooks (from_hook) reading RestaurantDispatchConfig + CityDeliveryRanking; offer_attempts = 1 counts the birth offer.
-        async fn open_process_status(&self, event: &domain::generated::events::OrderMarkedReady, order: &OrderRead, restaurant: &RestaurantRead, delivery_requested: &domain::generated::events::DeliveryRequested) -> Result<DeliveryDispatchProcessStatus, domain::shared::errors::DomainError>;
+        async fn open_process_status(&self, event: &domain::generated::events::OrderMarkedReady, order: &OrderRead, restaurant: &RestaurantRead, delivery_requested: &domain::generated::events::DeliveryRequested) -> Result<domain::generated::scalars::DeliveryDispatchProcessStatus, domain::shared::errors::DomainError>;
 
         /// Orchestrator-resolved `current_rank` (#60, the DSL's `from_hook` marker — resolved at runtime,
         /// e.g. from the delivery-strategy config tables). Open the run under the resolved strategy (#60). A CAPTAIN-dispatch order opens OFFERED at rank 1 with current_rank/current_channel set to the rank-1 channel offer_job was invoked against; a RESTAURANT-dispatch order opens SELF_DISPATCHED with current_rank/current_channel null (Captain offers no channel and only tracks — the restaurant drives progress and the customer still gets tracking). process_status/current_rank/current_channel are resolved by runtime strategy hooks (from_hook) reading RestaurantDispatchConfig + CityDeliveryRanking; offer_attempts = 1 counts the birth offer.
@@ -769,7 +769,7 @@ pub mod delivery_dispatch_process {
 
         /// Orchestrator-resolved `current_channel` (#60, the DSL's `from_hook` marker — resolved at runtime,
         /// e.g. from the delivery-strategy config tables). Open the run under the resolved strategy (#60). A CAPTAIN-dispatch order opens OFFERED at rank 1 with current_rank/current_channel set to the rank-1 channel offer_job was invoked against; a RESTAURANT-dispatch order opens SELF_DISPATCHED with current_rank/current_channel null (Captain offers no channel and only tracks — the restaurant drives progress and the customer still gets tracking). process_status/current_rank/current_channel are resolved by runtime strategy hooks (from_hook) reading RestaurantDispatchConfig + CityDeliveryRanking; offer_attempts = 1 counts the birth offer.
-        async fn open_current_channel(&self, event: &domain::generated::events::OrderMarkedReady, order: &OrderRead, restaurant: &RestaurantRead, delivery_requested: &domain::generated::events::DeliveryRequested) -> Result<Option<DeliveryChannelKey>, domain::shared::errors::DomainError>;
+        async fn open_current_channel(&self, event: &domain::generated::events::OrderMarkedReady, order: &OrderRead, restaurant: &RestaurantRead, delivery_requested: &domain::generated::events::DeliveryRequested) -> Result<Option<domain::generated::scalars::DeliveryChannelKey>, domain::shared::errors::DomainError>;
 
         /// Envelope-owned fix-ups on the row about to be upserted (e.g. clearing a spent
         /// credential, ADR-20260720-015500) — default: none.
@@ -904,7 +904,7 @@ pub mod delivery_dispatch_process {
 
         /// Orchestrator-resolved `current_channel` (#60, the DSL's `from_hook` marker — resolved at runtime,
         /// e.g. from the delivery-strategy config tables). ADVANCE branch: offer_attempts += 1 and current_rank/current_channel advance to the next ranked channel (the orchestrator computes the walk step — arithmetic/selection the value forms cannot carry); the run stays OFFERED awaiting the answer.
-        async fn advance_current_channel(&self, event: &domain::generated::events::DeliveryRejectedByPartner, row: &crate::pm_state::DeliveryDispatchRow) -> Result<Option<DeliveryChannelKey>, domain::shared::errors::DomainError>;
+        async fn advance_current_channel(&self, event: &domain::generated::events::DeliveryRejectedByPartner, row: &crate::pm_state::DeliveryDispatchRow) -> Result<Option<domain::generated::scalars::DeliveryChannelKey>, domain::shared::errors::DomainError>;
 
         /// Envelope-owned fix-ups on the row about to be upserted (e.g. clearing a spent
         /// credential, ADR-20260720-015500) — default: none.
@@ -1010,7 +1010,7 @@ pub mod delivery_dispatch_process {
 
         /// Orchestrator-resolved `current_channel` (#60, the DSL's `from_hook` marker — resolved at runtime,
         /// e.g. from the delivery-strategy config tables). ADVANCE branch: offer_attempts += 1 and current_rank/current_channel advance to the next ranked channel (the orchestrator computes the walk step); the run stays OFFERED.
-        async fn advance_current_channel(&self, event: &domain::generated::events::DeliveryEscalationRequested, row: &crate::pm_state::DeliveryDispatchRow) -> Result<Option<DeliveryChannelKey>, domain::shared::errors::DomainError>;
+        async fn advance_current_channel(&self, event: &domain::generated::events::DeliveryEscalationRequested, row: &crate::pm_state::DeliveryDispatchRow) -> Result<Option<domain::generated::scalars::DeliveryChannelKey>, domain::shared::errors::DomainError>;
 
         /// Envelope-owned fix-ups on the row about to be upserted (e.g. clearing a spent
         /// credential, ADR-20260720-015500) — default: none.
@@ -1116,7 +1116,7 @@ pub mod delivery_dispatch_process {
 
         /// Orchestrator-resolved `current_channel` (#60, the DSL's `from_hook` marker — resolved at runtime,
         /// e.g. from the delivery-strategy config tables). ADVANCE branch: offer_attempts += 1 and current_rank/current_channel advance to the next ranked channel (the orchestrator computes the walk step); the run stays OFFERED.
-        async fn advance_current_channel(&self, event: &domain::generated::events::DeliveryOfferTimedOut, row: &crate::pm_state::DeliveryDispatchRow) -> Result<Option<DeliveryChannelKey>, domain::shared::errors::DomainError>;
+        async fn advance_current_channel(&self, event: &domain::generated::events::DeliveryOfferTimedOut, row: &crate::pm_state::DeliveryDispatchRow) -> Result<Option<domain::generated::scalars::DeliveryChannelKey>, domain::shared::errors::DomainError>;
 
         /// Envelope-owned fix-ups on the row about to be upserted (e.g. clearing a spent
         /// credential, ADR-20260720-015500) — default: none.

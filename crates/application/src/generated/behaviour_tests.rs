@@ -2420,7 +2420,7 @@ async fn test_dispatch_on_order_ready() {
     bed.seed(&format!("Order-{}", support::uid("order-1")), vec![fx_order_placed()]).await;
     let before = bed.snapshot();
     let ev = evs::OrderMarkedReady { order_id: sc::OrderId(support::uid("order-1")), restaurant_id: sc::RestaurantId(support::uid("resto-1")) };
-    let result = crate::process_managers::delivery_dispatch::on_order_marked_ready(&bed.store, &bed.dispatch_pm, &bed.orders, &bed.delivery, &ev, &support::envelope()).await;
+    let result = crate::process_managers::delivery_dispatch::on_order_marked_ready(&bed.store, &bed.dispatch_pm, &bed.orders, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await;
     let _ = result.expect("TestDispatchOnOrderReady: the spec expects acceptance");
     bed.assert_appended("TestDispatchOnOrderReady", &before, &[
         (format!("DeliveryJob-{}", support::uid("deliv-1")), fx_delivery_requested()),
@@ -2450,7 +2450,7 @@ async fn test_dispatch_partner_rejected() {
     bed.seed(&format!("DeliveryJob-{}", support::uid("deliv-1")), vec![fx_delivery_requested()]).await;
     let before = bed.snapshot();
     let ev = evs::DeliveryRejectedByPartner { delivery_job_id: sc::DeliveryJobId(support::uid("deliv-1")), partner_ref: None, reason: Some("No courier available".to_string()) };
-    let result = crate::process_managers::delivery_dispatch::on_delivery_rejected_by_partner(&bed.store, &bed.dispatch_pm, &bed.delivery, &ev, &support::envelope()).await;
+    let result = crate::process_managers::delivery_dispatch::on_delivery_rejected_by_partner(&bed.store, &bed.dispatch_pm, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await;
     let _ = result.expect("TestDispatchPartnerRejected: the spec expects acceptance");
     bed.assert_appended("TestDispatchPartnerRejected", &before, &[]);
 }
@@ -2478,7 +2478,7 @@ async fn test_dispatch_fails_after_offer_cap() {
     bed.seed(&format!("DeliveryJob-{}", support::uid("deliv-1")), vec![fx_delivery_requested(), fx_delivery_rejected_by_partner(), fx_delivery_rejected_by_partner()]).await;
     let before = bed.snapshot();
     let ev = evs::DeliveryRejectedByPartner { delivery_job_id: sc::DeliveryJobId(support::uid("deliv-1")), partner_ref: None, reason: Some("No courier available".to_string()) };
-    let result = crate::process_managers::delivery_dispatch::on_delivery_rejected_by_partner(&bed.store, &bed.dispatch_pm, &bed.delivery, &ev, &support::envelope()).await;
+    let result = crate::process_managers::delivery_dispatch::on_delivery_rejected_by_partner(&bed.store, &bed.dispatch_pm, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await;
     let _ = result.expect("TestDispatchFailsAfterOfferCap: the spec expects acceptance");
     bed.assert_appended("TestDispatchFailsAfterOfferCap", &before, &[
         (format!("DeliveryJob-{}", support::uid("deliv-1")), fx_delivery_dispatch_failed()),
@@ -2495,7 +2495,7 @@ async fn test_dispatch_self_dispatched() {
     bed.seed(&format!("Order-{}", support::uid("order-1")), vec![fx_order_placed()]).await;
     let before = bed.snapshot();
     let ev = evs::OrderMarkedReady { order_id: sc::OrderId(support::uid("order-1")), restaurant_id: sc::RestaurantId(support::uid("resto-1")) };
-    let result = crate::process_managers::delivery_dispatch::on_order_marked_ready(&bed.store, &bed.dispatch_pm, &bed.orders, &bed.delivery, &ev, &support::envelope()).await;
+    let result = crate::process_managers::delivery_dispatch::on_order_marked_ready(&bed.store, &bed.dispatch_pm, &bed.orders, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await;
     let _ = result.expect("TestDispatchSelfDispatched: the spec expects acceptance");
     bed.assert_appended("TestDispatchSelfDispatched", &before, &[
         (format!("DeliveryJob-{}", support::uid("deliv-1")), fx_delivery_requested()),
@@ -2511,7 +2511,7 @@ async fn test_dispatch_advances_on_escalate() {
     bed.seed(&format!("DeliveryJob-{}", support::uid("deliv-1")), vec![fx_delivery_requested()]).await;
     let before = bed.snapshot();
     let ev = evs::DeliveryEscalationRequested { delivery_job_id: sc::DeliveryJobId(support::uid("deliv-1")), reason: Some("Customer waiting too long".to_string()) };
-    let result = crate::process_managers::delivery_dispatch::on_delivery_escalation_requested(&bed.store, &bed.dispatch_pm, &bed.delivery, &ev, &support::envelope()).await;
+    let result = crate::process_managers::delivery_dispatch::on_delivery_escalation_requested(&bed.store, &bed.dispatch_pm, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await;
     let _ = result.expect("TestDispatchAdvancesOnEscalate: the spec expects acceptance");
     bed.assert_appended("TestDispatchAdvancesOnEscalate", &before, &[]);
 }
@@ -2525,7 +2525,7 @@ async fn test_dispatch_advances_on_timeout() {
     bed.seed(&format!("DeliveryJob-{}", support::uid("deliv-1")), vec![fx_delivery_requested()]).await;
     let before = bed.snapshot();
     let ev = evs::DeliveryOfferTimedOut { delivery_job_id: sc::DeliveryJobId(support::uid("deliv-1")), channel: sc::DeliveryChannelKey("independent".into()), rank: 1, reason: None };
-    let result = crate::process_managers::delivery_dispatch::on_delivery_offer_timed_out(&bed.store, &bed.dispatch_pm, &bed.delivery, &ev, &support::envelope()).await;
+    let result = crate::process_managers::delivery_dispatch::on_delivery_offer_timed_out(&bed.store, &bed.dispatch_pm, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await;
     let _ = result.expect("TestDispatchAdvancesOnTimeout: the spec expects acceptance");
     bed.assert_appended("TestDispatchAdvancesOnTimeout", &before, &[]);
 }

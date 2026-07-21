@@ -10893,7 +10893,7 @@ impl<'a> PmLegGen<'a> {
                     // Orchestrator-resolved value (#60) — a runtime hook (e.g. reading config tables)
                     // usable on ANY leg incl. a birth leg with no state row. It receives whatever the
                     // leg has in scope (trigger + reads/payloads + the row when one is loaded).
-                    let base = self.ctx.col_ty(col);
+                    let base = pm_qualify(model, &self.ctx.col_ty(col));
                     let sig = self.hook_sig();
                     let args = self.hook_args();
                     self.push(ind, &format!("let hook_{} = hooks.{}({}).await?;", rust_ident(col), name, args));
@@ -11566,11 +11566,11 @@ fn bt_pm_event_call(pm: &str, event: &str) -> String {
         ("RefundProcess", "RefundRequested") => "crate::process_managers::refund::on_refund_requested(&bed.store, &bed.refund_pm, &bed.orders, &ev, &support::envelope()).await".into(),
         ("RefundProcess", "PaymentRefunded") => "crate::process_managers::refund::on_payment_refunded(&bed.refund_pm, &ev).await".into(),
         ("CartBindingProcess", "CustomerIdentified") => "crate::process_managers::cart_binding::on_customer_identified(&bed.store, &bed.cart_pm, &bed.carts, &ev, &support::envelope()).await".into(),
-        ("DeliveryDispatchProcess", "OrderMarkedReady") => "crate::process_managers::delivery_dispatch::on_order_marked_ready(&bed.store, &bed.dispatch_pm, &bed.orders, &bed.delivery, &ev, &support::envelope()).await".into(),
+        ("DeliveryDispatchProcess", "OrderMarkedReady") => "crate::process_managers::delivery_dispatch::on_order_marked_ready(&bed.store, &bed.dispatch_pm, &bed.orders, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await".into(),
         ("DeliveryDispatchProcess", "DeliveryAcceptedByPartner") => "crate::process_managers::delivery_dispatch::on_delivery_accepted_by_partner(&bed.dispatch_pm, &ev).await".into(),
-        ("DeliveryDispatchProcess", "DeliveryRejectedByPartner") => "crate::process_managers::delivery_dispatch::on_delivery_rejected_by_partner(&bed.store, &bed.dispatch_pm, &bed.delivery, &ev, &support::envelope()).await".into(),
-        ("DeliveryDispatchProcess", "DeliveryEscalationRequested") => "crate::process_managers::delivery_dispatch::on_delivery_escalation_requested(&bed.store, &bed.dispatch_pm, &bed.delivery, &ev, &support::envelope()).await".into(),
-        ("DeliveryDispatchProcess", "DeliveryOfferTimedOut") => "crate::process_managers::delivery_dispatch::on_delivery_offer_timed_out(&bed.store, &bed.dispatch_pm, &bed.delivery, &ev, &support::envelope()).await".into(),
+        ("DeliveryDispatchProcess", "DeliveryRejectedByPartner") => "crate::process_managers::delivery_dispatch::on_delivery_rejected_by_partner(&bed.store, &bed.dispatch_pm, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await".into(),
+        ("DeliveryDispatchProcess", "DeliveryEscalationRequested") => "crate::process_managers::delivery_dispatch::on_delivery_escalation_requested(&bed.store, &bed.dispatch_pm, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await".into(),
+        ("DeliveryDispatchProcess", "DeliveryOfferTimedOut") => "crate::process_managers::delivery_dispatch::on_delivery_offer_timed_out(&bed.store, &bed.dispatch_pm, &bed.delivery, &bed.dispatch_config, &ev, &support::envelope()).await".into(),
         ("DeliveryDispatchProcess", "DeliveryStatusUpdated") => "crate::process_managers::delivery_dispatch::on_delivery_status_updated(&bed.store, &bed.dispatch_pm, &ev, &support::envelope()).await".into(),
         ("DeliveryDispatchProcess", "DeliveryCompleted") => "crate::process_managers::delivery_dispatch::on_delivery_completed(&bed.store, &bed.dispatch_pm, &ev, &support::envelope()).await".into(),
         _ => panic!("behaviour-tests: no dispatch entry for process-manager {} ← event {} — extend bt_pm_event_call", pm, event),
