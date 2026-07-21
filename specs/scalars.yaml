@@ -579,11 +579,16 @@ RefundProcessStatus:
 DeliveryDispatchProcessStatus:
   type: string
   enum:
-    - OFFERED           # DeliveryRequested delivered to the DeliveryJob; job offered to partner/riders (a bounded re-offer returns here)
+    - OFFERED           # DeliveryRequested delivered to the DeliveryJob; job offered to the current ranked channel (advancing the walk returns here)
     - ACCEPTED          # a partner/rider accepted the job
-    - FAILED            # offer attempts exhausted (cap 3, ADR-20260720-004556): DeliveryDispatchFailed recorded — terminal (manual handling)
+    - FAILED            # the ranked channel walk is exhausted: DeliveryDispatchFailed recorded — terminal (manual handling)
     - COMPLETED         # delivery done and order closed — terminal
-  description: "State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order). FAILED keeps REOFFER_REQUIRED's ordinal slot (both flag manual handling; ADR-20260720-004556)."
+    - SELF_DISPATCHED   # the restaurant self-dispatches (RestaurantDispatchMode RESTAURANT): no channel offered, Captain only tracks (#60)
+  description: >
+    State of one DeliveryDispatchProcess run (delivery_dispatch_process_manager row, keyed by order).
+    FAILED now marks the ranked channel walk exhausted (fail closed, rules.yaml#/DispatchExhaustionFailsClosed —
+    #60 supersedes the ADR-20260720-004556 numeric cap-3 framing). SELF_DISPATCHED is appended LAST to
+    preserve the declaration-order ordinals of the pre-#60 values (ADR-0037)."
 
 RestaurantDispatchMode:
   type: string
