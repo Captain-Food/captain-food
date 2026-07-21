@@ -14,7 +14,10 @@ description: >
 
   Convention per contract:
     - feature / criticality : workflow identity and importance.
-    - workflow              : $ref bindings to the saga/aggregate, command, emitted + inbound events.
+    - workflow              : $ref bindings to the saga/aggregate, command, emitted + inbound events —
+                              OR a dispatch `surface` (`graphql`) for a PIPELINE contract that binds a
+                              whole dispatch surface instead of a single command/saga/aggregate
+                              (mutually exclusive with the $ref bindings; validator §8).
     - run_identity          : ids every run must carry; `correlation_id` and `trace_id` are mandatory
                               (correlation_id is business-facing and survives the whole causality chain;
                               trace_id is technical and may rotate across async boundaries).
@@ -24,6 +27,68 @@ description: >
     - status_rules          : how spans/attributes map to success | technical_error | business_rejected;
                               `success.required_spans` must be a subset of the declared `spans`.
     - latency_budget / error_budget : workflow SLOs.
+
+# =====================================================================
+# command-acceptance — the acceptance-first GraphQL dispatch pipeline (ADR-20260720-015500)
+# mutation (metadata?) -> sync validate/journal (command_journal: RECEIVED | duplicate | Conflict)
+#   -> MutationAcceptance echoed -> async dispatch to the pure handler -> terminal journal status
+#   (SUCCEEDED | REJECTED | FAILED) -> operationStatus/operationStatusChanged.
+# Binds the WHOLE dispatch surface (`surface: graphql`), not one command — every mutation flows
+# through it. Per-workflow contracts (place-order, ...) remain the deep-dive complement.
+# =====================================================================
+command-acceptance:
+  feature: command-acceptance
+  criticality: high
+  workflow:
+    surface: graphql   # dispatch-surface binding — no single command/saga/aggregate (validator §8)
+
+  run_identity:
+    - { name: correlation_id, source: "command.correlation_id", required: true }
+    - { name: trace_id, source: "otel.trace_id", required: true }
+    - { name: message_id, source: "command.message_id", required: true }   # command_journal pk (ADR-20260720-015300)
+    - { name: command_type, source: "command.type", required: true }
+    - { name: channel, source: "journal.channel", required: true }   # scalars CommandChannel: GRAPHQL | WORKER | INTERNAL (#15)
+
+  spans:
+    - name: "command.receive"
+      kind: SERVER
+      required: true
+      attributes:
+        - { key: "business.command_type", type: string, required: true }
+        - { key: "business.actor", type: string, required: true }
+        - { key: "business.channel", type: string, required: true }
+    - name: "command.journal"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.message_id", type: string, required: true }
+        - { key: "business.journal_status", type: string, required: true }   # RECEIVED | duplicate | conflict (messageId reuse w/ different payload → sync Conflict)
+    - name: "command.dispatch"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.message_id", type: string, required: true }
+        - { key: "business.dispatch_outcome", type: string, required: true }   # spawned | duplicate_skipped
+
+  metrics:
+    - { name: "commands_accepted_total", type: counter, attributes: ["channel"] }
+    - { name: "command_duplicates_total", type: counter, attributes: ["channel"] }   # duplicate: true acceptances — client retry correctness (#17)
+    - { name: "command_sync_conflicts_total", type: counter, attributes: ["command_type"] }   # sync Conflict rate: messageId reuse with a different payload (ADR-20260720-015500 §2)
+    - { name: "command_completion_ms", type: histogram, attributes: ["status"] }   # journal insert → terminal status; status = SUCCEEDED | REJECTED | FAILED (REJECTED/FAILED split)
+
+  status_rules:
+    success:
+      required_spans: ["command.receive", "command.journal", "command.dispatch"]
+      conditions: ["command.journal.business.journal_status != 'conflict'"]   # a duplicate IS a successful acceptance (duplicate: true echoed)
+    business_rejected:
+      conditions: ["journal terminal status == 'REJECTED'"]   # post-acceptance rejection — surfaces as Operation.errorCode, never a GraphQL error
+    technical_error:
+      any_span_errors: true
+
+  # Budgets bind the SYNCHRONOUS acceptance path (receive → journal → MutationAcceptance) — the
+  # async handler completion is watched via command_completion_ms{status}, not this latency budget.
+  latency_budget: { max_p95_ms: 150, max_p99_ms: 400 }
+  error_budget: { max_error_rate_pct: 0.5 }
 
 # =====================================================================
 # place-order — the V0 checkout saga (highest risk: external Stripe call)

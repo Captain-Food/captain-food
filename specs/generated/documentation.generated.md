@@ -7441,7 +7441,37 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="error-offernotfound"></a>⛔ `OfferNotFound` | No offer with this id in the catalog. | 🇬🇧 Product offer not found. | 🇫🇷 Offere de produit introuvable. | [📩 `UpdateOfferStock`](#command-updateofferstock), [📩 `AddCartLine`](#command-addcartline) |
 | <a id="error-paymenteventorphaned"></a>⛔ `PaymentEventOrphaned` | A Stripe payment outcome (capture or failure) references a PaymentIntent that matches no known checkout run. The inbound fact stays recorded on the Payment, but the process manager aborts and surfaces this error for ops attention (money may have been taken with no order to materialize) — an anomaly is never silently skipped.  | 🇬🇧 Payment event received for an unknown checkout. | 🇫🇷 Événement de paiement reçu pour un checkout inconnu. | — |
 
-### 📡 Observability _(1)_
+### 📡 Observability _(2)_
+
+<a id="obs-command-acceptance"></a>
+#### 📡 Contract: `command-acceptance`
+
+_criticality: **high**_
+
+- **Workflow**: surface `graphql` (dispatch pipeline)
+- **Emits**: — · **Inbound**: —
+
+**Run identity**
+
+| Id | Source | Req. | Business key |
+| --- | --- | --- | --- |
+| `correlation_id` | `command.correlation_id` | ✅ | — |
+| `trace_id` | `otel.trace_id` | ✅ | — |
+| `message_id` | `command.message_id` | ✅ | — |
+| `command_type` | `command.type` | ✅ | — |
+| `channel` | `journal.channel` | ✅ | — |
+
+**Spans** (`*` = required attribute)
+
+| Span | Kind | Req. | Multiplicity | Attributes |
+| --- | --- | --- | --- | --- |
+| `command.receive` | `SERVER` | ✅ | — | `business.command_type`*, `business.actor`*, `business.channel`* |
+| `command.journal` | `INTERNAL` | ✅ | — | `business.message_id`*, `business.journal_status`* |
+| `command.dispatch` | `INTERNAL` | ✅ | — | `business.message_id`*, `business.dispatch_outcome`* |
+
+- **Metrics**: `commands_accepted_total` _(counter)_, `command_duplicates_total` _(counter)_, `command_sync_conflicts_total` _(counter)_, `command_completion_ms` _(histogram)_ · **Business metrics**: —
+- **Status rules**: success ⇐ spans [`command.receive`, `command.journal`, `command.dispatch`]
+- **SLOs**: p95 ≤ 150ms · p99 ≤ 400ms · error rate ≤ 0.5%
 
 <a id="obs-stripe-webhook-ingestion"></a>
 #### 📡 Contract: `stripe-webhook-ingestion`

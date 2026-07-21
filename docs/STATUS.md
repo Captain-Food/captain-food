@@ -1,7 +1,20 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-20 (23:45 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-21 (03:15 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> ✅ **2026-07-21 — #16: `surface: graphql` binding kind + the generic `command-acceptance`
+> contract (ADR-20260721-031127).** Validator §8 now accepts `workflow.surface` as a binding kind
+> (rules `obs-surface-unknown`, `obs-surface-exclusive`; `obs-no-workflow-binding` amended) so a
+> contract can bind a whole dispatch surface instead of one command/saga/aggregate; doc emitters
+> render it (files under cross-cutting). New `command-acceptance` contract instruments the
+> acceptance-first write pipeline (ADR-20260720-015500): spans
+> `command.receive`/`command.journal`/`command.dispatch`, ids `message_id`/`correlation_id`/
+> `trace_id`/`command_type`/`channel`, metrics `commands_accepted_total{channel}`,
+> `command_duplicates_total{channel}`, `command_sync_conflicts_total{command_type}`,
+> `command_completion_ms{status}` (REJECTED/FAILED split — #19's decision data). Latency budget
+> binds the sync acceptance path only. Runtime emission stays contract-only until the OTel layer
+> exists; `{channel}` covers WORKER once #15 lands. Validate 0 errors.
 
 > ✅ **2026-07-20 — value made explicit per issue (product-owner directive, amends
 > ADR-20260720-143000 §1).** New org field **Value Size** (T-shirt XS–XL) = the value the issue
