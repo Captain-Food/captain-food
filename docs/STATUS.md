@@ -23,6 +23,18 @@
 > assertions re-worded; never spec'd). `make rust` green: workspace builds, tests pass, validate
 > 0 errors, no drift.
 
+> ✅ **2026-07-21 — #50: identity catalog completed + migrated to the generated `IdentityService`
+> (owner-approved spec change; closes the #26 deferral, ADR-20260721-043033).** services.yaml:
+> `identity.verify_email_token.output` now carries the proven `email` (+ declares
+> `VerificationCodeExpired`), and the `locale` inputs of `send_phone_otp`/`send_email_magic_link`
+> are `nullable: true`. The hand-written `AuthProviderGateway` (+ `PhoneOtpCheck`/`EmailTokenCheck`)
+> is MIGRATED AT PARITY and deleted: the Customer command handlers call the generated
+> `IdentityService`, invalid/expired verifications are the canonical typed rejections RAISED BY THE
+> ADAPTER (`canonical_phone` is `pub` so adapters build the `phone` context identically), the
+> fail-closed stand-in is renamed `FailClosedIdentityService`, and the composition root resolves
+> identity through the generated `identity_service` binding. Every service port of the catalog is
+> now generated — roadmap item 4's migration debt is fully paid. `make rust` green.
+
 > ✅ **2026-07-21 — auto-merge sequencing gap closed (ADR-20260721-044613, amends
 > ADR-20260721-042018).** A claim-time draft PR is a near-empty diff and passes CI trivially;
 > arming auto-merge at claim time (instead of at completion) would leave it armed for the whole

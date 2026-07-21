@@ -1565,7 +1565,7 @@ impl MutationRoot {
         let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();
         let status_bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();
-        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();
+        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();
         let payload_json = command_payload(&input)?;
         let cmd: domain::generated::commands::RequestPhoneVerification = serde_json::from_value(payload_json.clone())
             .map_err(|e| async_graphql::Error::new(e.to_string()))?;
@@ -1611,7 +1611,7 @@ impl MutationRoot {
         let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();
         let status_bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();
-        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();
+        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();
         let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();
         let payload_json = command_payload(&input)?;
         let cmd: domain::generated::commands::VerifyPhone = serde_json::from_value(payload_json.clone())
@@ -1658,7 +1658,7 @@ impl MutationRoot {
         let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();
         let status_bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();
-        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();
+        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();
         let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();
         let payload_json = command_payload(&input)?;
         let cmd: domain::generated::commands::RequestEmailVerification = serde_json::from_value(payload_json.clone())
@@ -1705,7 +1705,7 @@ impl MutationRoot {
         let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();
         let status_bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();
-        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();
+        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();
         let payload_json = command_payload(&input)?;
         let cmd: domain::generated::commands::ConfirmEmailVerification = serde_json::from_value(payload_json.clone())
             .map_err(|e| async_graphql::Error::new(e.to_string()))?;
@@ -1751,7 +1751,7 @@ impl MutationRoot {
         let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();
         let status_bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();
-        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();
+        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();
         let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();
         let payload_json = command_payload(&input)?;
         let cmd: domain::generated::commands::RequestPhoneChange = serde_json::from_value(payload_json.clone())
@@ -1798,7 +1798,7 @@ impl MutationRoot {
         let journal = ctx.data::<std::sync::Arc<dyn application::journal::CommandJournal>>()?.clone();
         let status_bus = ctx.data::<infrastructure::OperationStatusBus>()?.clone();
         let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();
-        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();
+        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();
         let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();
         let payload_json = command_payload(&input)?;
         let cmd: domain::generated::commands::ConfirmPhoneChange = serde_json::from_value(payload_json.clone())

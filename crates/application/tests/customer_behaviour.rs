@@ -4,8 +4,8 @@
 //! When = the command handler, Then = the emitted event(s) / the errors.yaml rejection code.
 //!
 //! Pure and offline: the identity flows are WRAPPED Supabase Auth (ADR-0015), so the tests fake the
-//! `AuthProviderGateway` (the ACL boundary — OTP "123456" is valid, "999999" expired, anything else
-//! invalid; magic-link token "sb-magic-token-abc" proves johnny@example.com) and the
+//! generated `IdentityService` port (the ACL boundary — OTP "123456" is valid, "999999" expired,
+//! anything else invalid; magic-link token "sb-magic-token-abc" proves johnny@example.com) and the
 //! `CustomerReadRepository` (the phone/email uniqueness-and-resolution index).
 
 use std::collections::HashMap;
@@ -19,9 +19,13 @@ use application::commands::{
     request_phone_verification, set_customer_address, set_customer_payment_method,
     set_customer_preferences, unmark_restaurant_as_favorite, update_customer_info, verify_phone,
 };
-use application::ports::{
-    version_conflict, Actor, AuthProviderGateway, EmailTokenCheck, EventStore, PhoneOtpCheck,
+use application::commands::canonical_phone;
+use application::generated::services::{
+    IdentitySendEmailMagicLinkInput, IdentitySendPhoneOtpInput, IdentityService,
+    IdentityVerifyEmailTokenInput, IdentityVerifyEmailTokenOutput, IdentityVerifyPhoneOtpInput,
+    IdentityVerifyPhoneOtpOutput, ServiceCallMeta,
 };
+use application::ports::{version_conflict, Actor, EventStore};
 use application::queries::{
     CustomerReadRepository, CustomerRow, RestaurantFilter, RestaurantReadRepository, RestaurantRow,
 };
@@ -98,59 +102,64 @@ impl FakeAuth {
 }
 
 #[async_trait]
-impl AuthProviderGateway for FakeAuth {
+impl IdentityService for FakeAuth {
     async fn send_phone_otp(
         &self,
-        dialing_code: &DialingCode,
-        national_number: &NationalPhoneNumber,
-        locale: Option<&Locale>,
+        input: IdentitySendPhoneOtpInput,
+        _meta: &ServiceCallMeta,
     ) -> Result<(), DomainError> {
         self.sends.lock().unwrap().push(format!(
             "otp:{}{}:{}",
-            dialing_code.0,
-            national_number.0,
-            locale.map(|l| l.0.as_str()).unwrap_or("-")
+            input.dialing_code.0,
+            input.national_number.0,
+            input.locale.as_ref().map(|l| l.0.as_str()).unwrap_or("-")
         ));
         Ok(())
     }
 
     async fn verify_phone_otp(
         &self,
-        _dialing_code: &DialingCode,
-        _national_number: &NationalPhoneNumber,
-        code: &OtpCode,
-    ) -> Result<PhoneOtpCheck, DomainError> {
-        Ok(match code.0.as_str() {
-            "123456" => PhoneOtpCheck::Verified { auth_ref: ExternalReference("auth-supabase-1".into()) },
-            "999999" => PhoneOtpCheck::Expired,
-            _ => PhoneOtpCheck::Invalid,
-        })
+        input: IdentityVerifyPhoneOtpInput,
+        _meta: &ServiceCallMeta,
+    ) -> Result<IdentityVerifyPhoneOtpOutput, DomainError> {
+        match input.code.0.as_str() {
+            "123456" => {
+                Ok(IdentityVerifyPhoneOtpOutput { auth_ref: ExternalReference("auth-supabase-1".into()) })
+            }
+            "999999" => Err(DomainError::rejected("VerificationCodeExpired", serde_json::json!({}))),
+            _ => Err(DomainError::rejected(
+                "InvalidVerificationCode",
+                serde_json::json!({ "phone": canonical_phone(&input.dialing_code, &input.national_number) }),
+            )),
+        }
     }
 
     async fn send_email_magic_link(
         &self,
-        email: &EmailAddress,
-        locale: Option<&Locale>,
+        input: IdentitySendEmailMagicLinkInput,
+        _meta: &ServiceCallMeta,
     ) -> Result<(), DomainError> {
         self.sends.lock().unwrap().push(format!(
             "magic-link:{}:{}",
-            email.0,
-            locale.map(|l| l.0.as_str()).unwrap_or("-")
+            input.email.0,
+            input.locale.as_ref().map(|l| l.0.as_str()).unwrap_or("-")
         ));
         Ok(())
     }
 
     async fn verify_email_token(
         &self,
-        token: &EmailVerificationToken,
-    ) -> Result<EmailTokenCheck, DomainError> {
-        Ok(match token.0.as_str() {
-            "sb-magic-token-abc" => {
-                EmailTokenCheck::Verified { email: EmailAddress("johnny@example.com".into()) }
-            }
-            "expired-token" => EmailTokenCheck::Expired,
-            _ => EmailTokenCheck::Invalid,
-        })
+        input: IdentityVerifyEmailTokenInput,
+        _meta: &ServiceCallMeta,
+    ) -> Result<IdentityVerifyEmailTokenOutput, DomainError> {
+        match input.token.0.as_str() {
+            "sb-magic-token-abc" => Ok(IdentityVerifyEmailTokenOutput {
+                auth_ref: ExternalReference("auth-supabase-1".into()),
+                email: EmailAddress("johnny@example.com".into()),
+            }),
+            "expired-token" => Err(DomainError::rejected("VerificationCodeExpired", serde_json::json!({}))),
+            _ => Err(DomainError::rejected("InvalidVerificationToken", serde_json::json!({}))),
+        }
     }
 }
 
