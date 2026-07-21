@@ -16,6 +16,23 @@
 > binds the sync acceptance path only. Runtime emission stays contract-only until the OTel layer
 > exists; `{channel}` covers WORKER once #15 lands. Validate 0 errors.
 
+> ✅ **2026-07-21 — #18: retention policy for write-path journals & adapter mirrors
+> (ADR-20260721-025159).** The unbounded-growth follow-ups of ADR-20260720-015300/-015400 are
+> closed: one SQL function **`sweep_retention()`** (source
+> `specs/database/functions/sweep_retention.sql`, in the generated schema + migration
+> `20260721025159`, `REQUIRED_SCHEMA_VERSION` bumped) owns the windows — `command_journal`
+> terminal rows 90 d from `completed_at`, `inbound_events` DELIVERED rows 30 d from
+> `delivered_at`, `external_stripe_events`/`external_hubrise_callbacks` processed rows 90 d from
+> `processed_at` (also the GDPR storage-limitation cap on verbatim webhook payloads). NEVER
+> swept: `domain_events`/`domain_stream` (the function does not reference the log), RECEIVED
+> journal rows (stale-RECEIVED sweep marks them FAILED first), FAILED inbound rows (kept until
+> resolved), unprocessed mirror rows, and the SIRENE mirror (detect-by-absence needs every row).
+> Scheduling: new in-process `RetentionSweepWorker` (first pass at boot, then 6 h;
+> `RUN_RETENTION_SWEEP` default on) — a `pg_cron` call of the same function is the documented
+> alternative. The table YAMLs carry documentary `retention:` blocks. New DB-gated test
+> `retention_sweep.rs` proves the delete-set AND the untouchables. `make validate` 0 errors,
+> workspace green.
+
 > ✅ **2026-07-20 — value made explicit per issue (product-owner directive, amends
 > ADR-20260720-143000 §1).** New org field **Value Size** (T-shirt XS–XL) = the value the issue
 > brings if completed, graded from its Impact section; issue **Type** `Foundation`
