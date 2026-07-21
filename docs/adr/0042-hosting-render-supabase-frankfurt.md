@@ -74,18 +74,25 @@ and data inside the EU**.
     pushed to GHCR, and the service is `runtime: image` + `autoDeploy: false`, pulling the pre-built image
     (deploys triggered by a Render deploy hook pinning `sha-<commit>`). ADR-0043 still keeps migrations
     out-of-band and the `/health` schema-version gate still holds a deploy that races ahead of a migration.
-  - Every push to `main` re-syncs the Blueprint automatically; "Manual sync" in the dashboard only forces
-    one. Secrets stay dashboard-managed via `sync: false` and are never committed.
-  - Linked 2026-07-17; first sync at commit `5a9e2f5` switched the service from a manually-configured
-    native `cargo build` to this Docker runtime, resolving the prior dashboard↔blueprint drift. First
-    Docker build + deploy verified live 2026-07-17 (`/health` → `db:up`, schema gate satisfied).
+  - A push to `main` re-syncs the Blueprint **config**, but with `autoDeploy: false` it does **not** deploy
+    the app: application deploys are driven only by the `build-image` workflow's Render **deploy hook**,
+    which pins the exact image **by digest** (ADR-20260721-175411). The `image.url` in `render.yaml` is a
+    bootstrap seed, not the running version — the deployed-version source of truth is Render's deploy/event
+    history. Secrets stay dashboard-managed via `sync: false` and are never committed.
+  - History: linked 2026-07-17; first sync (commit `5a9e2f5`) moved the service off a manually-configured
+    native `cargo build` onto the cargo-chef **Docker** runtime built **on Render** (verified live
+    2026-07-17, `/health` → `db:up`). On 2026-07-21 (**ADR-20260721-175411**) the build moved off Render
+    entirely to **GitHub Actions + GHCR** and the service became `runtime: image` — Render now only pulls a
+    pre-built image, spending zero build-pipeline minutes.
 - **Build tuning.** The workspace `[profile.release]` (root `Cargo.toml`) sets `lto = "thin"`,
-  `codegen-units = 1`, `strip = true` for the deployed binary — runtime-perf tuning, independent of the
-  Docker-vs-native build method; `panic = "abort"` deliberately NOT set (keeps per-request panic isolation),
-  `target-cpu` left generic (Render build/run hosts may differ). The Dockerfile uses cargo-chef so this
-  slower optimized compile is cached. **Open optimization**: the Dockerfile's `cargo chef cook` is not
-  scoped to `-p server`, so it currently cooks the whole workspace (incl. `web`/`desktop`/`codegen`);
-  scoping it to `-p server` would shrink the cached layer and speed cold builds (no behaviour change).
+  `codegen-units = 1`, `strip = true` for the deployed binary — runtime-perf tuning, independent of where
+  the build runs; `panic = "abort"` deliberately NOT set (keeps per-request panic isolation), `target-cpu`
+  left generic (the build host — now **GitHub Actions** — and the Render run host are different machines, so
+  a `native`-tuned binary could target the wrong CPU). The image is built in **CI** from the cargo-chef
+  Dockerfile with a buildx `type=gha` layer cache (ADR-20260721-175411), so the slow optimized compile is
+  cached across runs. **Open optimization**: the Dockerfile's `cargo chef cook` is not scoped to `-p server`,
+  so it cooks the whole workspace (incl. `web`/`desktop`/`codegen`); scoping it to `-p server` would shrink
+  the cached layer and speed cold builds (no behaviour change).
 - **DNS & custom domains (Dynadot → Render).** The service is reachable **only via custom domains** — the
   `onrender.com` URL is disabled. `*.captain.food` is a Render custom domain with an **issued wildcard TLS
   cert** (Let's Encrypt DNS-01 via `_acme-challenge.captain.food` CNAME → `<service>.verify.renderdns.com`;
@@ -101,8 +108,11 @@ and data inside the EU**.
   schema to PostgREST; not worth re-adding a REST surface.) Verified via Supabase Postgres logs 2026-07-17.
 
 ### Follow-up actions
-- When `crates/server` lands: expose an HTTP health endpoint for Render's check and handle SIGTERM drain;
-  update **P-04** in `docs/adr/README.md` to the PaaS mechanism (or supersede it).
+- ✅ Done — `crates/server` exposes `/health` (readiness gate) + `/ping` (liveness) and drains on SIGTERM
+  (`shutdown_signal` in `main.rs`); Render's Health Check Path is `/health`. Still open: reconcile **P-04**
+  in `docs/adr/README.md` with the realized PaaS mechanism (Render health check + SIGTERM drain).
+- ✅ Superseded build/deploy mechanism — see **ADR-20260721-175411** (CI-built image on GHCR, Render pulls
+  by digest). ADR-0042's hosting decision (Render + Supabase, Frankfurt) is unchanged.
 - Provision Supabase in **`eu-central-1` (Frankfurt)** and the Render service in **Frankfurt**; verify
   region parity at setup.
 - Configure **Supavisor** pooling + TLS for the Render→Supabase connection; size the SQLx pool to
