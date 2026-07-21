@@ -1,7 +1,22 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-20 (23:45 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-21 (03:20 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> ✅ **2026-07-21 — #27: PM state-table rows and Postgres stores are GENERATED
+> (ADR-20260721-031734, codegen-roadmap item 5).** Two new emitters in `tools/codegen-rs` over
+> `specs/database/tables/process_managers.yaml`: `crates/application/src/generated/pm_state.rs`
+> (row structs, `…StateStore` ports with derived `by_*` lookups = pk + UNIQUE columns + the
+> registered `paymentStatus(orderId)` read, and the `mem::…` doubles) and
+> `crates/infrastructure/src/generated/pm_state.rs` (Pg stores: enum ordinals, `.0` binds,
+> `ON CONFLICT (pk) DO UPDATE` upserts stamping `last_update_utc = now()` server-side). The
+> hand-written `application/src/pm_state.rs` + `infrastructure/persistence/pm_state.rs` are
+> deleted; call-site paths unchanged via re-exports (`application::pm_state`,
+> `persistence::Pg…State`); mem-double tests moved to `application/tests/pm_state_mem.rs`.
+> Lookup naming is now mechanical (`by_<column minus _id>` — `by_job` → `by_delivery_job`), so
+> processmanager.yaml `state.by` keys map 1:1 onto store methods for roadmap item 3. Journal
+> stores (`command_journal.rs`/`inbound_events.rs`) stay hand-written — follow-up slice.
+> `make rust` green: workspace builds, all tests pass, validate 0 errors, no drift.
 
 > ✅ **2026-07-20 — value made explicit per issue (product-owner directive, amends
 > ADR-20260720-143000 §1).** New org field **Value Size** (T-shirt XS–XL) = the value the issue

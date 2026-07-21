@@ -177,7 +177,7 @@ pub async fn on_delivery_accepted_by_partner(
     state: &dyn DeliveryDispatchStateStore,
     event: &DeliveryAcceptedByPartner,
 ) -> Result<Outcome, DomainError> {
-    let Some(row) = state.by_job(event.delivery_job_id).await? else {
+    let Some(row) = state.by_delivery_job(event.delivery_job_id).await? else {
         return Err(job_not_found(&event.delivery_job_id));
     };
     state
@@ -203,7 +203,7 @@ pub async fn on_delivery_rejected_by_partner(
     event: &DeliveryRejectedByPartner,
     env: &TriggerEnvelope,
 ) -> Result<Outcome, DomainError> {
-    let Some(row) = state.by_job(event.delivery_job_id).await? else {
+    let Some(row) = state.by_delivery_job(event.delivery_job_id).await? else {
         return Err(job_not_found(&event.delivery_job_id));
     };
     // state.expect process_status = OFFERED — only an outstanding offer can be declined; a decline
@@ -317,7 +317,7 @@ pub async fn on_delivery_status_updated(
             event.delivery_job_id.0, event.status
         )));
     }
-    let Some(row) = state.by_job(event.delivery_job_id).await? else {
+    let Some(row) = state.by_delivery_job(event.delivery_job_id).await? else {
         return Err(job_not_found(&event.delivery_job_id));
     };
     close_order(store, state, row, env).await
@@ -331,7 +331,7 @@ pub async fn on_delivery_completed(
     event: &DeliveryCompleted,
     env: &TriggerEnvelope,
 ) -> Result<Outcome, DomainError> {
-    let Some(row) = state.by_job(event.delivery_job_id).await? else {
+    let Some(row) = state.by_delivery_job(event.delivery_job_id).await? else {
         return Err(job_not_found(&event.delivery_job_id));
     };
     close_order(store, state, row, env).await
@@ -550,7 +550,7 @@ mod tests {
         assert_eq!(requested.pickup, address("1 Rue Nationale")); // restaurant address
         assert_eq!(requested.dropoff, address("9 Rue Colbert")); // order delivery address
         assert_eq!(domain::delivery_job::fold(&job_events).unwrap().status, DeliveryStatus::PENDING);
-        let row = state.by_job(job_id()).await.unwrap().unwrap();
+        let row = state.by_delivery_job(job_id()).await.unwrap().unwrap();
         assert_eq!(row.process_status, DeliveryDispatchProcessStatus::OFFERED);
         assert_eq!(row.order_id, order_id());
         assert_eq!(row.restaurant_id, restaurant_id());
@@ -622,7 +622,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(outcome, Outcome::Completed);
-        let row = state.by_job(job_id()).await.unwrap().unwrap();
+        let row = state.by_delivery_job(job_id()).await.unwrap().unwrap();
         assert_eq!(row.process_status, DeliveryDispatchProcessStatus::ACCEPTED);
     }
 
@@ -653,7 +653,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(outcome, Outcome::Completed);
-        let row = state.by_job(job_id()).await.unwrap().unwrap();
+        let row = state.by_delivery_job(job_id()).await.unwrap().unwrap();
         assert_eq!(row.process_status, DeliveryDispatchProcessStatus::OFFERED);
         assert_eq!(row.offer_attempts, 2);
         assert!(!store
@@ -693,7 +693,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(outcome, Outcome::Completed);
-        let row = state.by_job(job_id()).await.unwrap().unwrap();
+        let row = state.by_delivery_job(job_id()).await.unwrap().unwrap();
         assert_eq!(row.process_status, DeliveryDispatchProcessStatus::ACCEPTED);
         assert_eq!(row.offer_attempts, 2); // the retry stays counted
     }
@@ -720,7 +720,7 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(outcome, Outcome::Completed);
-            let row = state.by_job(job_id()).await.unwrap().unwrap();
+            let row = state.by_delivery_job(job_id()).await.unwrap().unwrap();
             assert_eq!(row.process_status, DeliveryDispatchProcessStatus::OFFERED);
             assert_eq!(row.offer_attempts, n);
         }
@@ -736,7 +736,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(outcome, Outcome::Completed);
-        let row = state.by_job(job_id()).await.unwrap().unwrap();
+        let row = state.by_delivery_job(job_id()).await.unwrap().unwrap();
         assert_eq!(row.process_status, DeliveryDispatchProcessStatus::FAILED);
         assert_eq!(row.offer_attempts, 3);
         let job_events = store.stream(&format!("DeliveryJob-{}", job_id().0));
@@ -846,7 +846,7 @@ mod tests {
             DomainEvent::OrderDelivered(OrderDelivered { order_id: o, .. }) if *o == order_id()
         )));
         assert_eq!(domain::order::fold(&order_events).unwrap().status, OrderStatus::DELIVERED);
-        let row = state.by_job(job_id()).await.unwrap().unwrap();
+        let row = state.by_delivery_job(job_id()).await.unwrap().unwrap();
         assert_eq!(row.process_status, DeliveryDispatchProcessStatus::COMPLETED);
 
         // An intermediate status never closes the order.
@@ -890,7 +890,7 @@ mod tests {
         let order_events = store.stream(&format!("Order-{}", order_id().0));
         assert_eq!(domain::order::fold(&order_events).unwrap().status, OrderStatus::DELIVERED);
         assert_eq!(
-            state.by_job(job_id()).await.unwrap().unwrap().process_status,
+            state.by_delivery_job(job_id()).await.unwrap().unwrap().process_status,
             DeliveryDispatchProcessStatus::COMPLETED
         );
 
