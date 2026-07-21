@@ -221,6 +221,19 @@ CREATE INDEX ON external_avelo37_events (event_type);
 CREATE INDEX ON external_avelo37_events (received_at);
 CREATE INDEX ON external_avelo37_events (processed_at);
 
+CREATE TABLE external_coopcycle_events (
+  coopcycle_event_id TEXT PRIMARY KEY,
+  instance_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
+  processed_at TIMESTAMPTZ NULL
+);
+CREATE INDEX ON external_coopcycle_events (instance_id);
+CREATE INDEX ON external_coopcycle_events (event_type);
+CREATE INDEX ON external_coopcycle_events (received_at);
+CREATE INDEX ON external_coopcycle_events (processed_at);
+
 CREATE TABLE external_hubrise_callbacks (
   callback_id TEXT PRIMARY KEY,
   resource_type TEXT NOT NULL,

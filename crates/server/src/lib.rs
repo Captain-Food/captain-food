@@ -50,6 +50,7 @@ use infrastructure::{
     UnverifiedGbpOrderLinkProbe,
 };
 use avelo37_adapter::Avelo37WebhookIngestor;
+use coopcycle_adapter::CoopCycleWebhookIngestor;
 use stripe_adapter::StripeWebhookIngestor;
 use shared_types::HealthDto;
 
@@ -139,6 +140,15 @@ pub fn router() -> Router {
     let mut sirene_worker: Option<Arc<SireneSyncWorker>> = None;
     let mut stripe_ingestor: Option<Arc<StripeWebhookIngestor>> = None;
     let mut avelo37_ingestor: Option<Arc<Avelo37WebhookIngestor>> = None;
+    let mut coopcycle_ingestor: Option<Arc<CoopCycleWebhookIngestor>> = None;
+    // The CoopCycle federation registry (COOPCYCLE_INSTANCES) — shared by the outbound gateway (base
+    // URL + OAuth per instance) and the inbound webhook route (per-instance secret). Empty ⇒ no-op.
+    let coopcycle_registry = coopcycle_adapter::CoopCycleRegistry::from_env()
+        .unwrap_or_else(|e| {
+            eprintln!("COOPCYCLE_INSTANCES misconfigured, treating as unset: {e}");
+            None
+        })
+        .unwrap_or_default();
     let mut hubrise_state = hubrise_adapter::HubRiseWebhookState::default();
     let mut inbound_drain: Option<Arc<infrastructure::InboundEventsDrainWorker>> = None;
 
@@ -268,9 +278,10 @@ pub fn router() -> Router {
                     // Composite delivery gateway (#60): the saga offers a job on a strategy-resolved
                     // CHANNEL, so the single Avelo-vs-Noop choice becomes a registry of channel →
                     // adapter. `independent` is the rider POOL (a deliberate no-op — jobs stay open to
-                    // riders); `avelo37` is wired only when AVELO37_API_KEY is set. Unwired channels
-                    // (e.g. uber_direct in an unconfigured Tours) fall through: the offer times out and
-                    // the saga escalates to the next ranked channel (today's deployments unchanged).
+                    // riders); `avelo37` is wired when AVELO37_API_KEY is set, and `coopcycle` when its
+                    // federation registry (COOPCYCLE_INSTANCES) is configured (issue #58). Unwired
+                    // channels (e.g. uber_direct in an unconfigured Tours) fall through: the offer times
+                    // out and the saga escalates to the next ranked channel (today's deployments unchanged).
                     let partner = infrastructure::generated::service_bindings::delivery_service(|| {
                         let mut gateway = infrastructure::CompositeDeliveryGateway::new().with_channel(
                             "independent",
@@ -278,6 +289,14 @@ pub fn router() -> Router {
                         );
                         if let Some(avelo) = avelo37_adapter::Avelo37DeliveryGateway::from_env() {
                             gateway = gateway.with_channel("avelo37", Arc::new(avelo));
+                        }
+                        if !coopcycle_registry.is_empty() {
+                            gateway = gateway.with_channel(
+                                "coopcycle",
+                                Arc::new(coopcycle_adapter::CoopCycleDeliveryGateway::new(
+                                    coopcycle_registry.clone(),
+                                )),
+                            );
                         }
                         println!(
                             "delivery gateway: composite — wired channels {:?} (unwired channels fall through via offer timeout)",
@@ -352,6 +371,23 @@ pub fn router() -> Router {
                 avelo37_ingestor = Some(Arc::new(
                     Avelo37WebhookIngestor::new(
                         Arc::new(avelo37_adapter::PgRawAvelo37Events::new(pool.clone())),
+                        Arc::new(infrastructure::PgInboundEvents::new(pool.clone())),
+                    )
+                    .with_nudge(Arc::new(move || {
+                        let w = nudge_worker.clone();
+                        tokio::spawn(async move { w.run_once().await });
+                    })),
+                ));
+
+                // CoopCycle delivery-partner webhook ingestor (issue #58, same two-layer inbox): the
+                // federation twist is that the verified webhook arrives per-instance at
+                // `POST /adapters/coopcycle/{instance}/webhooks` and is namespaced by instance; the
+                // ingestor itself is provider-shaped like Avelo37's (mirror → ACL → inbound_events →
+                // drain routes onto the DeliveryJob stream). Mounted below with the registry (secrets).
+                let nudge_worker = drain.clone();
+                coopcycle_ingestor = Some(Arc::new(
+                    CoopCycleWebhookIngestor::new(
+                        Arc::new(coopcycle_adapter::PgRawCoopCycleEvents::new(pool.clone())),
                         Arc::new(infrastructure::PgInboundEvents::new(pool.clone())),
                     )
                     .with_nudge(Arc::new(move || {
@@ -446,6 +482,12 @@ pub fn router() -> Router {
         // inbound delivery-partner facts, issue #28) and `POST /adapters/hubrise/webhooks` (HMAC-verified ingress).
         .merge(stripe_adapter::routes(stripe_ingestor))
         .merge(avelo37_adapter::routes(avelo37_ingestor))
+        // CoopCycle per-instance webhooks (issue #58): `POST /adapters/coopcycle/{instance}/webhooks`,
+        // verified with the instance's registry secret. State carries the ingestor + the registry.
+        .merge(coopcycle_adapter::routes(coopcycle_adapter::CoopCycleWebhookState {
+            ingestor: coopcycle_ingestor,
+            registry: Arc::new(coopcycle_registry),
+        }))
         .merge(hubrise_adapter::routes(hubrise_state))
         // The DERIVED `/services/<service>/<op>` surface (issue #26): emitted per the spec's
         // `expose` flags — empty while every service declares `expose: false` (V0).

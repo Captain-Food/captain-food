@@ -7726,7 +7726,7 @@ Per-service-mode VAT, mirroring HubRise product tax_rate.
 | <a id="error-offernotfound"></a>⛔ `OfferNotFound` | No offer with this id in the catalog. | 🇬🇧 Product offer not found. | 🇫🇷 Offere de produit introuvable. | [📩 `UpdateOfferStock`](#command-updateofferstock), [📩 `AddCartLine`](#command-addcartline) |
 | <a id="error-paymenteventorphaned"></a>⛔ `PaymentEventOrphaned` | A Stripe payment outcome (capture or failure) references a PaymentIntent that matches no known checkout run. The inbound fact stays recorded on the Payment, but the process manager aborts and surfaces this error for ops attention (money may have been taken with no order to materialize) — an anomaly is never silently skipped.  | 🇬🇧 Payment event received for an unknown checkout. | 🇫🇷 Événement de paiement reçu pour un checkout inconnu. | — |
 
-### 📡 Observability _(3)_
+### 📡 Observability _(4)_
 
 <a id="obs-command-acceptance"></a>
 #### 📡 Contract: `command-acceptance`
@@ -7818,7 +7818,39 @@ _criticality: **high**_
 | `inbound.drain.deliver` | `CONSUMER` | ✅ | — | `business.inbound_event_id`*, `business.delivery_outcome`* |
 | `event.store.append` | `INTERNAL` | ✅ | — | `business.event_type`*, `business.stream_id`* |
 
-- **Metrics**: `avelo37_webhook_ingest_duration_ms` _(histogram)_, `inbound_drain_lag_ms` _(histogram)_ · **Business metrics**: `inbound_events_staged_total` _(counter)_, `inbound_events_delivered_total` _(counter)_, `webhook_duplicates_total` _(counter)_
+- **Metrics**: `avelo37_webhook_ingest_duration_ms` _(histogram)_, `inbound_drain_lag_ms` _(histogram)_ · **Business metrics**: —
+- **SLOs**: p95 ≤ —ms · p99 ≤ —ms · error rate ≤ —%
+
+<a id="obs-coopcycle-webhook-ingestion"></a>
+#### 📡 Contract: `coopcycle-webhook-ingestion`
+
+_criticality: **high**_
+
+- **Workflow**: 
+- **Emits**: — · **Inbound**: [⚡ `DeliveryAcceptedByPartner`](#event-deliveryacceptedbypartner), [⚡ `DeliveryRejectedByPartner`](#event-deliveryrejectedbypartner), [⚡ `DeliveryStatusUpdated`](#event-deliverystatusupdated)
+
+**Run identity**
+
+| Id | Source | Req. | Business key |
+| --- | --- | --- | --- |
+| `correlation_id` | `inbound.correlation_id` | ✅ | — |
+| `trace_id` | `otel.trace_id` | ✅ | — |
+| `inbound_event_id` | `inbound.inbound_event_id` | ✅ | — |
+| `external_event_id` | `coopcycle.event_id` | ✅ | — |
+| `instance_id` | `coopcycle.instance_id` | ✅ | — |
+
+**Spans** (`*` = required attribute)
+
+| Span | Kind | Req. | Multiplicity | Attributes |
+| --- | --- | --- | --- | --- |
+| `webhook.verify` | `SERVER` | ✅ | — | `business.source`*, `business.instance_id`*, `business.signature_status`* |
+| `external.persist` | `INTERNAL` | ✅ | — | `business.external_event_id`*, `business.instance_id`*, `business.dedupe`* |
+| `acl.translate` | `INTERNAL` | ✅ | — | `business.event_type`* |
+| `inbound.persist` | `INTERNAL` | ✅ | — | `business.inbound_event_id`* |
+| `inbound.drain.deliver` | `CONSUMER` | ✅ | — | `business.inbound_event_id`*, `business.delivery_outcome`* |
+| `event.store.append` | `INTERNAL` | ✅ | — | `business.event_type`*, `business.stream_id`* |
+
+- **Metrics**: `coopcycle_webhook_ingest_duration_ms` _(histogram)_, `inbound_drain_lag_ms` _(histogram)_ · **Business metrics**: `inbound_events_staged_total` _(counter)_, `inbound_events_delivered_total` _(counter)_, `webhook_duplicates_total` _(counter)_
 - **Status rules**: success ⇐ spans [`webhook.verify`, `external.persist`, `acl.translate`, `inbound.persist`, `inbound.drain.deliver`, `event.store.append`]
 - **SLOs**: p95 ≤ 1000ms · p99 ≤ 3000ms · error rate ≤ 1%
 
@@ -8306,3 +8338,4 @@ aggregates; components bind the aggregates they handle and the read models they 
 | ⚙️ `sirene-google-acl` | 📡 yes | Anti-Corruption Layer translating INSEE Sirene + Google Maps data into Restaurant commands (RegisterRestaurant / UpdateRestaurantGoogleBusinessProfile / MarkRestaurantClosed) as the owner, and validating Google Business Profile ownership proofs for claim/opt-out (ADR-0019/0021). Keeps Sirene/Google SDKs out of the aggregate. | — |
 | ⚙️ `prospection-acl` | 📡 yes | B2B prospection worker (ADR-0020): reads the COMPUTED score from ProspectionPipeline, applies the J+0/J+7/J+21 schedule + anti-spam, fires HubSpot/Resend/Slack, then issues RecordProspectContact / MarkProspectCold to record the facts. The score is never an input it stores back. | — |
 | ⚙️ `avelo37-acl` | 📡 yes | Anti-Corruption Layer for the delivery partner (Avelo37; ADR-0031): on DeliveryRequested, dispatches the job to the partner API; translates the partner's webhooks into the inbound facts DeliveryAcceptedByPartner / DeliveryRejectedByPartner / DeliveryStatusUpdated (idempotent on partnerRef). Keeps the partner SDK out of the domain; mirrors stripe-adapter. | — |
+| ⚙️ `coopcycle-acl` | 📡 yes | Anti-Corruption Layer for the CoopCycle delivery federation (issue #58, ADR-20260721-122910): the third PARTNER seam, mirroring avelo37-acl. FEDERATION — CoopCycle is many self-hosted co-op instances, so the outbound offer_job resolves a job to an instance (per-instance base URL + OAuth2 client-credentials, env-gated) and each instance's verified webhook (per-instance secret) is translated into the same inbound facts DeliveryAcceptedByPartner / DeliveryRejectedByPartner / DeliveryStatusUpdated (idempotent on partnerRef). Keeps the partner SDK out of the domain. | — |

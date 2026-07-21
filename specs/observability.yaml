@@ -510,6 +510,73 @@ avelo37-webhook-ingestion:
   metrics:
     - { name: "avelo37_webhook_ingest_duration_ms", type: histogram, attributes: ["result"] }
     - { name: "inbound_drain_lag_ms", type: histogram, attributes: ["source"] }
+
+# =====================================================================
+# coopcycle-webhook-ingestion — inbound event sourcing at the CoopCycle
+# federation seam (issue #58, ADR-20260721-122910). Same two-layer inbox
+# as avelo37-webhook-ingestion; the FEDERATION dimension adds business.instance_id
+# (which self-hosted co-op instance the verified webhook came from).
+# webhook -> verify signature (per-instance secret) -> external_coopcycle_events UPSERT
+#   -> ACL translate -> inbound_events (RECEIVED) -> drain -> Repository append (DeliveryJob stream)
+# =====================================================================
+coopcycle-webhook-ingestion:
+  feature: coopcycle-webhook-ingestion
+  criticality: high
+  workflow:
+    aggregate: { $ref: 'actors.yaml#/DeliveryJob' }
+    inbound:
+      - { $ref: 'events.yaml#/DeliveryAcceptedByPartner' }
+      - { $ref: 'events.yaml#/DeliveryRejectedByPartner' }
+      - { $ref: 'events.yaml#/DeliveryStatusUpdated' }
+
+  run_identity:
+    - { name: correlation_id, source: "inbound.correlation_id", required: true }   # UUIDv5("{instance_id}:{coopcycle event id}")
+    - { name: trace_id, source: "otel.trace_id", required: true }
+    - { name: inbound_event_id, source: "inbound.inbound_event_id", required: true }   # inbound_events pk → domain_events.cause_id
+    - { name: external_event_id, source: "coopcycle.event_id", required: true }
+    - { name: instance_id, source: "coopcycle.instance_id", required: true }   # the federation dimension — originating co-op instance
+
+  spans:
+    - name: "webhook.verify"
+      kind: SERVER
+      required: true
+      attributes:
+        - { key: "business.source", type: string, required: true }          # 'coopcycle'
+        - { key: "business.instance_id", type: string, required: true }      # originating co-op instance (federation)
+        - { key: "business.signature_status", type: string, required: true } # verified | rejected
+    - name: "external.persist"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.external_event_id", type: string, required: true }
+        - { key: "business.instance_id", type: string, required: true }
+        - { key: "business.dedupe", type: string, required: true }           # new | duplicate
+    - name: "acl.translate"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.event_type", type: string, required: true }
+    - name: "inbound.persist"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.inbound_event_id", type: string, required: true }
+    - name: "inbound.drain.deliver"
+      kind: CONSUMER
+      required: true
+      attributes:
+        - { key: "business.inbound_event_id", type: string, required: true }
+        - { key: "business.delivery_outcome", type: string, required: true } # recorded | already_recorded | failed
+    - name: "event.store.append"
+      kind: INTERNAL
+      required: true
+      attributes:
+        - { key: "business.event_type", type: string, required: true }
+        - { key: "business.stream_id", type: string, required: true }
+
+  metrics:
+    - { name: "coopcycle_webhook_ingest_duration_ms", type: histogram, attributes: ["result"] }
+    - { name: "inbound_drain_lag_ms", type: histogram, attributes: ["source"] }
   business_metrics:
     - { name: "inbound_events_staged_total", type: counter, attributes: ["source", "event_type"] }
     - { name: "inbound_events_delivered_total", type: counter, attributes: ["source", "outcome"] }

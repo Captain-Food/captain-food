@@ -77,6 +77,34 @@ external_avelo37_events:
     received_at:      { type: timestamptz, index: true }
     processed_at:     { type: timestamptz, nullable: true, index: true }   # NULL ⇒ not yet translated into inbound_events
 
+external_coopcycle_events:
+  staging: true
+  description: >
+    Raw VERIFIED CoopCycle delivery-partner webhook mirror (ADR-20260721-122910, issue #58) — the
+    third DeliveryProvider=PARTNER seam after Avelo37, adopting the same two-layer inbox pattern
+    (ADR-20260720-015400). The FEDERATION twist: CoopCycle is many self-hosted co-op instances (one
+    per city/co-op), not a single central API — so every row records its originating `instance_id`
+    (the co-op instance key from the adapter's registry) and the webhook is verified with THAT
+    instance's per-instance secret. The endpoint UPSERTs one row per event AFTER raw-body signature
+    verification (Stripe-style timestamped HMAC, fail-closed), then the coopcycle-acl translates it
+    into an adapted business event (DeliveryAcceptedByPartner / DeliveryRejectedByPartner /
+    DeliveryStatusUpdated) staged in journals.yaml#/inbound_events. Redelivery dedupes on the pk and
+    ACKs immediately; processed_at is the translation high-water mark, enabling replay/backfill
+    without asking the instance to resend.
+  retention:   # documentary — the executable policy is functions/sweep_retention.sql (ADR-20260721-025159)
+    max_age: '90 days'
+    applies_to: >
+      Processed rows only (processed_at set), aged from processed_at — the replay/backfill horizon,
+      and the PII cap on verbatim partner payloads (courier names/phones). Unprocessed rows are
+      never swept.
+  columns:
+    coopcycle_event_id: { type: text, pk: true }               # idempotent external key = "{instance_id}:{provider event id}" (federation makes provider ids unique only per instance, so the ACL namespaces it)
+    instance_id:        { type: text, index: true }            # originating co-op instance (registry key) — the federation dimension
+    event_type:         { type: text, index: true }            # partner type, e.g. 'task.accepted' / 'delivery.status_updated'
+    payload:            { type: jsonb }                         # raw verified partner event, verbatim
+    received_at:        { type: timestamptz, index: true }
+    processed_at:       { type: timestamptz, nullable: true, index: true }   # NULL ⇒ not yet translated into inbound_events
+
 external_hubrise_callbacks:
   staging: true
   description: >
