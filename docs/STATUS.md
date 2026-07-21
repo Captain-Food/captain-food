@@ -21,6 +21,18 @@
 > handler records (never client input), and `locale` inputs should be `nullable: true` — see the
 > ADR. `make rust` green: workspace builds, all tests pass, validate 0 errors.
 
+> ✅ **2026-07-21 — issue workflow tightened: claim-time draft PR + supervised auto-merge
+> (ADR-20260721-042018, amends ADR-20260720-233000; product-owner directive).** Claiming an issue
+> now means label + claim comment + `NN-slug` branch + an immediate **draft PR** (`Closes #NN`) —
+> issue↔branch↔PR are linked before any code, the board flips to In progress at claim time, and
+> the reaper sees linked-PR activity. Completion = local gates green → PR **ready** → **enable
+> auto-merge** → **supervise checks until MERGED** (fix+push on failure; never end at "CI
+> pending"). The ADR also records the auto-merge threat model: repo-level "Allow auto-merge"
+> grants no merge authority (per-PR arming needs write access; fork PRs can't arm or merge — an
+> outsider's empty PR just sits open), the load-bearing config being the `main` ruleset's
+> **required `codegen` check** (⏳ product owner to confirm in Settings — not verifiable from the
+> repo). Docs-only change: CLAUDE.md non-negotiable + BACKLOG.md method + ADR.
+
 > ✅ **2026-07-21 — #27: PM state-table rows and Postgres stores are GENERATED
 > (ADR-20260721-031734, codegen-roadmap item 5).** Two new emitters in `tools/codegen-rs` over
 > `specs/database/tables/process_managers.yaml`: `crates/application/src/generated/pm_state.rs`
@@ -373,9 +385,12 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 - ✅ Keep the web service **warm via uptimerobot `/ping` every 5 min** (prevents free-tier spin-down so the in-process projector + SIRENE worker keep running).
 - 🗑️ `INTERNAL_TRIGGER_TOKEN` / `POST /internal/sirene/drain` — agreed to **remove** (superseded by the `/ping` warmth approach); code removal deferred to avoid colliding with concurrent `routes.rs` edits — harmless meanwhile (fail-closed 503 when the secret is unset).
 
-> **Claim protocol (2026-07-20, ADR-20260720-233000, #39):** before working an issue, add the
-> `status/in-progress` label + a claim comment naming the `NN-slug` branch; NEVER work a claimed
-> issue; the hourly stale-claim reaper releases claims silent for >24h. Method: `BACKLOG.md`.
+> **Claim protocol (2026-07-20, ADR-20260720-233000, #39; amended 2026-07-21 by
+> ADR-20260721-042018):** before working an issue, add the `status/in-progress` label + a claim
+> comment naming the `NN-slug` branch, **create the branch and open a draft PR (`Closes #NN`)
+> immediately**; NEVER work a claimed issue; on completion mark ready + enable auto-merge and
+> supervise checks until MERGED; the hourly stale-claim reaper releases claims silent for >24h.
+> Method: `BACKLOG.md`.
 
 ## 📋 Remaining work — todo & session split
 
