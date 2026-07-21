@@ -15,7 +15,7 @@
 > `from_env` gate on `AVELO37_API_KEY`, `job_reference` read-back key), `http.rs`
 > (`POST /adapters/avelo37/webhooks`) + standalone `main.rs`. (2) **Inbound two-layer inbox**: new
 > `external_avelo37_events` staging table (integration_staging.yaml v4, 90-day processed retention),
-> `inbound_events` source `'avelo37'`, migration `20260721103000` (+ `sweep_retention()` covers the
+> `inbound_events` source `'avelo37'`, migration `20260721130000` (+ `sweep_retention()` covers the
 > new mirror; `REQUIRED_SCHEMA_VERSION` bumped). (3) **Drain routing extended beyond Payment**:
 > `application::deliveries::record_inbound_delivery_event` (the payments.rs sibling) records the three
 > facts onto `DeliveryJob-<id>` — fold-based dedupe (acceptance by `partnerRef`, status by current
@@ -29,6 +29,47 @@
 > gate. `make rust` green: workspace builds, tests pass (13 adapter + recorder + drain), validate
 > 0 errors, no drift. Follow-ups: real Avelo37 wire reconciliation on go-live; multi-partner ranking
 > (#57 Uber Direct, #58 CoopCycle) is the named extension point.
+
+> ✅ **2026-07-21 — #24: the behaviour-test suite is GENERATED from tests.yaml
+> (ADR-20260721-101552, codegen-roadmap item 2).** New `codegen-rs` emitter
+> (`emit_behaviour_tests`) → `application/src/generated/behaviour_tests.rs`: one `#[tokio::test]`
+> per Given/When/Then case (all 161) — GIVEN seeds fixtures onto their aggregate streams, WHEN
+> dispatches through the real write path (emitter-owned command/PM-leg/record dispatch tables),
+> THEN asserts payload-level equality of the appended facts across ALL streams (strict per-stream
+> diff; `then: []` = strict no-op; `thrown` = typed code + no side effects). Runs on the
+> hand-written `application::behaviour_support` runtime (mem store, read-model/service doubles,
+> PM-run seeding, UUIDv5 spec-id mapping). Executing the spec surfaced and fixed: a new
+> `test-invalid-enum-value` validator rule (caught `serviceType: "PICKUP"`), tests.yaml sample
+> corrections (missing birth facts / cross-aggregate givens, per-leg RefundOpened variants, the
+> V0 zero-fee money chain per pricing.rs, refund legs asserting the refund they open), and two
+> runtime fixes (RegisterRestaurant enforces `RestaurantAccountNotFound` by folding the account
+> stream; delivery-issue payloads no longer stamp wall-clock time — ADR-0041). The ten
+> hand-mirrored `crates/application/tests/*_behaviour.rs` files (118 cases) are DELETED; in-src PM
+> tests and `pm_state_mem.rs` stay. New tests.yaml cases now cost zero Rust. `make rust` green.
+
+> ✅ **2026-07-21 — #20: HubRise CONNECT FLOW — provisioning on OAuth connect + account-scoped
+> token store (ADR-20260721-100601; closes the ADR-20260718-145856 §0 "Open contract" / item 2a).**
+> Two new adapter routes: `GET /adapters/hubrise/connect` (302 → HubRise authorize, stateless
+> HMAC-signed anti-CSRF `state`) and `GET /adapters/hubrise/oauth/callback` (code → token exchange —
+> the response itself names the connection scope: `account_id`…). The flow pulls
+> `/account`+`/locations`+`/catalogs` and provisions via journaled WORKER sends of the EXISTING
+> commands with the enricher's derived UUIDv5 ids (`RegisterRestaurantAccount`, `RegisterRestaurant`
+> per location — `PASSIVE_PARTNER`, slug = `slugify(name)-slugify(location id)`, `CreateCatalog` +
+> initial `ImportCatalog` per catalog) — NO new domain messages, creations idempotent on the derived
+> ids, deterministic rejections warned-never-retried (SIRENE lesson). NEW DSL table category file
+> `specs/database/tables/integration_connections.yaml` (plan-mode approved): `hubrise_connections`
+> (token keyed by RestaurantAccount = UUIDv5(account), never event-sourced, never in api.yaml — no
+> GraphQL edge reaches it) + `hubrise_connection_locations` (callback location → token resolution);
+> migration `20260721120000`, `REQUIRED_SCHEMA_VERSION` bumped. **The global `HUBRISE_ACCESS_TOKEN`
+> is RETIRED**: `HubRiseApiClient` → token-per-call `HubRiseApi`, the enricher resolves each
+> callback's token from the connection (unconnected location = definitive skip), and enrichment now
+> needs only `DATABASE_URL`. New env (connect routes only, fail-closed): `HUBRISE_CLIENT_ID`,
+> `HUBRISE_CONNECT_REDIRECT_URL`, optional `HUBRISE_OAUTH_SCOPE` (default
+> `account[catalog.read,inventory.read]`); `HUBRISE_WEBHOOK_SECRET` doubles as the OAuth client
+> secret (it IS the app client secret). Tests: connect provisioning/reconnect-idempotency/no-scope/
+> catalog-listing-failure + enricher token-resolution suites (24 adapter tests) + Pg-gated
+> `connections_store.rs`. `make rust` green. Follow-ups in the ADR: restaurant-facing connect UI,
+> disconnect/revoke + token encryption at rest, confirm `GET /catalogs` & `opening_hours` shapes.
 
 > ✅ **2026-07-21 — #23: aggregate lifecycle state machines COMPLETE (ADR-20260721-093027,
 > codegen-roadmap item 1 closed — completes ADR-20260720-004419's first slice).** (1) **Dynamic
@@ -463,7 +504,7 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 |---|---|---|
 | **Stripe** — `crates/adapters/stripe` (`POST /adapters/stripe/webhooks`, `stripe-webhook` bin) | ✅ | `Stripe-Signature` HMAC over raw body (constant-time, 300s replay, fail-closed); ACL → `PaymentCaptured`/`PaymentFailed`/`PaymentRefunded`; idempotent by Stripe event id. 12 tests |
 | Checkout must set `metadata.restaurantId` (+`orderId`) on the PaymentIntent/charge | ✅ | `StripePaymentGateway` sends `metadata[orderId]`/`[restaurantId]`/`[cartId]` on create-intent — the webhook ACL maps `charge.refunded` from them; exercised by the green prod smoke |
-| **HubRise** — `crates/adapters/hubrise` (`POST /adapters/hubrise/webhooks`, `hubrise-webhook` bin) | ✅ | **Ingress** ✅ (HMAC-SHA256 hex, fail-closed, envelope parse). **Outbound OAuth2 client** ✅ (`api.rs`: `X-Access-Token`, non-expiring token from `HUBRISE_ACCESS_TOKEN`, `exchange_code` connect helper, catalog/inventory pull). **Domain wiring** ✅ (`enrich.rs`): verified catalog/inventory callback → API pull → enrichment ACL → `ImportCatalog` / per-SKU `update_offer_stock` handlers. **Deterministic UUIDv5-of-HubRise-id** ids reconciled with the **Catalog aggregate** (offer seeded from the SKU `ref` = inventory's `sku_ref`, so a stock update hits the imported `OfferId`); `"9.80 EUR"`→`Money`, tax-rate strings→`TaxRate`, `data` envelope translated at the boundary; catalog = rejectable command (`CatalogNotFound`→skip), inventory = reported fact (`OfferNotFound`→skip, never rejected). 14 tests. Enricher wired at the server composition root + the standalone bin (both gated on `HUBRISE_ACCESS_TOKEN`). **Open**: the connect flow must create the `Catalog`/`Restaurant` with these derived ids + a token table (→ plan mode) |
+| **HubRise** — `crates/adapters/hubrise` (`POST /adapters/hubrise/webhooks`, `hubrise-webhook` bin) | ✅ | **Ingress** ✅ (HMAC-SHA256 hex, fail-closed, envelope parse). **Outbound OAuth2 client** ✅ (`api.rs`: `X-Access-Token`, non-expiring token from `HUBRISE_ACCESS_TOKEN`, `exchange_code` connect helper, catalog/inventory pull). **Domain wiring** ✅ (`enrich.rs`): verified catalog/inventory callback → API pull → enrichment ACL → `ImportCatalog` / per-SKU `update_offer_stock` handlers. **Deterministic UUIDv5-of-HubRise-id** ids reconciled with the **Catalog aggregate** (offer seeded from the SKU `ref` = inventory's `sku_ref`, so a stock update hits the imported `OfferId`); `"9.80 EUR"`→`Money`, tax-rate strings→`TaxRate`, `data` envelope translated at the boundary; catalog = rejectable command (`CatalogNotFound`→skip), inventory = reported fact (`OfferNotFound`→skip, never rejected). 14 tests. Enricher wired at the server composition root + the standalone bin (needs only `DATABASE_URL`). ✅ **Connect flow landed (#20, ADR-20260721-100601)**: OAuth connect provisions account/locations/catalogs with the derived ids + stores the account-scoped token in `hubrise_connections` (env token retired) |
 | **`/external/graphql`** — M2M standard | ✅ | External entities query/mutate via the `EXTERNAL` role path; API-key auth (`X-External-Api-Key`, ADR-0047); allowlist is per-op `roles: [EXTERNAL]`. **Subscribe** = future (needs `SubscriptionRoot` + WS + `api.yaml`); per-partner keys = future |
 
 ## 👤 Ops / user actions
@@ -506,7 +547,7 @@ Two sessions run in parallel — 🅐 = this (desktop) session, 🅑 = the iPhon
 | 1a | **Checkout snapshot** on `PaymentIntentCreated` (ADR-20260719-014434) — DSL + `place_order` freeze + tests done | 🅐 | ✅ DSL · runtime population + port retirement ride pricing |
 | 1b | Stripe **outbound** `PaymentGateway` (create PaymentIntent) in the Stripe adapter crate | 🅐 (landed here, not 🅑) | ✅ `stripe::outbound::StripePaymentGateway` (create-intent + refunds, env-gated by `STRIPE_SECRET_KEY`, fail-closed stand-in otherwise) — exercised by the green prod smoke |
 | 2 | **HubRise** domain ACL — webhook → `ImportCatalog`/`OfferStockUpdated` (OAuth2 pull + deterministic ref-mapping) | 🅐 | ✅ landed (`enrich.rs`, 14 tests) |
-| 2a | ⚠️ **Connect flow** — provision `RegisterRestaurantAccount` + `Restaurant`(s) + `CreateCatalog` with the enricher's derived UUIDv5 ids, and persist the HubRise **account-scoped** token in a connection/token table keyed by `RestaurantAccount` (HubRise Account⇔RestaurantAccount, Location⇔Restaurant; `HUBRISE_ACCESS_TOKEN` today = one account). See `docs/integrations/hubrise-process.md` §0 | plan mode | 📋 |
+| 2a | **Connect flow** — provision `RegisterRestaurantAccount` + `Restaurant`(s) + `CreateCatalog` with the enricher's derived UUIDv5 ids, and persist the HubRise **account-scoped** token in `hubrise_connections` keyed by `RestaurantAccount`. See `docs/integrations/hubrise-process.md` §0 | #20 | ✅ (ADR-20260721-100601) |
 | 3 | **Process managers** — Refund/CartBinding/DeliveryDispatch + PM runtime (event-driven, `/saga`) | 🅐 | ✅ (outbound refund via the real gateway; bounded partner re-offer landed — offer timeouts deferred, ADR-20260720-004556) |
 | 4 | **Cart line invariants** + catalog `tree` projector + offer read port | 🅐 | ✅ |
 | 5 | **Frontend** — Leptos/WASM SDUI renderer (customer/restaurant/rider apps) | unassigned | 📋 |
