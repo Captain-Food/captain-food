@@ -74,6 +74,31 @@ layers**, each covering the failure mode the one above it cannot:
    deploy/event record names the exact image even for a container that never execs at all (bad image, exec
    error). This is the platform-side source of truth, independent of the app running.
 
+## Rollback
+
+Because every deploy runs an immutable, content-addressed image (never a moving tag), rolling back is
+just **redeploying a previous image** — no rebuild, no revert commit, no CI run:
+
+1. Find the target build's reference — Render's **deploy/event history** (each entry names its digest), or
+   the `render commit` badge / `render-status` workflow (`<status> @ <sha>`), or the GHCR package tags
+   (`sha-<commit>`).
+2. Re-hit the Render deploy hook pinning that reference:
+
+   ```bash
+   # by the human-readable immutable tag
+   curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/captain-food/captain-food:sha-<previous-commit>"
+   # strongest form — pin the exact digest (cannot be repointed)
+   curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/captain-food/captain-food@sha256:<digest>"
+   ```
+
+3. Confirm: read `version` from `/health` (`https://live.captain.food/health`) — it must report the
+   rolled-back commit. If the container never comes up, the deployed digest still shows in Render's events.
+
+Notes: a failed deploy leaves the previous instance serving (Render cuts over only after the new image
+passes the health check), so a *forward* deploy that never goes healthy is a self-rollback. A rollback
+across a **schema migration** is safe by design — the `/health` gate is `>=` (ADR-0043), so an older app
+still runs against a newer DB; migrations are expand/contract and never destructive in the same release.
+
 ## Alternatives considered
 
 - **Raise Render's build-pipeline spend limit.** Simplest, but pays per-minute to recompile Rust on

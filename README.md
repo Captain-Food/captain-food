@@ -65,12 +65,28 @@ The **ci** workflow (first badge) is the whole gate, on **every branch push and 
 the full Cargo workspace, runs the complete behaviour-test suite, runs the spec validator (must be
 0 errors), then regenerates every artifact and fails on any spec↔generation drift — so
 `specs/generated/` is always in sync. The **db-migrate** workflow (second badge) applies
-`migrations/*.sql` only after `ci` succeeds on `main` (ADR-0043), and Render auto-deploys once the
-checks pass — the **render deploy** badge probes the live service's `/health` (which also gates on
-the migrated schema version), so green means deployed, migrated, and answering. The **render commit**
-badge is the precise one: the `render-status` workflow asks the Render API for the latest deploy and
-republishes it as `<status> @ <sha>` plus a `render/deploy` commit status on the exact deployed
-commit (needs only the `RENDER_API_KEY` repo secret — the service id is discovered by name; skips gracefully until set).
+`migrations/*.sql` only after `ci` succeeds on `main` (ADR-0043). The **build-image** workflow — also
+gated on a green `ci`/`main` (ADR-20260721-175411) — builds the server image in GitHub Actions (free on
+this public repo, not on Render's metered build pipeline), pushes it to GHCR, and triggers Render to
+deploy it **by immutable digest** via a deploy hook; Render only pulls the image, never compiles Rust.
+The **render deploy** badge probes the live service's `/health` (which gates on the migrated schema
+version and reports the running build's `version`), so green means deployed, migrated, and answering.
+The **render commit** badge is the precise one: the `render-status` workflow asks the Render API for the
+latest deploy and republishes it as `<status> @ <sha>` plus a `render/deploy` commit status on the exact
+deployed commit (needs only the `RENDER_API_KEY` repo secret — the service id is discovered by name; skips gracefully until set).
+
+**Rollback** (ADR-20260721-175411): production always runs a content-addressed image, so rolling back is
+redeploying a previous one — no rebuild, no revert commit. Re-hit the Render deploy hook with a prior
+build's reference:
+
+```bash
+# roll back to a known-good commit (find it in Render's deploy history or the `render commit` badge)
+curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/captain-food/captain-food:sha-<previous-commit>"
+# strongest form: pin the exact digest instead of the sha tag
+curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/captain-food/captain-food@sha256:<digest>"
+```
+
+Confirm the rollback landed by reading `version` from `https://live.captain.food/health`.
 
 ## Operating model
 

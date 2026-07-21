@@ -10,9 +10,11 @@
 > change the binary). New model: `.github/workflows/build-image.yml` builds the same cargo-chef
 > Dockerfile in **GitHub Actions** (free/unlimited on this PUBLIC repo — buildx `type=gha` layer
 > cache), pushes to **GHCR** (`ghcr.io/captain-food/captain-food:{sha-<commit>,latest}`), and triggers
-> a **Render deploy hook** pinning the SHA image — gated on green `ci`/`main` exactly like db-migrate
-> (ADR-0043). `render.yaml` is now `runtime: image` + `autoDeploy: false`, so **Render spends zero
-> build-pipeline minutes**; deploys are immutable + rollback-friendly. ⏳ **Operator steps to go live**
+> a **Render deploy hook** pinning the image **by immutable digest** (`@sha256:…`, never `latest`) —
+> gated on green `ci`/`main` exactly like db-migrate (ADR-0043). `render.yaml` is now `runtime: image` +
+> `autoDeploy: false`, so **Render spends zero build-pipeline minutes**; the running build reports its
+> `version` (git SHA) at `/health` + at startup. **Rollback** = re-hit the deploy hook with a prior
+> `sha-<commit>`/digest (no rebuild) — runbook in ADR-20260721-175411 / README. ⏳ **Operator steps to go live**
 > (ADR follow-ups): switch the Render service to the GHCR image + Auto-Deploy off, create the Deploy
 > Hook → repo secret `RENDER_DEPLOY_HOOK_URL`, set the GHCR package **public**, then verify a merge →
 > `/health` `db:up`. A narrower `buildFilter`-only fallback (keep the Render build, skip spec/doc
