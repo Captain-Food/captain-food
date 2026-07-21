@@ -424,6 +424,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "coopcycle-adapter"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "axum",
+ "chrono",
+ "domain",
+ "hex",
+ "hmac",
+ "infrastructure",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2347,6 +2368,7 @@ dependencies = [
  "avelo37-adapter",
  "axum",
  "chrono",
+ "coopcycle-adapter",
  "domain",
  "hubrise-adapter",
  "infrastructure",

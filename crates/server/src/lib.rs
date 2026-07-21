@@ -50,6 +50,7 @@ use infrastructure::{
     UnverifiedGbpOrderLinkProbe,
 };
 use avelo37_adapter::Avelo37WebhookIngestor;
+use coopcycle_adapter::CoopCycleWebhookIngestor;
 use stripe_adapter::StripeWebhookIngestor;
 use shared_types::HealthDto;
 
@@ -139,6 +140,15 @@ pub fn router() -> Router {
     let mut sirene_worker: Option<Arc<SireneSyncWorker>> = None;
     let mut stripe_ingestor: Option<Arc<StripeWebhookIngestor>> = None;
     let mut avelo37_ingestor: Option<Arc<Avelo37WebhookIngestor>> = None;
+    let mut coopcycle_ingestor: Option<Arc<CoopCycleWebhookIngestor>> = None;
+    // The CoopCycle federation registry (COOPCYCLE_INSTANCES) — shared by the outbound gateway (base
+    // URL + OAuth per instance) and the inbound webhook route (per-instance secret). Empty ⇒ no-op.
+    let coopcycle_registry = coopcycle_adapter::CoopCycleRegistry::from_env()
+        .unwrap_or_else(|e| {
+            eprintln!("COOPCYCLE_INSTANCES misconfigured, treating as unset: {e}");
+            None
+        })
+        .unwrap_or_default();
     let mut hubrise_state = hubrise_adapter::HubRiseWebhookState::default();
     let mut inbound_drain: Option<Arc<infrastructure::InboundEventsDrainWorker>> = None;
 
@@ -265,18 +275,25 @@ pub fn router() -> Router {
                 // run row still terminates ACCEPTED/FAILED). The partner's answers always arrive
                 // asynchronously through the webhook inbox below, never this outbound call.
                 if std::env::var("RUN_PROCESS_MANAGERS").map(|v| v != "false").unwrap_or(true) {
+                    // Single configured partner (multi-partner RANKING is the deferred foundation
+                    // issue, ADR-20260720-004556): incumbent-first precedence — Avelo37 if configured,
+                    // else CoopCycle if its federation registry is configured (issue #58), else the
+                    // logged no-op stand-in. The partner's answers always arrive asynchronously through
+                    // the webhook inbox below, never this outbound call.
                     let partner = infrastructure::generated::service_bindings::delivery_service(|| {
-                        match avelo37_adapter::Avelo37DeliveryGateway::from_env() {
-                            Some(gateway) => {
-                                println!("delivery service: Avelo37DeliveryGateway (AVELO37_API_KEY set)");
-                                Arc::new(gateway)
-                            }
-                            None => {
-                                println!(
-                                    "delivery service: NoopDeliveryService (AVELO37_API_KEY unset — jobs stay open to independent riders)"
-                                );
-                                Arc::new(application::ports::NoopDeliveryService)
-                            }
+                        if let Some(gateway) = avelo37_adapter::Avelo37DeliveryGateway::from_env() {
+                            println!("delivery service: Avelo37DeliveryGateway (AVELO37_API_KEY set)");
+                            Arc::new(gateway)
+                        } else if !coopcycle_registry.is_empty() {
+                            println!("delivery service: CoopCycleDeliveryGateway (COOPCYCLE_INSTANCES set)");
+                            Arc::new(coopcycle_adapter::CoopCycleDeliveryGateway::new(
+                                coopcycle_registry.clone(),
+                            ))
+                        } else {
+                            println!(
+                                "delivery service: NoopDeliveryService (no partner configured — jobs stay open to independent riders)"
+                            );
+                            Arc::new(application::ports::NoopDeliveryService)
                         }
                     })
                     .expect("delivery service binding (services.yaml)");
@@ -335,6 +352,23 @@ pub fn router() -> Router {
                 avelo37_ingestor = Some(Arc::new(
                     Avelo37WebhookIngestor::new(
                         Arc::new(avelo37_adapter::PgRawAvelo37Events::new(pool.clone())),
+                        Arc::new(infrastructure::PgInboundEvents::new(pool.clone())),
+                    )
+                    .with_nudge(Arc::new(move || {
+                        let w = nudge_worker.clone();
+                        tokio::spawn(async move { w.run_once().await });
+                    })),
+                ));
+
+                // CoopCycle delivery-partner webhook ingestor (issue #58, same two-layer inbox): the
+                // federation twist is that the verified webhook arrives per-instance at
+                // `POST /adapters/coopcycle/{instance}/webhooks` and is namespaced by instance; the
+                // ingestor itself is provider-shaped like Avelo37's (mirror → ACL → inbound_events →
+                // drain routes onto the DeliveryJob stream). Mounted below with the registry (secrets).
+                let nudge_worker = drain.clone();
+                coopcycle_ingestor = Some(Arc::new(
+                    CoopCycleWebhookIngestor::new(
+                        Arc::new(coopcycle_adapter::PgRawCoopCycleEvents::new(pool.clone())),
                         Arc::new(infrastructure::PgInboundEvents::new(pool.clone())),
                     )
                     .with_nudge(Arc::new(move || {
@@ -429,6 +463,12 @@ pub fn router() -> Router {
         // inbound delivery-partner facts, issue #28) and `POST /adapters/hubrise/webhooks` (HMAC-verified ingress).
         .merge(stripe_adapter::routes(stripe_ingestor))
         .merge(avelo37_adapter::routes(avelo37_ingestor))
+        // CoopCycle per-instance webhooks (issue #58): `POST /adapters/coopcycle/{instance}/webhooks`,
+        // verified with the instance's registry secret. State carries the ingestor + the registry.
+        .merge(coopcycle_adapter::routes(coopcycle_adapter::CoopCycleWebhookState {
+            ingestor: coopcycle_ingestor,
+            registry: Arc::new(coopcycle_registry),
+        }))
         .merge(hubrise_adapter::routes(hubrise_state))
         // The DERIVED `/services/<service>/<op>` surface (issue #26): emitted per the spec's
         // `expose` flags — empty while every service declares `expose: false` (V0).
