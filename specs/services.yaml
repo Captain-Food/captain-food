@@ -89,6 +89,19 @@ delivery:
         ADR-20260720-015400).
       routes:
         offer_job: 'POST /adapters/avelo37/deliveries'
+    coopcycle:
+      description: >
+        CoopCycle partner ACL (crates/adapters/coopcycle, issue #58): the third DeliveryProvider=PARTNER
+        implementation of the Avelo37 pattern. FEDERATION: CoopCycle is many self-hosted co-op instances
+        (per city/co-op), not one endpoint — the adapter config is a per-instance registry (base URL +
+        OAuth2 client-credentials + webhook secret per instance, env-gated via COOPCYCLE_INSTANCES). An
+        outbound offer_job resolves the job to an instance by coverage area (dropoff postal prefix) and
+        POSTs a create-delivery with an OAuth2 token; unconfigured deployments keep the logged no-op
+        stand-in (jobs stay open to independent riders). The instance's answers come back through its
+        verified per-instance webhook and the two-layer inbox (external_coopcycle_events → inbound_events,
+        ADR-20260720-015400 / ADR-20260721-122910).
+      routes:
+        offer_job: 'POST /adapters/coopcycle/deliveries'
 
 identity:
   description: >
