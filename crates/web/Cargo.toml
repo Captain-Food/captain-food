@@ -6,7 +6,9 @@ license-file.workspace = true
 publish = false
 description = "Captain.Food Leptos frontend (compiles to WASM): the SDUI renderer + GENERATED component registry, action dispatcher, and non-SDUI screens (checkout, order tracking). Depends on `shared_types` + `app-core` (ADR-0035)."
 
-# leptos/leptos_router/leptos_i18n are added when the renderer lands; the skeleton is a plain lib.
+# leptos/leptos_router/leptos_i18n are added when the SSR/hydration runtime lands (later splits of #21);
+# this slice is a plain lib: the GENERATED component registry + a static-screen renderer over it.
 [dependencies]
 shared_types = { path = "../shared_types" }
 app-core = { path = "../core" }
+serde = { workspace = true }   # the generated registry derives Serialize/Deserialize on its enums

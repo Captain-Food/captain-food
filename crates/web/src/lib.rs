@@ -1,11 +1,15 @@
-//! Captain.Food web frontend (Leptos → WASM) — skeleton (ADR-0035).
+//! Captain.Food web frontend (Leptos → WASM) — renderer skeleton (ADR-0033/0035).
 //!
-//! Will hold the recursive SDUI `renderer`, the GENERATED component `registry` (from
-//! `customer_screens.yaml`), the `action_dispatcher`, and the non-SDUI screens. Depends on `shared_types`
-//! + `app_core` (the Crux core); referencing both proves the web → shared_types, core edges.
+//! Holds the GENERATED SDUI component `registry` (from `customer_screens.yaml#/component_registry`,
+//! codegen roadmap item 6) and the `renderer` that dispatches on it. Split 1/4 of #21 wires the
+//! registry + a single static screen rendered server-side; the resolver/action wiring (#17) and the
+//! Leptos SSR/hydration runtime land in later splits. Depends on `shared_types` + `app_core`.
 
 use app_core::health;
 use shared_types::HealthDto;
+
+pub mod generated;
+pub mod renderer;
 
 /// Placeholder boot hook — proves the frontend can drive the shared core. Becomes the Leptos mount.
 pub fn boot() -> HealthDto {
