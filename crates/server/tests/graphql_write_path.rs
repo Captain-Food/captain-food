@@ -13,8 +13,8 @@
 
 use std::sync::Arc;
 
-use application::generated::services::PaymentService;
-use application::ports::{AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
+use application::generated::services::{IdentityService, PaymentService};
+use application::ports::{EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
 use application::queries::{
     CartReadRepository, CatalogReadRepository, CustomerReadRepository, DeliveryReadRepository,
     OrderReadRepository, PricingPolicyReadRepository, ProspectionReadRepository,
@@ -22,7 +22,7 @@ use application::queries::{
     UberSplitPolicyReadRepository,
 };
 use infrastructure::{
-    FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, FailClosedPaymentGateway,
+    FailClosedGoogleOwnershipVerifier, FailClosedIdentityService, FailClosedPaymentGateway,
     PgCartRepository, PgCatalogRepository, PgCommandJournal, PgCustomerRepository,
     PgDeliveryRepository, PgEventStore, PgOrderRepository, PgPricingPolicyRepository,
     PgProspectionRepository, PgRefundQueueRepository, PgRestaurantRepository,
@@ -129,7 +129,7 @@ fn schema_over(pool: &PgPool) -> server::graphql_schema::CaptainSchema {
     let event_store: Arc<dyn EventStore> = Arc::new(PgEventStore::new(pool.clone()));
     let ownership: Arc<dyn GoogleOwnershipVerifier> = Arc::new(FailClosedGoogleOwnershipVerifier);
     let gbp_probe: Arc<dyn GbpOrderLinkProbe> = Arc::new(UnverifiedGbpOrderLinkProbe);
-    let auth_provider: Arc<dyn AuthProviderGateway> = Arc::new(FailClosedAuthProviderGateway);
+    let auth_provider: Arc<dyn IdentityService> = Arc::new(FailClosedIdentityService);
     let payments: Arc<dyn PaymentService> = Arc::new(FailClosedPaymentGateway);
     let pm_state: Arc<dyn application::pm_state::PaymentProcessStateStore> =
         Arc::new(infrastructure::persistence::PgPaymentProcessState::new(pool.clone()));

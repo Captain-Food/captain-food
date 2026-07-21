@@ -6,13 +6,18 @@
 //! one-liner). Without it the test SKIPS so `cargo test` stays green offline.
 
 use application::commands::verify_phone;
-use application::ports::{Actor, AuthProviderGateway, EmailTokenCheck, PhoneOtpCheck};
+use application::generated::services::{
+    IdentitySendEmailMagicLinkInput, IdentitySendPhoneOtpInput, IdentityService,
+    IdentityVerifyEmailTokenInput, IdentityVerifyEmailTokenOutput, IdentityVerifyPhoneOtpInput,
+    IdentityVerifyPhoneOtpOutput, ServiceCallMeta,
+};
+use application::ports::Actor;
 use application::queries::CustomerReadRepository;
 use async_trait::async_trait;
 use domain::generated::commands::VerifyPhone;
 use domain::generated::scalars::{
-    CustomerId, DialingCode, EmailAddress, EmailVerificationToken, ExternalReference, Locale,
-    NationalPhoneNumber, OtpCode, PhoneNumber, SessionId,
+    CustomerId, DialingCode, ExternalReference, Locale, NationalPhoneNumber, OtpCode, PhoneNumber,
+    SessionId,
 };
 use domain::shared::errors::DomainError;
 use infrastructure::{PgCustomerRepository, PgEventStore, ProjectionWorker};
@@ -74,38 +79,37 @@ async fn reset_schema(pool: &PgPool) {
 struct AlwaysVerifiedAuth;
 
 #[async_trait]
-impl AuthProviderGateway for AlwaysVerifiedAuth {
+impl IdentityService for AlwaysVerifiedAuth {
     async fn send_phone_otp(
         &self,
-        _dialing_code: &DialingCode,
-        _national_number: &NationalPhoneNumber,
-        _locale: Option<&Locale>,
+        _input: IdentitySendPhoneOtpInput,
+        _meta: &ServiceCallMeta,
     ) -> Result<(), DomainError> {
         Ok(())
     }
 
     async fn verify_phone_otp(
         &self,
-        _dialing_code: &DialingCode,
-        _national_number: &NationalPhoneNumber,
-        _code: &OtpCode,
-    ) -> Result<PhoneOtpCheck, DomainError> {
-        Ok(PhoneOtpCheck::Verified { auth_ref: ExternalReference("auth-supabase-1".into()) })
+        _input: IdentityVerifyPhoneOtpInput,
+        _meta: &ServiceCallMeta,
+    ) -> Result<IdentityVerifyPhoneOtpOutput, DomainError> {
+        Ok(IdentityVerifyPhoneOtpOutput { auth_ref: ExternalReference("auth-supabase-1".into()) })
     }
 
     async fn send_email_magic_link(
         &self,
-        _email: &EmailAddress,
-        _locale: Option<&Locale>,
+        _input: IdentitySendEmailMagicLinkInput,
+        _meta: &ServiceCallMeta,
     ) -> Result<(), DomainError> {
         Ok(())
     }
 
     async fn verify_email_token(
         &self,
-        _token: &EmailVerificationToken,
-    ) -> Result<EmailTokenCheck, DomainError> {
-        Ok(EmailTokenCheck::Invalid)
+        _input: IdentityVerifyEmailTokenInput,
+        _meta: &ServiceCallMeta,
+    ) -> Result<IdentityVerifyEmailTokenOutput, DomainError> {
+        Err(DomainError::rejected("InvalidVerificationToken", serde_json::json!({})))
     }
 }
 

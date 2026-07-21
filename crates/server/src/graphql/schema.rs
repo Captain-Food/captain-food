@@ -11,8 +11,8 @@ use std::sync::Arc;
 use async_graphql::Schema;
 use application::journal::CommandJournal;
 use application::pm_state::{PaymentProcessStateStore, RefundProcessStateStore};
-use application::generated::services::PaymentService;
-use application::ports::{AuthProviderGateway, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
+use application::generated::services::{IdentityService, PaymentService};
+use application::ports::{EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier};
 use application::queries::{
     CartReadRepository, CatalogReadRepository, CustomerReadRepository, DeliveryReadRepository,
     OrderReadRepository, PricingPolicyReadRepository, ProspectionReadRepository,
@@ -52,7 +52,7 @@ pub struct WriteDeps {
     pub event_store: Arc<dyn EventStore>,
     pub ownership: Arc<dyn GoogleOwnershipVerifier>,
     pub gbp_probe: Arc<dyn GbpOrderLinkProbe>,
-    pub auth_provider: Arc<dyn AuthProviderGateway>,
+    pub auth_provider: Arc<dyn IdentityService>,
     /// The generated `payment` service port (services.yaml, issue #26) `placeOrder`/`approveRefund`
     /// call (fail-closed stand-in until the real Stripe adapter is configured — a checkout is
     /// declined, never silently "paid").

@@ -1,24 +1,29 @@
-//! Supabase Auth seam adapter (ADR-0015). The application's `AuthProviderGateway` port IS the ACL
+//! Supabase Auth seam adapter (ADR-0015). The generated `identity` service port
+//! (`application::generated::services::IdentityService`, services.yaml — issue #50) IS the ACL
 //! boundary for the wrapped auth provider (passwordless phone-OTP + email magic-link); the REAL
 //! `supabase-acl` adapter — Supabase HTTP/SDK calls, Twilio SMS delivery, token semantics — is
-//! TODO(integration). Until it lands the composition root injects this deliberate stand-in, exactly as
-//! the port contract documents ("sends error, verifications report `Invalid` — never silently accept"):
+//! TODO(integration). Until it lands the composition root injects this deliberate stand-in, exactly
+//! as the port contract documents (never silently accept):
 //!
 //! - send operations FAIL with a clear "not configured" error (never pretend an OTP/magic link was
 //!   delivered — the caller would wait for a code that cannot arrive), and
-//! - verify operations FAIL CLOSED (`Invalid` → the canonical `InvalidVerificationCode` /
-//!   `InvalidVerificationToken` rejections), so no identity is ever silently accepted.
+//! - verify operations FAIL CLOSED with the canonical typed rejections (`InvalidVerificationCode` /
+//!   `InvalidVerificationToken`), so no identity is ever silently accepted.
 
-use application::ports::{AuthProviderGateway, EmailTokenCheck, PhoneOtpCheck};
-use async_trait::async_trait;
-use domain::generated::scalars::{
-    DialingCode, EmailAddress, EmailVerificationToken, Locale, NationalPhoneNumber, OtpCode,
+use application::commands::canonical_phone;
+use application::generated::services::{
+    IdentitySendEmailMagicLinkInput, IdentitySendPhoneOtpInput, IdentityService,
+    IdentityVerifyEmailTokenInput, IdentityVerifyEmailTokenOutput, IdentityVerifyPhoneOtpInput,
+    IdentityVerifyPhoneOtpOutput, ServiceCallMeta,
 };
+use async_trait::async_trait;
 use domain::shared::errors::DomainError;
+use serde_json::json;
 
-/// Fail-closed [`AuthProviderGateway`]: sends error ("not configured"), verifications report
-/// `Invalid` — so the identity flows reject cleanly until the real Supabase ACL adapter lands.
-pub struct FailClosedAuthProviderGateway;
+/// Fail-closed [`IdentityService`]: sends error ("not configured"), verifications reject with the
+/// canonical typed rejections — so the identity flows reject cleanly until the real Supabase ACL
+/// adapter lands.
+pub struct FailClosedIdentityService;
 
 /// The uniform "not configured" send failure.
 fn not_configured(what: &str) -> DomainError {
@@ -28,31 +33,32 @@ fn not_configured(what: &str) -> DomainError {
 }
 
 #[async_trait]
-impl AuthProviderGateway for FailClosedAuthProviderGateway {
+impl IdentityService for FailClosedIdentityService {
     async fn send_phone_otp(
         &self,
-        _dialing_code: &DialingCode,
-        _national_number: &NationalPhoneNumber,
-        _locale: Option<&Locale>,
+        _input: IdentitySendPhoneOtpInput,
+        _meta: &ServiceCallMeta,
     ) -> Result<(), DomainError> {
-        // TODO(integration): Supabase Auth → Twilio SMS OTP delivery.
+        // TODO(integration): Supabase Auth -> Twilio SMS OTP delivery.
         Err(not_configured("phone OTP"))
     }
 
     async fn verify_phone_otp(
         &self,
-        _dialing_code: &DialingCode,
-        _national_number: &NationalPhoneNumber,
-        _code: &OtpCode,
-    ) -> Result<PhoneOtpCheck, DomainError> {
+        input: IdentityVerifyPhoneOtpInput,
+        _meta: &ServiceCallMeta,
+    ) -> Result<IdentityVerifyPhoneOtpOutput, DomainError> {
         // TODO(integration): verify the OTP with Supabase Auth and return the provider's authRef.
-        Ok(PhoneOtpCheck::Invalid)
+        Err(DomainError::rejected(
+            "InvalidVerificationCode",
+            json!({ "phone": canonical_phone(&input.dialing_code, &input.national_number) }),
+        ))
     }
 
     async fn send_email_magic_link(
         &self,
-        _email: &EmailAddress,
-        _locale: Option<&Locale>,
+        _input: IdentitySendEmailMagicLinkInput,
+        _meta: &ServiceCallMeta,
     ) -> Result<(), DomainError> {
         // TODO(integration): Supabase Auth magic-link email delivery.
         Err(not_configured("email magic link"))
@@ -60,9 +66,10 @@ impl AuthProviderGateway for FailClosedAuthProviderGateway {
 
     async fn verify_email_token(
         &self,
-        _token: &EmailVerificationToken,
-    ) -> Result<EmailTokenCheck, DomainError> {
+        _input: IdentityVerifyEmailTokenInput,
+        _meta: &ServiceCallMeta,
+    ) -> Result<IdentityVerifyEmailTokenOutput, DomainError> {
         // TODO(integration): verify the magic-link token server-side with Supabase Auth.
-        Ok(EmailTokenCheck::Invalid)
+        Err(DomainError::rejected("InvalidVerificationToken", json!({})))
     }
 }

@@ -3,7 +3,10 @@
 ## Status
 
 Accepted — first slice landed with issue #26 (implements ADR-20260719-214500's emitter half,
-codegen-roadmap item 4).
+codegen-roadmap item 4). The `identity` deferral below was resolved 2026-07-21 by the owner-approved
+catalog completion + migration (#50): `verify_email_token.output` gained the proven `email` (+
+`VerificationCodeExpired`), the `locale` inputs became `nullable: true`, and `AuthProviderGateway`
+was migrated to the generated `IdentityService` and deleted.
 
 ## Context
 

@@ -62,8 +62,7 @@ use domain::restaurant_account::RestaurantAccountState;
 use domain::shared::errors::DomainError;
 
 use crate::ports::{
-    is_version_conflict, Actor, AuthProviderGateway, EmailTokenCheck, EventStore, GbpOrderLinkProbe,
-    GoogleOwnershipVerifier, PhoneOtpCheck,
+    is_version_conflict, Actor, EventStore, GbpOrderLinkProbe, GoogleOwnershipVerifier,
 };
 use crate::queries::{
     CustomerReadRepository, ProspectFilter, ProspectionReadRepository, RestaurantReadRepository,
@@ -100,7 +99,11 @@ use domain::generated::scalars::{
 use domain::order::OrderState;
 use domain::rider::RiderState;
 
-use crate::generated::services::{PaymentRequestInput, PaymentRequestOutput, PaymentService, ServiceCallMeta};
+use crate::generated::services::{
+    IdentitySendEmailMagicLinkInput, IdentitySendPhoneOtpInput, IdentityService,
+    IdentityVerifyEmailTokenInput, IdentityVerifyPhoneOtpInput, PaymentRequestInput,
+    PaymentRequestOutput, PaymentService, ServiceCallMeta,
+};
 use crate::pm_state::{PaymentProcessRow, PaymentProcessStateStore};
 use crate::queries::{CatalogReadRepository, OfferView};
 use crate::repository::Repository;
@@ -2407,8 +2410,10 @@ pub async fn import_catalog(
 
 // ================================================================================================
 // Customer aggregate — WRAPPED Supabase Auth identity (ADR-0015) + profile/preferences/favorites.
-// The request/confirm pairs stay pure: the AuthProviderGateway port is the ACL boundary doing the
-// actual Supabase call; only verified FACTS are appended here.
+// The request/confirm pairs stay pure: the generated `identity` service port (services.yaml,
+// issue #50) is the ACL boundary doing the actual Supabase call; only verified FACTS are appended
+// here. Invalid/expired verifications arrive as the canonical typed rejections RAISED BY THE
+// ADAPTER (`InvalidVerificationCode` / `InvalidVerificationToken` / `VerificationCodeExpired`).
 // ================================================================================================
 
 /// The stream a Customer aggregate lives on.
@@ -2427,7 +2432,9 @@ async fn load_customer(
 /// Canonical E.164 from the split phone input: dialing code + national number with the trunk `0`
 /// stripped (e.g. `+33` + `0612345678` → `+33612345678`), matching `scalars.yaml#/PhoneNumber`.
 /// Carrier-grade validation belongs to the auth provider (it delivers the SMS), not here.
-fn canonical_phone(dialing_code: &DialingCode, national_number: &NationalPhoneNumber) -> PhoneNumber {
+/// `pub` because identity ADAPTERS build the `InvalidVerificationCode` rejection context (`phone`)
+/// from their operation input with the SAME canonicalization (issue #50).
+pub fn canonical_phone(dialing_code: &DialingCode, national_number: &NationalPhoneNumber) -> PhoneNumber {
     PhoneNumber(format!("{}{}", dialing_code.0, national_number.0.trim_start_matches('0')))
 }
 
@@ -2436,11 +2443,19 @@ fn canonical_phone(dialing_code: &DialingCode, national_number: &NationalPhoneNu
 /// the locale the caller provided (pre-identification, so there is no stored locale yet).
 pub async fn request_phone_verification(
     _store: &dyn EventStore,
-    auth: &dyn AuthProviderGateway,
+    auth: &dyn IdentityService,
     cmd: RequestPhoneVerification,
-    _actor: &Actor,
+    actor: &Actor,
 ) -> Result<(), DomainError> {
-    auth.send_phone_otp(&cmd.dialing_code, &cmd.national_number, cmd.locale.as_ref()).await
+    auth.send_phone_otp(
+        IdentitySendPhoneOtpInput {
+            dialing_code: cmd.dialing_code,
+            national_number: cmd.national_number,
+            locale: cmd.locale,
+        },
+        &ServiceCallMeta::new(actor.correlation_id),
+    )
+    .await
 }
 
 /// What [`verify_phone`] resolved — surfaced in the GraphQL `verifyPhone` payload (api.yaml).
@@ -2453,31 +2468,31 @@ pub struct VerifyPhoneOutcome {
     pub created: bool,
 }
 
-/// Handle `commands.yaml#/VerifyPhone` → register-or-identify. The OTP is verified through the auth
-/// provider port (`InvalidVerificationCode` / `VerificationCodeExpired`); the backend then decides
+/// Handle `commands.yaml#/VerifyPhone` → register-or-identify. The OTP is verified through the
+/// generated identity service port (`InvalidVerificationCode` / `VerificationCodeExpired` are the
+/// adapter's typed rejections); the backend then decides
 /// new-vs-returning by resolving the canonical phone in the Customer read model: a known phone emits
 /// `CustomerIdentified` on the EXISTING customer's stream (the client-proposed id is discarded), a
 /// new phone emits `CustomerRegistered` on the new `Customer-<id>` stream (idempotent on replay).
 pub async fn verify_phone(
     store: &dyn EventStore,
-    auth: &dyn AuthProviderGateway,
+    auth: &dyn IdentityService,
     customers: &dyn CustomerReadRepository,
     cmd: VerifyPhone,
     actor: &Actor,
 ) -> Result<VerifyPhoneOutcome, DomainError> {
     let phone = canonical_phone(&cmd.dialing_code, &cmd.national_number);
-    let auth_ref = match auth
-        .verify_phone_otp(&cmd.dialing_code, &cmd.national_number, &cmd.code)
+    let auth_ref = auth
+        .verify_phone_otp(
+            IdentityVerifyPhoneOtpInput {
+                dialing_code: cmd.dialing_code.clone(),
+                national_number: cmd.national_number.clone(),
+                code: cmd.code.clone(),
+            },
+            &ServiceCallMeta::new(actor.correlation_id),
+        )
         .await?
-    {
-        PhoneOtpCheck::Verified { auth_ref } => auth_ref,
-        PhoneOtpCheck::Invalid => {
-            return Err(reject("InvalidVerificationCode", json!({ "phone": phone })));
-        }
-        PhoneOtpCheck::Expired => {
-            return Err(reject("VerificationCodeExpired", json!({})));
-        }
-    };
+        .auth_ref;
     if let Some(existing) = customers.by_phone(phone.clone()).await? {
         let (_state, version) = load_customer(store, &existing.customer_id).await?;
         let stream_name = customer_stream(&existing.customer_id);
@@ -2510,10 +2525,10 @@ pub async fn verify_phone(
 /// auth provider, localized via the customer's STORED locale (ADR-0015: no per-call language param).
 pub async fn request_email_verification(
     store: &dyn EventStore,
-    auth: &dyn AuthProviderGateway,
+    auth: &dyn IdentityService,
     customers: &dyn CustomerReadRepository,
     cmd: RequestEmailVerification,
-    _actor: &Actor,
+    actor: &Actor,
 ) -> Result<(), DomainError> {
     if let Some(owner) = customers.by_email(cmd.email.clone()).await? {
         if owner.customer_id != cmd.customer_id {
@@ -2522,28 +2537,30 @@ pub async fn request_email_verification(
     }
     let (state, _version) = load_customer(store, &cmd.customer_id).await?;
     let locale = state.and_then(|s| s.locale);
-    auth.send_email_magic_link(&cmd.email, locale.as_ref()).await
+    auth.send_email_magic_link(
+        IdentitySendEmailMagicLinkInput { email: cmd.email, locale },
+        &ServiceCallMeta::new(actor.correlation_id),
+    )
+    .await
 }
 
 /// Handle `commands.yaml#/ConfirmEmailVerification` → emit `events.yaml#/CustomerEmailVerified`. The
-/// token is verified SERVER-SIDE through the auth provider port (`InvalidVerificationToken` /
-/// `VerificationCodeExpired`), which reports the email it proves — the linked email is never taken
-/// from client input.
+/// token is verified SERVER-SIDE through the generated identity service port
+/// (`InvalidVerificationToken` / `VerificationCodeExpired` are the adapter's typed rejections),
+/// whose output reports the email it proves — the linked email is never taken from client input.
 pub async fn confirm_email_verification(
     store: &dyn EventStore,
-    auth: &dyn AuthProviderGateway,
+    auth: &dyn IdentityService,
     cmd: ConfirmEmailVerification,
     actor: &Actor,
 ) -> Result<(), DomainError> {
-    let email = match auth.verify_email_token(&cmd.token).await? {
-        EmailTokenCheck::Verified { email } => email,
-        EmailTokenCheck::Invalid => {
-            return Err(reject("InvalidVerificationToken", json!({})));
-        }
-        EmailTokenCheck::Expired => {
-            return Err(reject("VerificationCodeExpired", json!({})));
-        }
-    };
+    let email = auth
+        .verify_email_token(
+            IdentityVerifyEmailTokenInput { token: cmd.token.clone() },
+            &ServiceCallMeta::new(actor.correlation_id),
+        )
+        .await?
+        .email;
     let (_state, version) = load_customer(store, &cmd.customer_id).await?;
     let stream_name = customer_stream(&cmd.customer_id);
     let event = DomainEvent::CustomerEmailVerified(CustomerEmailVerified {
@@ -2558,10 +2575,10 @@ pub async fn confirm_email_verification(
 /// phone (localized via the STORED locale).
 pub async fn request_phone_change(
     store: &dyn EventStore,
-    auth: &dyn AuthProviderGateway,
+    auth: &dyn IdentityService,
     customers: &dyn CustomerReadRepository,
     cmd: RequestPhoneChange,
-    _actor: &Actor,
+    actor: &Actor,
 ) -> Result<(), DomainError> {
     let new_phone = canonical_phone(&cmd.new_dialing_code, &cmd.new_national_number);
     if let Some(owner) = customers.by_phone(new_phone.clone()).await? {
@@ -2571,33 +2588,38 @@ pub async fn request_phone_change(
     }
     let (state, _version) = load_customer(store, &cmd.customer_id).await?;
     let locale = state.and_then(|s| s.locale);
-    auth.send_phone_otp(&cmd.new_dialing_code, &cmd.new_national_number, locale.as_ref()).await
+    auth.send_phone_otp(
+        IdentitySendPhoneOtpInput {
+            dialing_code: cmd.new_dialing_code,
+            national_number: cmd.new_national_number,
+            locale,
+        },
+        &ServiceCallMeta::new(actor.correlation_id),
+    )
+    .await
 }
 
 /// Handle `commands.yaml#/ConfirmPhoneChange` → emit `events.yaml#/CustomerPhoneChanged` (canonical
-/// E.164). The OTP on the NEW phone is verified through the auth provider port
-/// (`InvalidVerificationCode` / `VerificationCodeExpired`) and uniqueness is re-checked at confirm
-/// time (`PhoneAlreadyInUse`).
+/// E.164). The OTP on the NEW phone is verified through the generated identity service port
+/// (`InvalidVerificationCode` / `VerificationCodeExpired` are the adapter's typed rejections) and
+/// uniqueness is re-checked at confirm time (`PhoneAlreadyInUse`).
 pub async fn confirm_phone_change(
     store: &dyn EventStore,
-    auth: &dyn AuthProviderGateway,
+    auth: &dyn IdentityService,
     customers: &dyn CustomerReadRepository,
     cmd: ConfirmPhoneChange,
     actor: &Actor,
 ) -> Result<(), DomainError> {
     let new_phone = canonical_phone(&cmd.new_dialing_code, &cmd.new_national_number);
-    match auth
-        .verify_phone_otp(&cmd.new_dialing_code, &cmd.new_national_number, &cmd.code)
-        .await?
-    {
-        PhoneOtpCheck::Verified { .. } => {}
-        PhoneOtpCheck::Invalid => {
-            return Err(reject("InvalidVerificationCode", json!({ "phone": new_phone })));
-        }
-        PhoneOtpCheck::Expired => {
-            return Err(reject("VerificationCodeExpired", json!({})));
-        }
-    }
+    auth.verify_phone_otp(
+        IdentityVerifyPhoneOtpInput {
+            dialing_code: cmd.new_dialing_code.clone(),
+            national_number: cmd.new_national_number.clone(),
+            code: cmd.code.clone(),
+        },
+        &ServiceCallMeta::new(actor.correlation_id),
+    )
+    .await?;
     if let Some(owner) = customers.by_phone(new_phone.clone()).await? {
         if owner.customer_id != cmd.customer_id {
             return Err(reject("PhoneAlreadyInUse", json!({ "phone": new_phone })));

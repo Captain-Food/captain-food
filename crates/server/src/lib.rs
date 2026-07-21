@@ -42,7 +42,7 @@ use application::queries::{
     UberSplitPolicyReadRepository,
 };
 use infrastructure::{
-    EventBus, FailClosedAuthProviderGateway, FailClosedGoogleOwnershipVerifier, FailClosedPaymentGateway,
+    EventBus, FailClosedGoogleOwnershipVerifier, FailClosedIdentityService, FailClosedPaymentGateway,
     PgCartRepository, PgCatalogRepository, PgCustomerRepository, PgDeliveryRepository, PgEventStore,
     PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRefundQueueRepository,
     PgRestaurantRepository, PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProcessManagerRunner,
@@ -198,7 +198,13 @@ pub fn router() -> Router {
                     event_store: Arc::new(PgEventStore::with_bus(pool.clone(), event_bus.clone())),
                     ownership: Arc::new(FailClosedGoogleOwnershipVerifier),
                     gbp_probe: Arc::new(UnverifiedGbpOrderLinkProbe),
-                    auth_provider: Arc::new(FailClosedAuthProviderGateway),
+                    // The `identity` service resolved through the GENERATED topology binding
+                    // (services.yaml `binding: local`, issue #50): fail-closed stand-in until the
+                    // real Supabase ACL adapter lands.
+                    auth_provider: infrastructure::generated::service_bindings::identity_service(
+                        || Arc::new(FailClosedIdentityService),
+                    )
+                    .expect("identity service binding (services.yaml)"),
                     // The `payment` service resolved through the GENERATED topology binding
                     // (services.yaml `binding: local`, issue #26): the composition root only supplies
                     // the in-process constructor — the real outbound Stripe adapter when

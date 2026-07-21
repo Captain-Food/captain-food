@@ -8813,7 +8813,7 @@ fn wired_mutation_dispatch(name: &str) -> Option<(String, String)> {
     // SUCCEEDs.
     if name == "verifyPhone" {
         return Some((
-            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();\n".into(),
+            "        let store = ctx.data::<std::sync::Arc<dyn application::ports::EventStore>>()?.clone();\n        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();\n".into(),
             "application::commands::verify_phone(store.as_ref(), auth.as_ref(), customers.as_ref(), cmd, &actor).await.map(|_| ())".into(),
         ));
     }
@@ -9007,11 +9007,11 @@ fn wired_mutation_dispatch(name: &str) -> Option<(String, String)> {
             ", catalogs.as_ref()",
         ),
         Extra::Auth => (
-            "        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();\n".to_string(),
+            "        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();\n".to_string(),
             ", auth.as_ref()",
         ),
         Extra::AuthCustomers => (
-            "        let auth = ctx.data::<std::sync::Arc<dyn application::ports::AuthProviderGateway>>()?.clone();\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();\n".to_string(),
+            "        let auth = ctx.data::<std::sync::Arc<dyn application::generated::services::IdentityService>>()?.clone();\n        let customers = ctx.data::<std::sync::Arc<dyn application::queries::CustomerReadRepository>>()?.clone();\n".to_string(),
             ", auth.as_ref(), customers.as_ref()",
         ),
     };
