@@ -106,8 +106,9 @@ sequenceDiagram
 
 1. **First paint / mobile Lighthouse over 90** — the user sees a real menu, not a spinner waiting on a
    WASM download.
-2. **SEO & link previews** — public discovery and per-restaurant pages are multi-tenant
-   (`{slug}.captain.food`); crawlers and share-cards need real HTML.
+2. **SEO & link previews** — both customer front offices need real HTML for crawlers/share-cards: the
+   **Captain marketplace** (`captain_frontoffice.yaml`) at `live.captain.food` → the bare `captain.food`,
+   and per-restaurant storefronts (`restaurant_frontoffice.yaml`) at the multi-tenant `{slug}.captain.food`.
 3. **Resilience** — the page is meaningful before (or without) the WASM app booting.
 
 SSR is a **first-load boundary** concern. After hydration the app is a normal reactive client.

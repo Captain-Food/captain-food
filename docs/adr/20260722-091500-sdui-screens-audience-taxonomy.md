@@ -23,10 +23,16 @@ Two things surfaced as the frontend work began (#21):
 ## Decision
 
 1. **One SDUI screens file per audience, in `specs/screens/`, with NO `_screens` suffix** (the folder
-   conveys it):
-   - **`restaurant_frontoffice.yaml`** — the customer-facing storefront, served per-tenant at
-     `{slug}.captain.food` (audience roles PUBLIC + CUSTOMER). **Renamed from `customer_screens.yaml`**;
-     content, roles and bindings unchanged.
+   conveys it). Two of these are **customer-facing front offices** distinguished by host binding:
+   - **`captain_frontoffice.yaml`** — the **Captain marketplace**: cross-restaurant discovery and search,
+     served at **`live.captain.food`** today and the **bare domain `captain.food`** later (roles
+     PUBLIC + CUSTOMER). *To be created* — the marketplace discovery screens (`home`, `search`,
+     categories) currently living in `restaurant_frontoffice.yaml` are earmarked to move here (see the
+     content-split follow-up below).
+   - **`restaurant_frontoffice.yaml`** — a **single restaurant's storefront** (catalog → cart → checkout
+     → order tracking), served per-tenant at **`{slug}.captain.food`** (roles PUBLIC + CUSTOMER).
+     **Renamed from `customer_screens.yaml`**; content unchanged *for now* (it still holds the marketplace
+     discovery screens pending the split above).
    - `restaurant_backoffice.yaml` — restaurant-staff dashboard (to follow).
    - `rider.yaml` — delivery-rider app (to follow).
    - `system.yaml` — platform/admin surface (to follow).
@@ -34,9 +40,12 @@ Two things surfaced as the frontend work began (#21):
    Impersonation ("view as") stays the mechanism for acting *as* a restaurant/customer; a `system.yaml`
    may still exist for platform-native ops screens. The concrete choice is deferred to when that surface
    is built — this ADR only removes the blanket "no system screens" stance.
-3. The multi-tenant **`{slug}.captain.food`** binding is documented in the front-office file header and
-   here; **no new DSL schema field** — host→slug resolution already lives in the server tenant middleware
-   (C4 `middleware/tenant`).
+3. **Host bindings** are documented in each file header and here; **no new DSL schema field** — host
+   resolution lives in the server tenant middleware (C4 `middleware/tenant`):
+   - `captain_frontoffice.yaml` → `live.captain.food` (then the bare `captain.food`) — the platform
+     marketplace host.
+   - `restaurant_frontoffice.yaml` → `{slug}.captain.food` — the per-tenant restaurant host (wildcard
+     `*.captain.food`).
 4. The codegen **validator is already generic** over `screens/*.yaml`; only the doc / translation /
    component-registry **emitters** pinned the single filename and are updated to the new name.
    Generalizing those emitters to iterate over **all** `screens/*.yaml` (so new audiences appear in the
@@ -53,3 +62,8 @@ Two things surfaced as the frontend work began (#21):
   resolver/action bindings are identical. Future audiences add one file each, picked up automatically by
   the generic validator; the human-facing "Screens" documentation section stays single-file until the
   emitter generalization follow-up lands.
+- **Follow-up — marketplace content split**: extract the cross-restaurant discovery screens (`home`,
+  `search`, category discovery) from `restaurant_frontoffice.yaml` into a new `captain_frontoffice.yaml`
+  bound to `live.captain.food`/`captain.food`, leaving the single-restaurant journey (catalog, cart,
+  checkout, tracking) in `restaurant_frontoffice.yaml`. Customer-account screens (`orders`, `account`)
+  reachable from both hosts are placed during that split. Tracked separately; not part of this rename.

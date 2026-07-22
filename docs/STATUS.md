@@ -6,8 +6,11 @@
 > 🚧 **2026-07-22 — #71: SDUI screens taxonomy by audience (ADR-20260722-091500, refines ADR-0037).**
 > Renamed `specs/screens/customer_screens.yaml` → **`restaurant_frontoffice.yaml`** (the customer-facing
 > storefront at `{slug}.captain.food`, roles PUBLIC+CUSTOMER); files now named by **audience with no
-> `_screens` suffix** (folder conveys it), with `restaurant_backoffice.yaml`/`rider.yaml`/`system.yaml`
-> to follow. Codegen `SPEC_FILES` + doc/translation/registry emitters + generated docs and the
+> `_screens` suffix** (folder conveys it). Two customer front offices split by host: the **Captain
+> marketplace** `captain_frontoffice.yaml` (cross-restaurant discovery @ `live.captain.food` → bare
+> `captain.food`, to be created — the `home`/`search` screens currently in `restaurant_frontoffice.yaml`
+> move there in a content-split follow-up) and the per-restaurant `restaurant_frontoffice.yaml`. Then
+> `restaurant_backoffice.yaml`/`rider.yaml`/`system.yaml` to follow. Codegen `SPEC_FILES` + doc/translation/registry emitters + generated docs and the
 > `crates/web` registry header updated (validator already generic over `screens/*.yaml`; no drift). ADR
 > relaxes ADR-0037 §4 to allow a future `system` screen set (impersonation still the "view as" path). No
 > API/behaviour change. `make rust` + `cargo build --workspace` green.
