@@ -30,6 +30,6 @@ COPY --from=builder /app/target/release/server /usr/local/bin/server
 ARG CAPTAIN_BUILD_VERSION=dev
 ENV CAPTAIN_BUILD_VERSION=$CAPTAIN_BUILD_VERSION
 LABEL org.opencontainers.image.revision=$CAPTAIN_BUILD_VERSION \
-      org.opencontainers.image.source=https://github.com/Captain-Food/captain-food
+      org.opencontainers.image.source=https://github.com/TheCaptainCompany/captain-food
 # $PORT is injected by Render; the server binds 0.0.0.0:$PORT.
 CMD ["server"]

@@ -9,10 +9,10 @@
 Local-first food ordering & delivery for independent restaurants and food trucks.
 **100 % of your orders. 0 % commission — for real.**
 
-[![ci](https://github.com/Captain-Food/captain-food/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Captain-Food/captain-food/actions/workflows/ci.yml)
-[![db-migrate](https://github.com/Captain-Food/captain-food/actions/workflows/db-migrate.yml/badge.svg)](https://github.com/Captain-Food/captain-food/actions/workflows/db-migrate.yml)
+[![ci](https://github.com/TheCaptainCompany/captain-food/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheCaptainCompany/captain-food/actions/workflows/ci.yml)
+[![db-migrate](https://github.com/TheCaptainCompany/captain-food/actions/workflows/db-migrate.yml/badge.svg)](https://github.com/TheCaptainCompany/captain-food/actions/workflows/db-migrate.yml)
 [![render](https://img.shields.io/website?url=https%3A%2F%2Flive.captain.food%2Fhealth&up_message=live&down_message=down&label=render%20deploy&labelColor=0e3a5f&up_color=1c7a4d)](https://live.captain.food/health)
-[![render commit](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FCaptain-Food%2Fcaptain-food%2Fbadges%2Frender-deploy.json&labelColor=0e3a5f)](https://github.com/Captain-Food/captain-food/actions/workflows/render-status.yml)
+[![render commit](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FTheCaptainCompany%2Fcaptain-food%2Fbadges%2Frender-deploy.json&labelColor=0e3a5f)](https://github.com/TheCaptainCompany/captain-food/actions/workflows/render-status.yml)
 
 [![join the crew](https://img.shields.io/badge/join.captain.food-%E2%9A%93%20come%20aboard-e8613a?labelColor=0e3a5f)](https://join.captain.food)
 [![built with Rust](https://img.shields.io/badge/built%20with-Rust-a2402a?logo=rust&logoColor=fffdf8&labelColor=0e3a5f)](Cargo.toml)
@@ -81,9 +81,9 @@ build's reference:
 
 ```bash
 # roll back to a known-good commit (find it in Render's deploy history or the `render commit` badge)
-curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/captain-food/captain-food:sha-<previous-commit>"
+curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/thecaptaincompany/captain-food:sha-<previous-commit>"
 # strongest form: pin the exact digest instead of the sha tag
-curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/captain-food/captain-food@sha256:<digest>"
+curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL&imgURL=ghcr.io/thecaptaincompany/captain-food@sha256:<digest>"
 ```
 
 Confirm the rollback landed by reading `version` from `https://live.captain.food/health`.
@@ -110,5 +110,5 @@ of the social and solidarity economy. See [`LICENSE.md`](LICENSE.md) for the ful
 
 <div align="center">
   <sub>⚓ Brand assets come from the <a href="https://join.captain.food">join.captain.food</a> landing page
-  (<a href="https://github.com/Captain-Food/captain-food.github.io">captain-food.github.io</a>).</sub>
+  (<a href="https://github.com/TheCaptainCompany/captain-food.github.io">captain-food.github.io</a>).</sub>
 </div>

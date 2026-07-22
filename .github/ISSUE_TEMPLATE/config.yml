@@ -4,5 +4,5 @@ contact_links:
     url: https://join.captain.food
     about: What Captain.Food is, the 0% commission model, and how to join as a restaurateur.
   - name: 🔒 Report a security vulnerability
-    url: https://github.com/Captain-Food/captain-food/security/advisories/new
+    url: https://github.com/TheCaptainCompany/captain-food/security/advisories/new
     about: Please report security issues privately, never as a public issue.

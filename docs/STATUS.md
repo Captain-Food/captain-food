@@ -1,7 +1,20 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-22 (16:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-22 (23:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> 🚧 **2026-07-22 — The Captain Company umbrella + GitHub org rename (ADR-20260722-225945, product-owner directive).**
+> Establishing the parent-company layer above Captain.Food: brand = **Captain**, entity = **The Captain
+> Company** (`thecaptaincompany.com`, purchased), products keep the `Captain.X` pattern (Captain.Food →
+> Captain.Jobs/Captain.Voyage later). **Renaming the GitHub org `Captain-Food` → `TheCaptainCompany`** (the
+> org becomes the *company*; products are repos inside it). Repo/crate/product-domain names (`captain-food`,
+> `captain-food-*`, `captain.food`) are **unchanged** — only the owner segment moves. In-repo reference
+> updates (README badges, SECURITY, CODE_OF_CONDUCT, issue-template, BACKLOG, this file) + the **GHCR image
+> path** `ghcr.io/captain-food/captain-food` → `ghcr.io/thecaptaincompany/captain-food` (build-image.yml,
+> render.yaml, Dockerfile, README runbook) are staged in a **held PR**. ⏳ Blocked on the manual GitHub
+> rename + Render image-URL repoint + GHCR visibility check (see ADR Sequencing) — PR must NOT merge before
+> those. Reserved-not-built: Captain ID (`id.`) shared identity behind the ADR-0015 wrapper seam, Captain
+> Studio (`studio.`), and `captain-framework` extraction (deferred to product #2).
 
 > 📋 **2026-07-22 — Identity federation & consent-gated cross-tenant personalization (ADR-20260722-174500, PROPOSED).**
 > Records the identity/privacy framework for the two customer front offices: **one** Captain.Food identity
@@ -137,7 +150,7 @@
 > high merge cadence (every merge → a full Render build, incl. spec/doc/tooling merges that don't
 > change the binary). New model: `.github/workflows/build-image.yml` builds the same cargo-chef
 > Dockerfile in **GitHub Actions** (free/unlimited on this PUBLIC repo — buildx `type=gha` layer
-> cache), pushes to **GHCR** (`ghcr.io/captain-food/captain-food:{sha-<short>,latest}`, package PUBLIC),
+> cache), pushes to **GHCR** (`ghcr.io/thecaptaincompany/captain-food:{sha-<short>,latest}`, package PUBLIC),
 > and triggers a **Render deploy hook** pinning the image **by immutable digest** (`@sha256:…`, never
 > `latest`) — gated on green `ci`/`main` exactly like db-migrate (ADR-0043). The service is `runtime:
 > image` + `autoDeploy: false`, so **Render spends zero build-pipeline minutes**; the running build
@@ -713,9 +726,9 @@ Two directions: partner-**push** webhooks (below) vs external-**drive** `/extern
 ## 📋 Remaining work — todo & session split
 
 > **⚠️ TRACKING MOVED (2026-07-20, user-directed): remaining work now lives in
-> [GitHub issues](https://github.com/Captain-Food/captain-food/issues) (#12–#28, typed
+> [GitHub issues](https://github.com/TheCaptainCompany/captain-food/issues) (#12–#28, typed
 > Task/Bug/Feature) managed on the **org-level GitHub Project**
-> ([github.com/orgs/Captain-Food/projects](https://github.com/orgs/Captain-Food/projects),
+> ([github.com/orgs/TheCaptainCompany/projects](https://github.com/orgs/TheCaptainCompany/projects),
 > created 2026-07-20) — not in this file.** Issues carry `size/*` labels + org issue fields
 > Priority/Effort (mapping recorded in ADR-20260720-143000); the project's views read those
 > directly, so triage state lives on the issue, never in a board-only field. New work items get an
