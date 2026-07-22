@@ -3,6 +3,30 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-22 (16:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> 📋 **2026-07-22 — Identity federation & consent-gated cross-tenant personalization (ADR-20260722-174500, PROPOSED).**
+> Records the identity/privacy framework for the two customer front offices: **one** Captain.Food identity
+> (Supabase Auth, global `Customer` keyed by phone/`authRef`, single-origin per ADR-0036) works across
+> `captain.food` + every `{slug}.captain.food` — **no per-restaurant account** (made an explicit invariant).
+> Sets the **data-controller boundary** (Captain.Food = controller of the identity + cross-restaurant
+> marketplace profile; each restaurant = controller of its own fulfilment data; no restaurant→restaurant
+> flow, isolation via the #22 nav-edge ACL). Splits two personal-data uses: a customer's **own** history
+> across restaurants (service basis, no new consent) vs. **cross-restaurant behavioural personalization**
+> (`RECOMMENDED`) which is **consent-gated, default OFF** — to be modelled as a first-class event-sourced
+> consent fact (`CustomerPersonalizationConsent…`), deferred to a follow-up issue. "Login with Captain.Food"
+> (OIDC) is post-V0 (single-origin already gives SSO within `*.captain.food`). **Legal basis is explicitly
+> pending DPO/CNIL** — the ADR fixes only the technical framework so either outcome is cheap. Doc-only; no
+> `specs/**` change. **Realized this session:** a dedicated **`captain-identity`** Supabase project
+> (Frankfurt, auth-only) split from the **`captain-food`** data project (clean because Supabase is wrapped
+> behind GraphQL + JWKS auth per ADR-0047, and `auth_ref` is a plain UUID, not a FK); company domain
+> **`thecaptaincompany.com`** (Dynadot; `thecaptain.company` → redirect) with intended issuer
+> **`id.thecaptaincompany.com`**; SMS via a **French/EU provider (OVHcloud SMS)** through the Send SMS hook
+> with a **per-product alphanumeric sender** (`CaptainFood`), dev = mock (no cost); **late identification** —
+> phone OTP at the cart→checkout boundary before payment (#12 anonymous cart), the verified phone shared with
+> restaurant/rider for **transactional** order-status only (number masking deferred). Follow-ups: (i) consent
+> gate (ADR-0032 completeness); (ii) privacy notice + DPIA + controller/processor contracts; (iii) OIDC
+> provider post-V0; (iv) repoint Food's `supabase-acl`/JWKS at `captain-identity` when its auth crate lands;
+> (v) `specs/integrations/supabase.md` two-project update (plan mode).
+
 > ✅ **2026-07-22 — Ref-KIND contract (ADR-20260722-152201).** The validator's §1 proved only that a
 > `$ref` *resolves*; what it resolved to was checked ad hoc per site. New **§1b** classifies every ref
 > target by KIND — finer than its file (PM state table vs projection/referential/journal/staging table;
