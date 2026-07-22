@@ -3,6 +3,21 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-22 (16:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> 📋 **2026-07-22 — Identity federation & consent-gated cross-tenant personalization (ADR-20260722-174500, PROPOSED).**
+> Records the identity/privacy framework for the two customer front offices: **one** Captain.Food identity
+> (Supabase Auth, global `Customer` keyed by phone/`authRef`, single-origin per ADR-0036) works across
+> `captain.food` + every `{slug}.captain.food` — **no per-restaurant account** (made an explicit invariant).
+> Sets the **data-controller boundary** (Captain.Food = controller of the identity + cross-restaurant
+> marketplace profile; each restaurant = controller of its own fulfilment data; no restaurant→restaurant
+> flow, isolation via the #22 nav-edge ACL). Splits two personal-data uses: a customer's **own** history
+> across restaurants (service basis, no new consent) vs. **cross-restaurant behavioural personalization**
+> (`RECOMMENDED`) which is **consent-gated, default OFF** — to be modelled as a first-class event-sourced
+> consent fact (`CustomerPersonalizationConsent…`), deferred to a follow-up issue. "Login with Captain.Food"
+> (OIDC) is post-V0 (single-origin already gives SSO within `*.captain.food`). **Legal basis is explicitly
+> pending DPO/CNIL** — the ADR fixes only the technical framework so either outcome is cheap. Doc-only; no
+> `specs/**` change. Follow-ups: (i) implement the consent gate (ADR-0032 completeness); (ii) privacy notice
+> + DPIA + controller/processor contracts; (iii) OIDC provider post-V0.
+
 > 🚧 **2026-07-22 — #75: marketplace content-split (ADR-20260722-160000, realizes ADR-20260722-091500/-101500).**
 > Extracted the Captain **marketplace** front office out of the storefront: new
 > `specs/screens/captain_frontoffice.yaml` (+ sidecar) holds `home`/`search` discovery + `partner_landing`
