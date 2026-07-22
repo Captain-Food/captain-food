@@ -78,6 +78,10 @@ validation. In the story map, inbound events are marked 📥.
 - **Availability ≠ stock** (two orthogonal concepts): `CatalogItemAvailability` (`AVAILABLE`/`UNAVAILABLE`, manual UI flag) vs derived `StockStatus` (`IN_STOCK`/`LOW_STOCK`/`OUT_OF_STOCK`). Orderable = `AVAILABLE` **and** stock > 0.
 - **HubRise interop**: the `ref` field (scalar `ExternalReference`) is the idempotent import key. HubRise→domain translation goes through an Anti-Corruption Layer; do not let `SKU`/`option_list`/`"9.80 EUR"` leak into the domain.
 - Slugs: lowercase, dash-separated (`^[a-z0-9]+(?:-[a-z0-9]+)*$`).
+- **Always name issues/PRs, never bare numbers**: whenever referring to a GitHub issue or PR in any
+  user-facing message, commit, or doc, include its **title** alongside the number — e.g.
+  `#21 "Frontend: Leptos/WASM SDUI renderer"`, not just `#21`. A bare number is not memorable to a human
+  reader; the title carries the meaning.
 
 ## Operating model (read [docs/PLAYBOOK.md](docs/PLAYBOOK.md))
 
@@ -123,6 +127,13 @@ mutation/query is reached by a story step, and every test↔rule link holds both
   an agent. [docs/BACKLOG.md](docs/BACKLOG.md) records the process and how value is defined
   (value-first, ADR-20260720-213024): foundations/cross-functional/non-functional first, then features
   in value-stream order.
+- **Spec- and docs-only changes go straight to `main`** (product-owner directive): commit and **push
+  directly to `main`** — no branch, no PR, no claim ceremony — for changes confined to `specs/**`,
+  `docs/**`, ADRs, `CLAUDE.md`, `STATUS.md`, and the generated artifacts they regenerate. **Keep `main`
+  green**: run the same gate CI would (`make rust`) locally **before** pushing anything that touches
+  `specs/**` (a docs-only edit that regenerates nothing may skip it). The claim → draft-PR →
+  supervised-merge flow below applies to **code/feature work** (touching `crates/**`, `tools/**`, CI,
+  deploy), not to pure spec/doc edits.
 - **Issue workflow — claim ⇒ draft PR immediately; finish ⇒ supervised auto-merge**
   (ADR-20260720-233000 + ADR-20260721-042018 + ADR-20260721-044613, method in
   [docs/BACKLOG.md](docs/BACKLOG.md)): when asked to work an issue, FIRST claim it
