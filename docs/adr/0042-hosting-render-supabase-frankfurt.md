@@ -63,27 +63,31 @@ and data inside the EU**.
 - **Two vendors to operate/bill/monitor** rather than one integrated platform.
 
 ### Operational notes
-- **Deployment is Infrastructure-as-Code via a Render Blueprint.** The Render service is driven by
-  [`render.yaml`](../../render.yaml) at the repo root, linked as a Render **Blueprint** so the file — not
-  the dashboard — is the source of truth (matched to the existing service by name, `captain-food`).
-  - Blueprint ID: `exs-d9d8q058nd3s73dosclg` · repo `Captain-Food/captain-food` · branch `main` · path `render.yaml`.
-  - Enforced config (build model **superseded by ADR-20260721-175411** — see below): originally
+- **Deployment (current): Render service configured in the dashboard, deployed by the CI hook.** The Render
+  **Blueprint** that formerly drove this from [`render.yaml`](../../render.yaml) was **retired 2026-07-21**
+  (History below): once the service became image-backed + hook-deployed, the Blueprint kept failing to sync
+  and its `image.url` management fought the digest-pinned deploys. `render.yaml` is now a documentation-only
+  record of the intended config (not applied); the `captain-food` service is configured directly in the
+  Render dashboard.
+  - Retired Blueprint ID (reference): `exs-d9d8q058nd3s73dosclg` · repo `Captain-Food/captain-food` · branch `main` · path `render.yaml`.
+  - Service config (build model **per ADR-20260721-175411** — see below): originally
     `runtime: docker` + `dockerfilePath: ./Dockerfile` (cargo-chef cached build **on Render**) with
     `autoDeployTrigger: checksPass`. Render metering build-pipeline minutes at a $0 cap made building Rust
     on Render unsustainable, so the build moved to CI: the image is now compiled in GitHub Actions and
     pushed to GHCR, and the service is `runtime: image` + `autoDeploy: false`, pulling the pre-built image
     (deploys triggered by a Render deploy hook pinning `sha-<commit>`). ADR-0043 still keeps migrations
     out-of-band and the `/health` schema-version gate still holds a deploy that races ahead of a migration.
-  - A push to `main` re-syncs the Blueprint **config**, but with `autoDeploy: false` it does **not** deploy
-    the app: application deploys are driven only by the `build-image` workflow's Render **deploy hook**,
-    which pins the exact image **by digest** (ADR-20260721-175411). The `image.url` in `render.yaml` is a
-    bootstrap seed, not the running version — the deployed-version source of truth is Render's deploy/event
-    history. Secrets stay dashboard-managed via `sync: false` and are never committed.
+  - Deploys are driven **only** by the `build-image` workflow's Render **deploy hook**, which pins the exact
+    image **by digest** (ADR-20260721-175411); a git push does not deploy (`autoDeploy: false`). The
+    deployed-version source of truth is Render's deploy/event history + the app's `X-VERSION` response header
+    and `/health` `version`. Secrets stay dashboard-managed (`sync: false`) and are never committed.
   - History: linked 2026-07-17; first sync (commit `5a9e2f5`) moved the service off a manually-configured
     native `cargo build` onto the cargo-chef **Docker** runtime built **on Render** (verified live
     2026-07-17, `/health` → `db:up`). On 2026-07-21 (**ADR-20260721-175411**) the build moved off Render
     entirely to **GitHub Actions + GHCR** and the service became `runtime: image` — Render now only pulls a
-    pre-built image, spending zero build-pipeline minutes.
+    pre-built image, spending zero build-pipeline minutes. The Blueprint could no longer reconcile the
+    manually-switched image source (dashboard status "Failed sync") and was **deleted 2026-07-21**; the
+    service now runs on dashboard config + the CI deploy hook, verified live end-to-end at commit `503a1a7`.
 - **Build tuning.** The workspace `[profile.release]` (root `Cargo.toml`) sets `lto = "thin"`,
   `codegen-units = 1`, `strip = true` for the deployed binary — runtime-perf tuning, independent of where
   the build runs; `panic = "abort"` deliberately NOT set (keeps per-request panic isolation), `target-cpu`

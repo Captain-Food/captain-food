@@ -1,4 +1,13 @@
-# Render Blueprint (Infrastructure-as-Code) — Captain.Food BFF (ADR-0042, build model ADR-20260721-175411).
+# Render service config — Captain.Food BFF (ADR-0042, build model ADR-20260721-175411).
+#
+# STATUS: DOCUMENTATION, NOT APPLIED. This file was a linked Render *Blueprint*, but the Blueprint was
+# RETIRED on 2026-07-21: once the service switched to a prebuilt image + CI-hook deploys, the Blueprint
+# could no longer sync (it kept failing) and its management of `image.url` fought the digest-pinned hook
+# deploys. The live `captain-food` service is now configured DIRECTLY in the Render dashboard (source =
+# the GHCR image, env vars, region, health check, Auto-Deploy off) and deployed by the CI hook (below).
+# This file is kept only as a version-controlled record of the intended config — nothing reads or enforces
+# it automatically. To re-adopt IaC later, re-link it as a Blueprint (Blueprints -> New Blueprint Instance),
+# but first pin `image.url` to a specific digest, else the Blueprint would reset production toward `:latest`.
 #
 # Hosted in Frankfurt, co-located with Supabase (eu-central-1) for low app<->DB latency, both in the EU.
 #
@@ -10,10 +19,9 @@
 #
 # VERSION PINNING: production NEVER resolves a moving tag. Every deploy runs a content-addressed digest, and
 # Render's deploy/event history is the version-of-record (it names the exact digest, even for a container
-# that never starts). The `image.url: ...:latest` below is ONLY the bootstrap seed Render pulls the first
-# time the blueprint is created/synced — it is not what running deploys resolve. Rollback = re-hit the
-# deploy hook with a previous `sha-<commit>`/digest (no rebuild). Optionally, after the first digest deploy,
-# pin `image.url` to that exact `@sha256:...` so even the bootstrap carries no moving tag.
+# that never starts). The `image.url: ...:latest` below is illustrative only — this file is not applied, and
+# the live service's image is set by the deploy hook to the exact digest, never a moving tag. Rollback =
+# re-hit the deploy hook with a previous `sha-<commit>`/digest (no rebuild).
 #
 # GHCR image visibility: the package `ghcr.io/captain-food/captain-food` must be PUBLIC for Render to pull
 # it without credentials (Packages -> package settings -> change visibility -> Public). If kept private,
@@ -31,16 +39,16 @@
 # Projector: runs in-process in this web service for now (Render Background Workers are paid); it will move
 # to a dedicated worker service later (ADR-0040/0043).
 #
-# This file is the single source of truth ONLY once the repo is linked as a Blueprint in Render (Blueprints
-# -> New Blueprint Instance); Render then matches the existing `captain-food` service by name and re-syncs
-# this config on every push. Secrets stay dashboard-managed via `sync: false`.
+# (Historical: this WAS the single source of truth while linked as a Blueprint, 2026-07-17 to 2026-07-21;
+# the Blueprint is now retired — see STATUS at the top and ADR-0042. Secrets remain dashboard-managed.)
 services:
   - type: web
     name: captain-food
     runtime: image
     image:
-      # Pre-built in CI and pushed to GHCR (see .github/workflows/build-image.yml). Bootstrap default only;
-      # real deploys pin an immutable `:sha-<commit>` tag via the deploy hook.
+      # Illustrative only (file not applied — see STATUS at top). Pre-built in CI and pushed to GHCR
+      # (.github/workflows/build-image.yml); the live service's image is set by the deploy hook to the exact
+      # `@sha256:<digest>`, never this moving tag.
       url: ghcr.io/captain-food/captain-food:latest
     region: frankfurt
     plan: free

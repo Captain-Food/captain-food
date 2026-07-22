@@ -1,7 +1,7 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-21 (20:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-22 (08:30 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
 > 🚧 **2026-07-21 — #21 frontend renderer STARTED, split 1/4 (#68, PR #69).** The Leptos/WASM SDUI
 > renderer (remaining-work item 5) is being built in the 4 sub-issues of #21 (ADR-20260720-143000).
@@ -16,22 +16,44 @@
 > diagrams in `docs/frontend/renderer-architecture.md`. Deferred to later splits: live resolver/action
 > wiring + session layer (#12) + two-step mutations (#17) → split 2; checkout/tracking → split 3.
 
-> 🚧 **2026-07-21 — Deployment build model changed: CI builds the image, Render only pulls it
+> ✅ **2026-07-21 — #61 (slice 1): delivery partner self-registration — EXTERNAL write-path + admin
+> approval (ADR-20260721-202504).** First slice of the L "likely split" #61, built on the #60 dispatch
+> foundation. New event-sourced aggregate **`DeliveryPartnerRegistration`** (id = client-generated
+> `registrationId`): a delivery partner self-registers availability to serve a city on a catalog channel
+> through the **EXTERNAL** GraphQL role (`registerDeliveryPartnerAvailability`, lands PENDING), an admin
+> reviews it (`approveDeliveryPartnerAvailability`, ADMIN-only → APPROVED), and the partner/admin may
+> revoke (`revokeDeliveryPartnerAvailability`). Invariants are self-contained (already-requested /
+> not-found / not-pending — 3 new errors); no referential FK check on channel/city in the domain yet
+> (deferred). New fold view **`View_DeliveryPartnerAvailability`** (status derived) backs the **first
+> EXTERNAL query** `deliveryPartnerAvailabilities` (partner tracks submissions; admin review queue).
+> New scalars `DeliveryPartnerRegistrationId` / `DeliveryPartnerName` / `CityAvailabilityStatus`
+> (PENDING/APPROVED/REVOKED); new `delivery_partner` (EXTERNAL) story persona + admin review activity;
+> 3 rules-linked behaviour tests. Codegen: `BT_AGGREGATES`, `wired_mutation_dispatch` (3 arms),
+> `wired_query_body` + `emit_server_types` `From<DeliveryPartnerAvailabilityRow>`. Migration
+> `20260721160000` (the view + `ref_city_availability_status`); `REQUIRED_SCHEMA_VERSION` bumped.
+> `make rust` green (build + 227+ tests + validate 0 errors + generate, no drift). **The APPROVED set
+> is the substrate the #60 `CityDeliveryRanking` walk will consume — that dispatch wiring (+ the
+> channel/city FK checks, per-owner query scoping, the onboarding-request & self-integrate shapes, and
+> a partner SDUI app) is the deferred follow-up.**
+
+> ✅ **2026-07-21 — Deployment build model changed & LIVE: CI builds the image, Render only pulls it
 > (ADR-20260721-175411, amends ADR-0042).** Render meters build-pipeline minutes at a $0 cap, so
 > compiling the Rust workspace on Render (`runtime: docker`) repeatedly failed deploys under the
 > high merge cadence (every merge → a full Render build, incl. spec/doc/tooling merges that don't
 > change the binary). New model: `.github/workflows/build-image.yml` builds the same cargo-chef
 > Dockerfile in **GitHub Actions** (free/unlimited on this PUBLIC repo — buildx `type=gha` layer
-> cache), pushes to **GHCR** (`ghcr.io/captain-food/captain-food:{sha-<commit>,latest}`), and triggers
-> a **Render deploy hook** pinning the image **by immutable digest** (`@sha256:…`, never `latest`) —
-> gated on green `ci`/`main` exactly like db-migrate (ADR-0043). `render.yaml` is now `runtime: image` +
-> `autoDeploy: false`, so **Render spends zero build-pipeline minutes**; the running build reports its
-> `version` (git SHA) at `/health` + at startup. **Rollback** = re-hit the deploy hook with a prior
-> `sha-<commit>`/digest (no rebuild) — runbook in ADR-20260721-175411 / README. ⏳ **Operator steps to go live**
-> (ADR follow-ups): switch the Render service to the GHCR image + Auto-Deploy off, create the Deploy
-> Hook → repo secret `RENDER_DEPLOY_HOOK_URL`, set the GHCR package **public**, then verify a merge →
-> `/health` `db:up`. A narrower `buildFilter`-only fallback (keep the Render build, skip spec/doc
-> merges) is prototyped on branch `claude/rust-build-pipeline-99uzow`.
+> cache), pushes to **GHCR** (`ghcr.io/captain-food/captain-food:{sha-<short>,latest}`, package PUBLIC),
+> and triggers a **Render deploy hook** pinning the image **by immutable digest** (`@sha256:…`, never
+> `latest`) — gated on green `ci`/`main` exactly like db-migrate (ADR-0043). The service is `runtime:
+> image` + `autoDeploy: false`, so **Render spends zero build-pipeline minutes**; the running build
+> reports its **short git SHA** as the `X-VERSION` response header (all routes), the `/health` `version`,
+> and a startup log line. **Rollback** = re-hit the deploy hook with a prior `sha-<commit>`/digest (no
+> rebuild) — runbook in ADR-20260721-175411 / README. **Verified live end-to-end at `503a1a7`**
+> (`/health` `db:up`, `X-VERSION: 503a1a7`). The Render **Blueprint was retired** (deleted 2026-07-21 —
+> it kept "Failed sync" against the manually image-backed service); the service is now dashboard-configured
+> + CI-hook-deployed, and `render.yaml` is kept as documentation only (not applied). A narrower
+> `buildFilter`-only fallback (keep the Render build, skip spec/doc merges) is prototyped on branch
+> `claude/rust-build-pipeline-99uzow`.
 
 > ✅ **2026-07-21 — #57: Uber Direct delivery-partner adapter COMPLETE (ADR-20260721-172500).** A
 > `DeliveryProvider=PARTNER` adapter via the Uber **Direct** delivery API (not the Uber Eats
