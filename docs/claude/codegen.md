@@ -14,6 +14,12 @@ Needs a local Rust toolchain (`cargo`, via `rustup`; pinned in `tools/codegen-rs
 - `make rust` — `cargo build` + `cargo test` + validate + generate (+ `git diff`) — the full gate.
 - `make typecheck` — `cargo build` (the compiler is the type gate).
 
+Every target invokes `$(CARGO)`, which is plain `cargo` on Linux/macOS/CI/Git-Bash. Under **Cygwin**
+it becomes `rustup run <channel> cargo`: the rustup proxy mis-detects its own `argv[0]` there and runs
+as `rustup`, failing with `invalid value 'build' for '[+toolchain]'`. The same shim (plus a `cygpath -m`
+conversion of the paths handed to the native cargo) is in `.claude/hooks/{stop-gate,validate-generated}.sh`.
+Override with `make validate CARGO=/path/to/cargo` if your setup needs something else.
+
 ## Layout
 
 Single crate, one binary (`src/main.rs`), organized in sections that mirror the old TypeScript modules:

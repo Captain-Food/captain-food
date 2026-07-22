@@ -13,12 +13,23 @@ command -v cargo >/dev/null 2>&1 || { echo "stop-gate: cargo not found on PATH �
 MANIFEST="$ROOT/tools/codegen-rs/Cargo.toml"
 [ -f "$MANIFEST" ] || { echo "stop-gate: tools/codegen-rs not found" >&2; exit 2; }
 
+# Under Cygwin the rustup `cargo` proxy mis-detects its own argv[0] and runs as `rustup`, so any
+# `cargo run` fails with "invalid value 'run' for '[+toolchain]'"; route through `rustup run` there.
+CARGO=(cargo)
+case "$(uname -s 2>/dev/null)" in
+  CYGWIN*) CARGO=(rustup run "${RUST_CHANNEL:-stable}" cargo) ;;
+esac
+# ...and a native Windows cargo cannot read Cygwin/MSYS `/cygdrive/...` paths: hand it `C:/...`.
+winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+MANIFEST="$(winpath "$MANIFEST")"
+SPECS="$(winpath "$ROOT/specs")"
+
 fail=0
 step() { echo "→ $*"; "$@" || fail=1; }
 
 # `cargo run --check` builds first (the compiler is the type gate) then runs the full validator
 # (§1–§11: schema + actor wiring + behaviour/rules coverage + observability + C4); exits 1 on errors.
-step cargo run --quiet --manifest-path "$MANIFEST" -- --check --specs "$ROOT/specs"
+step "${CARGO[@]}" run --quiet --manifest-path "$MANIFEST" -- --check --specs "$SPECS"
 
 # Optional app-level gates — only if a root package.json defines them (no-op until apps/ exists).
 if [ -f "$ROOT/package.json" ]; then

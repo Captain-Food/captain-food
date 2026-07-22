@@ -1,7 +1,113 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-21 (17:54 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-22 (16:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> 📋 **2026-07-22 — Identity federation & consent-gated cross-tenant personalization (ADR-20260722-174500, PROPOSED).**
+> Records the identity/privacy framework for the two customer front offices: **one** Captain.Food identity
+> (Supabase Auth, global `Customer` keyed by phone/`authRef`, single-origin per ADR-0036) works across
+> `captain.food` + every `{slug}.captain.food` — **no per-restaurant account** (made an explicit invariant).
+> Sets the **data-controller boundary** (Captain.Food = controller of the identity + cross-restaurant
+> marketplace profile; each restaurant = controller of its own fulfilment data; no restaurant→restaurant
+> flow, isolation via the #22 nav-edge ACL). Splits two personal-data uses: a customer's **own** history
+> across restaurants (service basis, no new consent) vs. **cross-restaurant behavioural personalization**
+> (`RECOMMENDED`) which is **consent-gated, default OFF** — to be modelled as a first-class event-sourced
+> consent fact (`CustomerPersonalizationConsent…`), deferred to a follow-up issue. "Login with Captain.Food"
+> (OIDC) is post-V0 (single-origin already gives SSO within `*.captain.food`). **Legal basis is explicitly
+> pending DPO/CNIL** — the ADR fixes only the technical framework so either outcome is cheap. Doc-only; no
+> `specs/**` change. **Realized this session:** a dedicated **`captain-identity`** Supabase project
+> (Frankfurt, auth-only) split from the **`captain-food`** data project (clean because Supabase is wrapped
+> behind GraphQL + JWKS auth per ADR-0047, and `auth_ref` is a plain UUID, not a FK); company domain
+> **`thecaptaincompany.com`** (Dynadot; `thecaptain.company` → redirect) with intended issuer
+> **`id.thecaptaincompany.com`**; SMS via a **French/EU provider (OVHcloud SMS)** through the Send SMS hook
+> with a **per-product alphanumeric sender** (`CaptainFood`), dev = mock (no cost); **late identification** —
+> phone OTP at the cart→checkout boundary before payment (#12 anonymous cart), the verified phone shared with
+> restaurant/rider for **transactional** order-status only (number masking deferred). Follow-ups: (i) consent
+> gate (ADR-0032 completeness); (ii) privacy notice + DPIA + controller/processor contracts; (iii) OIDC
+> provider post-V0; (iv) repoint Food's `supabase-acl`/JWKS at `captain-identity` when its auth crate lands;
+> (v) `specs/integrations/supabase.md` two-project update (plan mode).
+
+> ✅ **2026-07-22 — Ref-KIND contract (ADR-20260722-152201).** The validator's §1 proved only that a
+> `$ref` *resolves*; what it resolved to was checked ad hoc per site. New **§1b** classifies every ref
+> target by KIND — finer than its file (PM state table vs projection/referential/journal/staging table;
+> enum vs plain scalar; query vs mutation vs subscription; aggregate vs process manager; a `commands.yaml`
+> entry is a *command* only if an actor receives it, else a shared *payload object*) — and matches it
+> against `REF_CONTRACT`, one declared table of `(file glob, ref-site glob, allowed kinds)`. **Fail-closed**:
+> a ref site with no contract entry is an error (`ref-site-undeclared`), so a new ref-carrying DSL field
+> cannot land undeclared. Caught the live case: `state_table` accepted any `database/tables/*` table.
+> Two widenings recorded in the ADR (service op input may be an event; the screens UI tree is i18n keys).
+> `make validate` 0 errors / 26 known warnings, no generated drift, 21 codegen tests green.
+
+> 🚧 **2026-07-22 — #75: marketplace content-split (ADR-20260722-160000, realizes ADR-20260722-091500/-101500).**
+> Extracted the Captain **marketplace** front office out of the storefront: new
+> `specs/screens/captain_frontoffice.yaml` (+ sidecar) holds `home`/`search` discovery + `partner_landing`
+> marketing (`live.captain.food` → bare `captain.food`); their strings (`home.*`/`search.*`/`partner.*`)
+> moved to `captain_frontoffice.translations.yaml`. `restaurant_frontoffice.yaml` keeps the single-restaurant
+> journey (catalog → cart → checkout → tracking) **plus** the customer account/order screens (decision:
+> account/orders stay in the storefront, reachable cross-host via routing — not duplicated). Shared chrome
+> (top bar / nav / cart FAB / location+auth sheets) is duplicated per surface; its `location.*`/`auth.*`
+> strings stay in the storefront sidecar and the marketplace cross-refs them (keys globally unique). Codegen:
+> the loader now **auto-discovers `screens/*.yaml`** and the **doc emitters (md + html) iterate all surfaces**
+> (one block per surface); the SDUI **component registry stays a single shared renderer allowlist** in
+> `restaurant_frontoffice.yaml`, so `crates/web/src/generated/registry.rs` is **byte-identical**.
+> `translations.generated.json` **byte-identical** (keys re-homed). `make rust` + `cargo build --workspace`
+> green (0 errors, no drift). Deferred: the marketplace's own account surface, a per-surface component
+> registry, and promoting shared chrome strings to `common.*`.
+
+> 🚧 **2026-07-22 — #73: per-surface translation sidecars (ADR-20260722-101500, refines ADR-0033).**
+> Shared strings (`common.*` + future backend text) stay in `specs/translations.yaml`; surface-specific
+> strings moved to a co-located sidecar `specs/screens/restaurant_frontoffice.translations.yaml`. Screens
+> `$ref` the file holding the key (globally unique; new `translation-duplicate-key` check). Codegen
+> merges `translations.yaml` + every `screens/*.translations.yaml` (`is_source_file` + `load_model` glob
+> + `translation_entries()`) across the validator, the JSON emitter, and the docs table.
+> **`translations.generated.json` byte-identical** (149 keys) — `leptos_i18n` unaffected. `errors.yaml`
+> untouched. `make rust` + `cargo build --workspace` green. Follow-up: move marketplace strings to
+> `captain_frontoffice.translations.yaml` with the content-split.
+
+> 🚧 **2026-07-22 — #71: SDUI screens taxonomy by audience (ADR-20260722-091500, refines ADR-0037).**
+> Renamed `specs/screens/customer_screens.yaml` → **`restaurant_frontoffice.yaml`** (the customer-facing
+> storefront at `{slug}.captain.food`, roles PUBLIC+CUSTOMER); files now named by **audience with no
+> `_screens` suffix** (folder conveys it). Two customer front offices split by host: the **Captain
+> marketplace** `captain_frontoffice.yaml` (cross-restaurant discovery @ `live.captain.food` → bare
+> `captain.food`, to be created — the `home`/`search` screens currently in `restaurant_frontoffice.yaml`
+> move there in a content-split follow-up) and the per-restaurant `restaurant_frontoffice.yaml`. Then
+> `restaurant_backoffice.yaml`/`rider.yaml`/`system.yaml` to follow. Codegen `SPEC_FILES` + doc/translation/registry emitters + generated docs and the
+> `crates/web` registry header updated (validator already generic over `screens/*.yaml`; no drift). ADR
+> relaxes ADR-0037 §4 to allow a future `system` screen set (impersonation still the "view as" path). No
+> API/behaviour change. `make rust` + `cargo build --workspace` green.
+
+> 🚧 **2026-07-21 — #21 frontend renderer STARTED, split 1/4 (#68, PR #69).** The Leptos/WASM SDUI
+> renderer (remaining-work item 5) is being built in the 4 sub-issues of #21 (ADR-20260720-143000).
+> **Split 1** stands up the runtime client seam: (1) a new codegen emitter (`emit_web_registry`) turns
+> `specs/screens/restaurant_frontoffice.yaml#/component_registry` into `crates/web/src/generated/registry.rs`
+> — a `ComponentKind` allowlist enum (`as_str`/`from_type`/`group`/`ALL`) the renderer dispatches on, so
+> the screens DSL stays the source of truth (codegen roadmap item 6); (2) `crates/web` now depends on
+> **Leptos 0.8** with an `ssr` (default, native) / `hydrate` (wasm32) feature split — the `renderer`
+> builds one static screen (a `home` chrome subset) from the registry and renders it **server-side to
+> HTML** (`render_home_html`), with a `hydrate()` wasm entry attaching to the `data-hydrate` root.
+> `make rust` green (0 errors, no drift); `cargo build --workspace` green. Architecture + sequence
+> diagrams in `docs/frontend/renderer-architecture.md`. Deferred to later splits: live resolver/action
+> wiring + session layer (#12) + two-step mutations (#17) → split 2; checkout/tracking → split 3.
+
+> ✅ **2026-07-21 — #61 (slice 1): delivery partner self-registration — EXTERNAL write-path + admin
+> approval (ADR-20260721-202504).** First slice of the L "likely split" #61, built on the #60 dispatch
+> foundation. New event-sourced aggregate **`DeliveryPartnerRegistration`** (id = client-generated
+> `registrationId`): a delivery partner self-registers availability to serve a city on a catalog channel
+> through the **EXTERNAL** GraphQL role (`registerDeliveryPartnerAvailability`, lands PENDING), an admin
+> reviews it (`approveDeliveryPartnerAvailability`, ADMIN-only → APPROVED), and the partner/admin may
+> revoke (`revokeDeliveryPartnerAvailability`). Invariants are self-contained (already-requested /
+> not-found / not-pending — 3 new errors); no referential FK check on channel/city in the domain yet
+> (deferred). New fold view **`View_DeliveryPartnerAvailability`** (status derived) backs the **first
+> EXTERNAL query** `deliveryPartnerAvailabilities` (partner tracks submissions; admin review queue).
+> New scalars `DeliveryPartnerRegistrationId` / `DeliveryPartnerName` / `CityAvailabilityStatus`
+> (PENDING/APPROVED/REVOKED); new `delivery_partner` (EXTERNAL) story persona + admin review activity;
+> 3 rules-linked behaviour tests. Codegen: `BT_AGGREGATES`, `wired_mutation_dispatch` (3 arms),
+> `wired_query_body` + `emit_server_types` `From<DeliveryPartnerAvailabilityRow>`. Migration
+> `20260721160000` (the view + `ref_city_availability_status`); `REQUIRED_SCHEMA_VERSION` bumped.
+> `make rust` green (build + 227+ tests + validate 0 errors + generate, no drift). **The APPROVED set
+> is the substrate the #60 `CityDeliveryRanking` walk will consume — that dispatch wiring (+ the
+> channel/city FK checks, per-owner query scoping, the onboarding-request & self-integrate shapes, and
+> a partner SDUI app) is the deferred follow-up.**
 
 > ✅ **2026-07-22 — #62: delivery-delay satisfaction survey + post-delivery tip/reward prompt
 > (ADR-20260722-101500 — realizes the #60 deferral).** After a delivered DELIVERY order the customer is

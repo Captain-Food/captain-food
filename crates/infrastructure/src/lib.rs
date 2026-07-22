@@ -25,11 +25,11 @@ pub use integrations::retention_sweep_worker::{RetentionSweepSummary, RetentionS
 pub use integrations::sync_sirene_worker::{SireneSyncSummary, SireneSyncWorker};
 pub use persistence::{
     AppendedEvent, EventBus, OperationStatusBus, OperationUpdate, PgCartRepository,
-    PgCatalogRepository, PgCommandJournal, PgCustomerRepository, PgDeliveryRepository,
-    PgDeliverySatisfactionRepository, PgEventStore,
-    PgInboundEvents, PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository,
-    PgRefundQueueRepository, PgRestaurantRepository, PgUberEstimationPolicyRepository,
-    PgUberSplitPolicyRepository,
+    PgCatalogRepository, PgCommandJournal, PgCustomerRepository,
+    PgDeliveryPartnerAvailabilityRepository, PgDeliveryRepository, PgDeliverySatisfactionRepository,
+    PgEventStore, PgInboundEvents, PgOrderRepository, PgPricingPolicyRepository,
+    PgProspectionRepository, PgRefundQueueRepository, PgRestaurantRepository,
+    PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository,
 };
 pub use process_manager::{ProcessManagerRunner, ProcessManagerStatus};
 pub use projection::{ProjectionStatus, ProjectionWorker};
