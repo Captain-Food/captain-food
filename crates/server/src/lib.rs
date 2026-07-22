@@ -40,14 +40,15 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
 use application::queries::{
-    CartReadRepository, CatalogReadRepository, CustomerReadRepository, DeliveryReadRepository,
-    OrderReadRepository, PricingPolicyReadRepository, ProspectionReadRepository,
-    RefundReadRepository, RestaurantReadRepository, UberEstimationPolicyReadRepository,
-    UberSplitPolicyReadRepository,
+    CartReadRepository, CatalogReadRepository, CustomerReadRepository,
+    DeliverySatisfactionReadRepository, DeliveryReadRepository, OrderReadRepository,
+    PricingPolicyReadRepository, ProspectionReadRepository, RefundReadRepository,
+    RestaurantReadRepository, UberEstimationPolicyReadRepository, UberSplitPolicyReadRepository,
 };
 use infrastructure::{
     EventBus, FailClosedGoogleOwnershipVerifier, FailClosedIdentityService, FailClosedPaymentGateway,
-    PgCartRepository, PgCatalogRepository, PgCustomerRepository, PgDeliveryRepository, PgEventStore,
+    PgCartRepository, PgCatalogRepository, PgCustomerRepository, PgDeliveryRepository,
+    PgDeliverySatisfactionRepository, PgEventStore,
     PgOrderRepository, PgPricingPolicyRepository, PgProspectionRepository, PgRefundQueueRepository,
     PgRestaurantRepository, PgUberEstimationPolicyRepository, PgUberSplitPolicyRepository, ProcessManagerRunner,
     ProcessManagerStatus, ProjectionStatus, ProjectionWorker, SireneSyncWorker,
@@ -219,6 +220,8 @@ pub fn router() -> Router {
                     Arc::new(PgDeliveryRepository::new(pool.clone()));
                 let refunds: Arc<dyn RefundReadRepository> =
                     Arc::new(PgRefundQueueRepository::new(pool.clone()));
+                let delivery_satisfaction: Arc<dyn DeliverySatisfactionReadRepository> =
+                    Arc::new(PgDeliverySatisfactionRepository::new(pool.clone()));
                 read_deps = Some(ReadDeps {
                     restaurants,
                     prospection,
@@ -231,6 +234,7 @@ pub fn router() -> Router {
                     customers,
                     deliveries,
                     refunds,
+                    delivery_satisfaction,
                 });
 
                 // Write side (CQRS commands): the event store behind the mutation resolvers, plus the

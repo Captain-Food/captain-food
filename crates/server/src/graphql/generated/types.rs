@@ -6,7 +6,7 @@
 #![allow(non_camel_case_types)]
 
 use application::projections::{CartRow, CatalogRow, CustomerRow, OrderTrackingRow, ProspectionPipelineRow, RestaurantRow};
-use application::queries::{DeliveryJobRow, PricingPolicyRow, RefundRow, UberEstimationPolicyRow, UberSplitPolicyRow};
+use application::queries::{DeliveryJobRow, DeliverySatisfactionRow, PricingPolicyRow, RefundRow, UberEstimationPolicyRow, UberSplitPolicyRow};
 use domain::generated::scalars as ds;
 
 use super::scalars::*;
@@ -1088,6 +1088,21 @@ impl From<RefundRow> for Refund {
             refund_id: row.refund_id.map(Into::into),
             requested_at: row.requested_at,
             decided_at: row.decided_at,
+        }
+    }
+}
+
+/// Read-model row → API type: the `View_DeliverySatisfaction` fold-view row (#62) — one
+/// customer delivery-delay answer (`DeliverySatisfactionRecorded` folded on the Order stream). Rows
+/// map 1:1 (no navigation fields), so no joins.
+impl From<DeliverySatisfactionRow> for DeliverySatisfaction {
+    fn from(row: DeliverySatisfactionRow) -> Self {
+        Self {
+            order_id: row.order_id.into(),
+            restaurant_id: row.restaurant_id.into(),
+            timeliness: row.timeliness.into(),
+            reason: row.reason.map(Into::into),
+            recorded_at: row.recorded_at,
         }
     }
 }

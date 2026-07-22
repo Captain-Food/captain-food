@@ -161,6 +161,17 @@ impl application::queries::RefundReadRepository for Empty {
     }
 }
 
+#[async_trait]
+impl application::queries::DeliverySatisfactionReadRepository for Empty {
+    async fn by_restaurant(
+        &self,
+        _r: ds::RestaurantId,
+        _t: Option<ds::DeliveryTimeliness>,
+    ) -> Result<Vec<application::queries::DeliverySatisfactionRow>, DomainError> {
+        Ok(vec![])
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Fixtures.
 // ---------------------------------------------------------------------------------------------
@@ -258,6 +269,7 @@ fn schema_over(orders: InMemoryOrders, restaurants: InMemoryRestaurants, bus: Ev
             customers: Arc::new(Empty),
             deliveries: Arc::new(Empty),
             refunds: Arc::new(Empty),
+            delivery_satisfaction: Arc::new(Empty),
         }),
         None,
         Some(bus),

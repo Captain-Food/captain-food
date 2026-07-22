@@ -18,11 +18,12 @@
 > rules, 3 behaviour tests, a customer + a restaurant story step, translations, the enriched post-delivery
 > `rating_sheet` (timeliness chips + `tip_amount_selector`). Migration `20260722000000`
 > (`ref_delivery_timeliness` + `ordertracking.delivery_timeliness` + the view; `REQUIRED_SCHEMA_VERSION`
-> bumped). Codegen: the Order `From<OrderTrackingRow>` template gained the field. `make validate` 0 errors,
-> workspace green (222 application tests + full suite). **One follow-up** (codebase convention): the
-> `restaurantDeliverySatisfaction` **read resolver** is a `not implemented` stub until a
-> `PgDeliverySatisfactionRepository` + composition wiring lands — the write path, both projections and the
-> fold view are complete.
+> bumped). Codegen: the Order `From<OrderTrackingRow>` template gained the field, and the
+> `restaurantDeliverySatisfaction` resolver + `From<DeliverySatisfactionRow>` are now emitted wired (not a
+> stub). The **read resolver is fully wired**: `application::queries::DeliverySatisfactionReadRepository`
+> + `infrastructure::PgDeliverySatisfactionRepository` (over `view_deliverysatisfaction`) + composition
+> root. `make validate` 0 errors, workspace green (222 application tests + full suite). End-to-end complete:
+> write path, both projections, the fold view, and the restaurant read query.
 
 > ✅ **2026-07-21 — Deployment build model changed & LIVE: CI builds the image, Render only pulls it
 > (ADR-20260721-175411, amends ADR-0042).** Render meters build-pipeline minutes at a $0 cap, so

@@ -48,10 +48,11 @@ Non-monetary rider "compliments"/kudos are **out of scope** (a future `RiderComp
 - **Runtime:** hand-written Order handler + fold flag + the `OrderTracking`/`ordertracking` column
   (migration `20260722000000`, `ref_delivery_timeliness`, `View_DeliverySatisfaction`;
   `REQUIRED_SCHEMA_VERSION` bumped). Codegen: the Order `From<OrderTrackingRow>` template gained the field.
-- **Follow-up (one, by codebase convention):** the `restaurantDeliverySatisfaction` **read resolver** is
-  emitted as a `not implemented` stub (the emitter hard-wires which queries have a landed read repo — the
-  documented "stub until the read resolver lands" pattern). Wiring a `PgDeliverySatisfactionRepository` +
-  composition is the remaining runtime step; the write path, both projections, and the fold view are done.
+- **Read resolver wired (no stub):** `restaurantDeliverySatisfaction` reads through
+  `application::queries::DeliverySatisfactionReadRepository` + `infrastructure::PgDeliverySatisfactionRepository`
+  (over `view_deliverysatisfaction`), injected at the composition root; the emitter now emits the wired
+  resolver + `From<DeliverySatisfactionRow>`. End-to-end complete — write path, both projections, the fold
+  view, and the restaurant query.
 
 ## Alternatives considered
 - **2-level thumb** (`ACCEPTABLE`/`TOO_LATE`) — leaner, but loses the on-time vs tolerated-late gradient.
