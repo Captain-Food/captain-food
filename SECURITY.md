@@ -9,7 +9,7 @@ vulnerability reports seriously — thank you for disclosing responsibly.
 
 Use GitHub's private vulnerability reporting instead: go to the repository's
 **Security** tab → **Report a vulnerability** (or
-<https://github.com/Captain-Food/captain-food/security/advisories/new>). Reports go privately to
+<https://github.com/TheCaptainCompany/captain-food/security/advisories/new>). Reports go privately to
 the maintainers.
 
 Please include what you can of: the affected area (API, checkout/payment flow, auth, integrations),

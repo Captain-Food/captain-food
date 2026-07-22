@@ -34,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/captain-food/captain-food
+  IMAGE: ghcr.io/thecaptaincompany/captain-food
 
 jobs:
   build-and-deploy:

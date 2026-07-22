@@ -23,7 +23,7 @@
 # the live service's image is set by the deploy hook to the exact digest, never a moving tag. Rollback =
 # re-hit the deploy hook with a previous `sha-<commit>`/digest (no rebuild).
 #
-# GHCR image visibility: the package `ghcr.io/captain-food/captain-food` must be PUBLIC for Render to pull
+# GHCR image visibility: the package `ghcr.io/thecaptaincompany/captain-food` must be PUBLIC for Render to pull
 # it without credentials (Packages -> package settings -> change visibility -> Public). If kept private,
 # add a `registryCredential` here referencing a credential created in the Render dashboard instead.
 #
@@ -49,7 +49,7 @@ services:
       # Illustrative only (file not applied — see STATUS at top). Pre-built in CI and pushed to GHCR
       # (.github/workflows/build-image.yml); the live service's image is set by the deploy hook to the exact
       # `@sha256:<digest>`, never this moving tag.
-      url: ghcr.io/captain-food/captain-food:latest
+      url: ghcr.io/thecaptaincompany/captain-food:latest
     region: frankfurt
     plan: free
     branch: main

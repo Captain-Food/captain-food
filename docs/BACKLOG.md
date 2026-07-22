@@ -6,7 +6,7 @@
 
 ## Where priorities are defined
 
-**The GitHub Project “Prioritized backlog” (Captain-Food org) is the single place where the backlog
+**The GitHub Project “Prioritized backlog” (TheCaptainCompany org) is the single place where the backlog
 order is defined and maintained.** Nothing in the repository duplicates the ranking — no rank
 stamps in issue bodies, no ordered list here. Sessions (human or agent) read the board and **pick
 work from the top**: `Urgent` → `High` → `Medium` → `Low`, row order within a bucket. Skipping the

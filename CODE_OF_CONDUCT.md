@@ -58,7 +58,7 @@ an individual is officially representing the community in public spaces.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainers through GitHub — privately via the repository's
 **Security → Report a vulnerability** form if sensitive, or by contacting the
-[Captain-Food organization](https://github.com/Captain-Food) owners.
+[The Captain Company organization](https://github.com/TheCaptainCompany) owners.
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
