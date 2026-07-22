@@ -7,6 +7,20 @@
 
 CODEGEN_RS = tools/codegen-rs
 
+# How to invoke cargo. Plain `cargo` everywhere (Linux, macOS, CI, Git-Bash/MSYS) — EXCEPT under
+# Cygwin, where the rustup `cargo` proxy mis-detects its own argv[0] and runs as `rustup`, so every
+# `cargo build` fails with "invalid value 'build' for '[+toolchain]'". Routing through `rustup run`
+# sidesteps the proxy. `uname` is absent under a cmd.exe shell, which harmlessly picks plain cargo.
+# Override explicitly if needed: `make validate CARGO=/path/to/cargo`.
+UNAME_S := $(shell uname -s 2>/dev/null)
+ifneq (,$(findstring CYGWIN,$(UNAME_S)))
+  # Keep in step with rust-toolchain.toml (ADR-0034); `stable` if it can't be read.
+  RUST_CHANNEL ?= $(or $(shell sed -n 's/^[ \t]*channel[ \t]*=[ \t]*"\([^"]*\)".*/\1/p' rust-toolchain.toml 2>/dev/null),stable)
+  CARGO ?= rustup run $(RUST_CHANNEL) cargo
+else
+  CARGO ?= cargo
+endif
+
 .PHONY: typecheck validate-schema test-behaviour test-observability c4-validate validate generate check-drift review gate night-loop budget-check budgeted-loop docs c4-export c4-render help rust rust-build rust-test smoke-prod
 
 help:
@@ -23,11 +37,11 @@ smoke-prod:
 
 # `typecheck` = the Rust compiler is the type gate (build must succeed).
 typecheck:
-	cd $(CODEGEN_RS) && cargo build
+	$(CARGO) build --manifest-path $(CODEGEN_RS)/Cargo.toml
 
 # The codegen validator is the single source of truth for these gates (validate.ts §1–§11 in Rust).
 validate-schema:
-	cargo run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --check --specs specs
+	$(CARGO) run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --check --specs specs
 
 test-behaviour: validate-schema      ## behaviour-test coverage is enforced inside `validate`
 test-observability: validate-schema  ## observability contracts are validated inside `validate`
@@ -37,7 +51,7 @@ validate: typecheck validate-schema
 
 # Generate every artifact from the specs (writes into specs/generated/** + the database.md §2 region).
 generate:
-	cargo run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --specs specs
+	$(CARGO) run --manifest-path $(CODEGEN_RS)/Cargo.toml -- --specs specs
 
 # Regenerate, then fail if the result drifts from what's committed (the CI drift gate, runnable locally).
 # Whole-tree diff (matches CI): generated output spans specs/generated + specs/database.md AND the
@@ -47,9 +61,9 @@ check-drift: generate
 
 # --- Rust codegen build/test aliases (ADR-0034). ---
 rust-build:
-	cd $(CODEGEN_RS) && cargo build
+	$(CARGO) build --manifest-path $(CODEGEN_RS)/Cargo.toml
 rust-test:
-	cd $(CODEGEN_RS) && cargo test
+	$(CARGO) test --manifest-path $(CODEGEN_RS)/Cargo.toml
 rust: rust-build rust-test validate check-drift
 	@echo "rust: build + test + validate + generate(+diff) OK"
 
