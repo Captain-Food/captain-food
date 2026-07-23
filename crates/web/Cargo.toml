@@ -12,14 +12,30 @@ description = "Captain.Food Leptos frontend (compiles to WASM): the SDUI rendere
 [dependencies]
 shared_types = { path = "../shared_types" }
 app-core = { path = "../core" }
-serde = { workspace = true }   # the generated registry derives Serialize/Deserialize on its enums
+serde = { workspace = true }        # the generated registry derives Serialize/Deserialize on its enums
+serde_json = { workspace = true }   # the data layer speaks raw GraphQL JSON until typed DTOs are generated
+thiserror = { workspace = true }    # typed data-layer errors (gap refusals, transport, poll exhaustion)
+async-trait = { workspace = true }  # the object-safe `Transport` seam (fake-injectable in tests)
+uuid = { workspace = true, features = ["v7"] }  # v7: client-minted messageId/sessionId (time-ordered, ADR-20260720-015500)
 leptos = { version = "0.8", default-features = false }
 wasm-bindgen = { version = "0.2", optional = true }   # hydrate-only: the wasm entry point
 
-# uuid comes in transitively (via `domain`); on wasm32 its RNG needs the `js` backend to compile, so
-# the `hydrate` (wasm) build enables it. Native `ssr` builds are unaffected.
+# Native (ssr) side of the data layer: reqwest is the house HTTP client (same pin + feature set as the
+# adapters/server — native-tls maps to SChannel on Windows dev boxes, OpenSSL on the Linux build image).
+# tokio only backs the poll-interval sleep; it is already in the native tree via leptos/ssr + server.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
+tokio = { workspace = true }
+
+# uuid comes in transitively (via `domain`); on wasm32 its RNG + now_v7 timestamps need the `js`
+# backend to compile, so the `hydrate` (wasm) build enables it. Native `ssr` builds are unaffected.
+# reqwest on wasm32 is the browser-fetch backend (no TLS feature — the browser owns the socket);
+# gloo-timers backs the poll-interval sleep; web-sys Window+Storage back the localStorage session.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["js"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+web-sys = { version = "0.3", features = ["Window", "Storage"] }
 
 [features]
 default = ["ssr"]

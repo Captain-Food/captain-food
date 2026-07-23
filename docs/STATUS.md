@@ -1,7 +1,36 @@
 # 🚦 Captain.Food — Development & Deployment Status
 
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
-> Last updated: 2026-07-22 (23:00 UTC). Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+> Last updated: 2026-07-23. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
+
+> 🚧 **2026-07-23 — #21 frontend renderer split 2/4 (#80 "Frontend split 2/4 — resolver/action wiring
+> + session layer (#12) + two-step mutations (#17)", PR #81 "Frontend split 2/4: resolver/action wiring
+> + session layer + two-step mutations").** The SDUI DATA LAYER lands, following #68 "Frontend split
+> 1/4 — Leptos renderer skeleton + generated component registry". (1) New codegen emitter
+> `emit_web_data_layer` turns every `screens/*.yaml` `resolvers`/`actions` block into
+> `crates/web/src/generated/data_layer.rs`: `ResolverKey` (bound api.yaml query + the DSL-pinned
+> static args + a GENERATED GraphQL selection set) and `ActionKey` (`ActionKind`
+> client/mutation/auth/gap + bound api.yaml mutation) — a renderer-level SHARED allowlist unioned
+> across every surface (same rule as the component registry; a key bound differently by two surfaces
+> aborts the emitter), and `gap:` entries emitted UNBOUND so they fail closed at the dispatcher rather
+> than silently no-op. Selection sets are expanded from the bound query's `returns` type with a cycle
+> guard on the ref path + `SELECTION_MAX_DEPTH`; a truncated descent OMITS the field (a bare object
+> field is invalid GraphQL) and the rule bubbles up when a type is left with nothing selectable.
+> (2) Three hand-written runtime modules: `session.rs` (client-minted UUIDv7 `SessionId` persisted in
+> localStorage so it SURVIVES A RESTART — the anonymous cart and `operationStatus` ownership are keyed
+> on it; `X-SESSION-ID` a constant, mirrored with the server boundary), `graphql.rs` (object-safe
+> async `Transport` seam + reqwest `HttpTransport` on `/{role}/graphql`; `execute_resolver` refuses a
+> gap binding before any network call and merges the pinned DSL args under `$input`, caller winning),
+> `actions.rs` (the acceptance-first `dispatch`, #17 / ADR-20260720-015500: refuses every
+> non-`mutation` kind with its own error variant, mints the `messageId` into `metadata` — the whole
+> idempotency story — and resolves the verdict by READING `operationStatus` with bounded polling
+> `POLL_MAX_ATTEMPTS`/`POLL_INTERVAL`, keeping REJECTED — an anticipated errors.yaml business
+> rejection — distinct from technical FAILED). `make rust` green (0 errors, 26 known warnings, no
+> drift); `cargo build --workspace` green; codegen 27 tests, `web` 20 tests; the wasm32 `hydrate`
+> build verified. Honest residual: the operation INPUT type name is still convention-derived
+> (`<Pascal>QueryInput`), not read from the SDL. Deferred to later splits: Leptos wiring of the data
+> layer into live screens, checkout + Stripe element and order-tracking subscriptions (split 3),
+> per-component markup + restaurant/rider screen adoption (split 4).
 
 > 🚧 **2026-07-22 — The Captain Company umbrella + GitHub org rename (ADR-20260722-225945, product-owner directive).**
 > Establishing the parent-company layer above Captain.Food: brand = **Captain**, entity = **The Captain
