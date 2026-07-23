@@ -11,6 +11,7 @@ Local-first food ordering & delivery for independent restaurants and food trucks
 
 [![ci](https://github.com/TheCaptainCompany/captain-food/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TheCaptainCompany/captain-food/actions/workflows/ci.yml)
 [![db-migrate](https://github.com/TheCaptainCompany/captain-food/actions/workflows/db-migrate.yml/badge.svg)](https://github.com/TheCaptainCompany/captain-food/actions/workflows/db-migrate.yml)
+[![build-image](https://github.com/TheCaptainCompany/captain-food/actions/workflows/build-image.yml/badge.svg)](https://github.com/TheCaptainCompany/captain-food/actions/workflows/build-image.yml)
 [![render](https://img.shields.io/website?url=https%3A%2F%2Flive.captain.food%2Fhealth&up_message=live&down_message=down&label=render%20deploy&labelColor=0e3a5f&up_color=1c7a4d)](https://live.captain.food/health)
 [![render commit](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FTheCaptainCompany%2Fcaptain-food%2Fbadges%2Frender-deploy.json&labelColor=0e3a5f)](https://github.com/TheCaptainCompany/captain-food/actions/workflows/render-status.yml)
 
@@ -65,8 +66,8 @@ The **ci** workflow (first badge) is the whole gate, on **every branch push and 
 the full Cargo workspace, runs the complete behaviour-test suite, runs the spec validator (must be
 0 errors), then regenerates every artifact and fails on any spec↔generation drift — so
 `specs/generated/` is always in sync. The **db-migrate** workflow (second badge) applies
-`migrations/*.sql` only after `ci` succeeds on `main` (ADR-0043). The **build-image** workflow — also
-gated on a green `ci`/`main` (ADR-20260721-175411) — builds the server image in GitHub Actions (free on
+`migrations/*.sql` only after `ci` succeeds on `main` (ADR-0043). The **build-image** workflow (third
+badge) — also gated on a green `ci`/`main` (ADR-20260721-175411) — builds the server image in GitHub Actions (free on
 this public repo, not on Render's metered build pipeline), pushes it to GHCR, and triggers Render to
 deploy it **by immutable digest** via a deploy hook; Render only pulls the image, never compiles Rust.
 The **render deploy** badge probes the live service's `/health` (which gates on the migrated schema
