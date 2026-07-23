@@ -39,7 +39,16 @@
 > wasm32 builds green, `make rust` 0 errors/no drift. Honest residuals (in the ADR): server-side
 > data resolution for SSR, screen-level auth redirects, generic-button → `ActionKey` dispatch
 > wiring, sheets/overlays, runtime JSON screen delivery (ADR-0033's deferred contract), the
-> rider-status op.
+> rider-status op. **Post-merge:** the FIRST image build failed — `rustup target add` in an early
+> Docker layer targeted the BASE image's toolchain, while cargo-chef's skeleton carries
+> `rust-toolchain.toml` so the cook-time toolchain was the file's, freshly installed WITHOUT the
+> wasm target. Fixed at the root in PR #90 "🐛 Fix the image build: wasm32 target belongs to the
+> toolchain file's toolchain" (`targets = ["wasm32-unknown-unknown"]` in `rust-toolchain.toml` +
+> the explicit add moved into the wasm-cook RUN). **VERIFIED LIVE at `255bdc8`**: `/health`
+> `X-VERSION: 255bdc8`; `live.captain.food/` SSRs the marketplace home (generated tree, `data-c`
+> tags); `restos.` serves `orders_queue` ("File des commandes"), `riders.` serves `jobs`
+> ("Mes courses"), a tenant `/checkout` serves the Stripe shell; `/assets/web.js` (36 KB) +
+> `web_bg.wasm` (707 KB) serve 200; an unknown path 404s.
 
 > ✅ **2026-07-23 — #21 frontend renderer split 3/4 (#86 "Frontend split 3/4 - checkout + order
 > tracking (non-SDUI: Stripe element, subscriptions)", PR #88).** The NON-SDUI MONEY PATH lands in
