@@ -216,6 +216,43 @@ layer (#17) → split 2; checkout (Stripe) + order tracking subscriptions → sp
 
 ---
 
+## 6b. Where split 3 (#86) fits — the non-SDUI money path
+
+Split 2 (#80) delivered the data layer (generated `ResolverKey`/`ActionKey` allowlists, the
+`Transport` seam, the restart-surviving session, the acceptance-first `dispatch`). Split 3 builds the
+two screens the spec keeps **out** of SDUI (`sdui: false`) plus the missing transport kind:
+
+- **`subscriptions.rs`** — the **graphql-transport-ws client**, split sans-IO: `WsClient` is a pure
+  text-in/reactions-out protocol state machine (handshake, subscribe queueing until `connection_ack`,
+  `next`/`error`/`complete` routing, `ping`→`pong`) unit-tested natively with zero network; the
+  `hydrate`-only `browser` driver owns one `web_sys::WebSocket` and reconnects through bounded
+  exponential backoff. Auth + `X-SESSION-ID` ride the `connection_init` payload (browsers cannot set
+  WS headers — mirrored with the server's `on_connection_init`). Subscription selection sets **reuse
+  the generated resolver selections** for the same type (`orderStatusChanged` ↔ `order.byId`), so
+  push and pull can never drift structurally. The consumer contract is **subscribe + re-sync**: on
+  every (re)connect the screen re-reads its pull query — push is an accelerator, never the only
+  source of truth (the free-tier socket dies on restarts by design).
+- **`checkout.rs`** — the acceptance-first checkout flow: the client **mints `orderId`** (spec:
+  `PlaceOrder.orderId` is client-generated), dispatches `place_order` two-step, and awaits the Stripe
+  intent by **reading** `paymentStatus.byOrder` until `clientSecret` exists (bounded, with
+  `paymentStatusChanged` as the push accelerator). `expectedTotal` travels so the server's
+  `PriceMismatch` guard can refuse a stale display. Losing the tab loses nothing — session id,
+  journaled messageId and the minted route survive.
+- **`stripe.rs`** — the payment-element seam: the client only ever holds the `clientSecret` +
+  publishable key (card data lives in Stripe's iframe); `confirmPayment`'s result drives **UX only**
+  — the capture verdict is the inbound Stripe webhook folding into the read models, resolved by the
+  tracking screen from the platform's own reads.
+- **`tracking.rs`** — pull-then-push over one `TrackingState`: `load` (`order.byId`) then `apply`
+  (`orderStatusChanged`), **replace semantics** with a `statusChangedAt` stale-frame guard; the
+  status hero table mirrors the spec's `status_config`; the post-delivery `rating_sheet` actions
+  (`rate_order` rider thumb, `record_delivery_satisfaction` #62, `tip_order` ADR-012 tips array) all
+  dispatch through the two-step layer.
+
+Deferred to split 4 (#87): per-component real markup, router/mount plumbing (live form state,
+interactive sheets), customer polish, restaurant/rider surface adoption.
+
+---
+
 ## 7. Prior art — a proven technique, and where the markup lives
 
 SDUI is not novel; it is a proven pattern at scale. Publicly documented adopters include **Meta**

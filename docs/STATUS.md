@@ -3,6 +3,36 @@
 > Hand-maintained snapshot (NOT generated, outside `specs/` so it never affects the DSL).
 > Last updated: 2026-07-23. Legend: ✅ done & verified · 🚧 in progress · ⏳ blocked/waiting · 📋 planned.
 
+> ✅ **2026-07-23 — #21 frontend renderer split 3/4 (#86 "Frontend split 3/4 - checkout + order
+> tracking (non-SDUI: Stripe element, subscriptions)", PR #88).** The NON-SDUI MONEY PATH lands in
+> `crates/web`, on the #80 data layer. (1) **`subscriptions.rs`** — the graphql-transport-ws client,
+> split sans-IO: `WsClient` is a pure text-in/reactions-out protocol state machine (init→ack
+> handshake, subscribe QUEUED until ack then flushed, `next`/`error`/`complete` routing with
+> unknown-id frames dissolving, `ping`→`pong`), natively unit-tested with zero network; the
+> `hydrate`-only browser driver owns one `web_sys::WebSocket` (subprotocol `graphql-transport-ws`)
+> and reconnects through bounded exponential backoff (1s→30s cap). Auth + `X-SESSION-ID` ride the
+> `connection_init` payload (browsers cannot set WS headers — mirrors the server's
+> `on_connection_init`). Subscription selections REUSE the generated resolver selection for the same
+> api.yaml type (`orderStatusChanged` ↔ `order.byId` etc.), so push and pull cannot drift; the
+> consumer contract is SUBSCRIBE + RE-SYNC on every (re)connect (free-tier sockets die on restarts —
+> push is an accelerator, never the only truth). (2) **`checkout.rs`** — the acceptance-first flow:
+> the client MINTS `orderId` (spec: client-generated), dispatches `place_order` two-step, and awaits
+> the intent by READING `paymentStatus.byOrder` until `clientSecret` exists (bounded poll;
+> `paymentStatusChanged` is the push accelerator); `expectedTotal` travels for the server's
+> `PriceMismatch` guard; a REJECTED checkout resolves as a normal business outcome. (3)
+> **`stripe.rs`** — the element seam: client holds ONLY `clientSecret` + publishable key (card data
+> stays in Stripe's iframe); `confirmPayment`'s result is UX-only — the capture verdict is the
+> inbound webhook fact read back from our own API. Minimal wasm-bindgen surface (Stripe/elements/
+> create/mount/confirmPayment). (4) **`tracking.rs`** — pull-then-push over one `TrackingState`:
+> `load` then `apply` with REPLACE semantics + a `statusChangedAt` stale-frame guard (a late
+> out-of-order frame never regresses the screen; a null re-read keeps last known state); the status
+> hero mirrors the spec's `status_config` (all 9 OrderStatus values); post-delivery `rating_sheet`
+> actions (rider thumb, #62 timeliness survey, ADR-012 tips array) dispatch through the two-step
+> layer. Both screens render SSR with the renderer's `data-c` tagging from the same tree the
+> hydrate build shares. `cargo test -p web` 41 green (21 new); the wasm32 `hydrate` build verified;
+> `make rust` green (0 errors, no drift). Deferred to split 4 (#87): router/mount plumbing (live
+> form state, interactive sheets), per-component markup, restaurant/rider adoption.
+
 > ✅ **2026-07-23 — #82: pinned SDUI resolver args are validated against the bound query
 > (ADR-20260723-145959).** A `screens/*.yaml` resolver may pin static args on its query binding; both
 > customer front offices pinned `restaurants.featured` with the key **`listKey`**, but

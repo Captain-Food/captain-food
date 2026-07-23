@@ -4280,6 +4280,7 @@ dependencies = [
  "app-core",
  "async-trait",
  "gloo-timers",
+ "js-sys",
  "leptos",
  "reqwest",
  "serde",
@@ -4289,6 +4290,7 @@ dependencies = [
  "tokio",
  "uuid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
