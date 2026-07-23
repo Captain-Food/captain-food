@@ -64,17 +64,23 @@ pub fn HomeScreen() -> impl IntoView {
     }
 }
 
+/// Wrap a rendered screen body in the shared HTML document shell (the `ssr` build). One shell for
+/// every server-rendered page — home here, checkout/tracking in their own modules (split 3).
+#[cfg(feature = "ssr")]
+pub(crate) fn page_html(title: &str, body: &str) -> String {
+    format!(
+        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+<title>{title}</title></head><body>{body}</body></html>"
+    )
+}
+
 /// Server-side render the `home` screen to a full HTML document (the `ssr` build). The BFF serves this
 /// as the initial response; the shipped wasm bundle then hydrates it.
 #[cfg(feature = "ssr")]
 pub fn render_home_html() -> String {
     // The screen is static (no signals), so rendering the view to HTML needs no reactive runtime.
-    let body = HomeScreen().to_html();
-    format!(
-        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-<title>Captain.Food</title></head><body>{body}</body></html>"
-    )
+    page_html("Captain.Food", &HomeScreen().to_html())
 }
 
 /// Client hydration entry (the `hydrate` build, wasm32): attach the app to the server-rendered DOM.

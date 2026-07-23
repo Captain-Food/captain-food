@@ -284,8 +284,9 @@ fn mutation_document(mutation: &str) -> String {
 }
 
 /// Await `d` on whichever timer the target has: tokio natively, the browser's setTimeout (via
-/// gloo) on wasm32. Zero-duration sleeps return immediately (the test path).
-async fn sleep(d: Duration) {
+/// gloo) on wasm32. Zero-duration sleeps return immediately (the test path). `pub(crate)`: the
+/// checkout intent poll (`checkout.rs`) paces on the same timer.
+pub(crate) async fn sleep(d: Duration) {
     if d.is_zero() {
         return;
     }

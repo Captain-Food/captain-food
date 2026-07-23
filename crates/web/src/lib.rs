@@ -7,15 +7,24 @@
 //! seam + `execute_resolver`, the only read entry point) and `actions` (the acceptance-first
 //! two-step `dispatch`, #17). The Leptos SSR/hydration runtime that consumes them (live screens,
 //! checkout, subscriptions) lands in later splits. Depends on `shared_types` + `app_core`.
+//!
+//! Split 3/4 adds the NON-SDUI money path: `subscriptions` (the graphql-transport-ws client —
+//! sans-IO state machine + browser driver), `checkout` (the acceptance-first place-order flow +
+//! screen), `stripe` (the payment-element interop seam) and `tracking` (the pull-then-push order
+//! fold + confirmation screen).
 
 use app_core::health;
 use shared_types::HealthDto;
 
 pub mod actions;
+pub mod checkout;
 pub mod generated;
 pub mod graphql;
 pub mod renderer;
 pub mod session;
+pub mod stripe;
+pub mod subscriptions;
+pub mod tracking;
 
 /// Placeholder boot hook — proves the frontend can drive the shared core. Becomes the Leptos mount.
 pub fn boot() -> HealthDto {
